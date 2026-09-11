@@ -32,7 +32,6 @@ CARD_VALUES = {
 }
 
 def get_hl_mults(card):
-    """Возвращает множители для ВЫШЕ и НИЖЕ в зависимости от карты"""
     v = CARD_VALUES[card]
     total = 13
     up_chance = (total - v) / (total - 1) if v < total else 0
@@ -329,6 +328,28 @@ async def cmd_take(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
+    
+    # /take all — забрать весь баланс
+    if len(args) >= 2 and args[1].lower() == 'all':
+        if not message.reply_to_message or message.reply_to_message.from_user.is_bot:
+            await message.answer("❌ Ответь на сообщение игрока и напиши: <code>/take all</code>", parse_mode="HTML")
+            return
+        target = message.reply_to_message.from_user
+        ensure_user(target.id, target.username or target.first_name)
+        target_balance = get_balance(target.id)
+        if target_balance <= 0:
+            await message.answer(f"❌ У {target.username or target.first_name} нет фишек!", parse_mode="HTML")
+            return
+        set_balance(target.id, -target_balance)
+        await message.answer(
+            f"✅ <b>Забрано всё!</b>\n\n"
+            f"👤 {target.username or target.first_name}\n"
+            f"💸 -{target_balance:,} фишек\n"
+            f"💎 Баланс: <b>0</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    
     if len(args) >= 3 and args[1].startswith('@'):
         username = args[1][1:]
         try:
@@ -417,7 +438,8 @@ async def callback_handler(call: CallbackQuery):
             f"<code>1000 5</code> — число 5 (×36)\n"
             f"<code>1000 1-9 10-18</code> — диапазоны\n\n"
             f"<code>го</code> — запуск\n"
-            f"<code>отмена</code> — отмена"
+            f"<code>отмена</code> — отмена\n\n"
+            f"После игры — кнопки <b>Повторить</b> и <b>Удвоить</b>!"
         )
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
 
@@ -514,7 +536,13 @@ async def callback_handler(call: CallbackQuery):
             nb = get_balance(user_id)
             txt = f"🎰 <b>Выпало: {color} {result}</b>\n\n😢 <b>{username}</b>\n💸 <b>-{bet:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' ')
             log_game(user_id, username, "рулетка", bet, 0, f"{result} {color}")
-        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=main_menu_kb())
+        # Кнопки Повторить / Удвоить
+        rkb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"bet_{bet_type}_{bet}"),
+             InlineKeyboardButton(text="⬆️ Удвоить", callback_data=f"bet_{bet_type}_{bet*2}")],
+            [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
+        ])
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=rkb)
 
     # ========== БЛЭКДЖЕК ==========
     elif data == "bj_hit":
