@@ -4,7 +4,6 @@ import sqlite3
 import os
 import threading
 import random
-import re
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -20,14 +19,16 @@ DB_PATH = "casino.db"
 RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
 BLACK_NUMBERS = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
 
-# ========== НОВЫЕ МНОЖИТЕЛИ ==========
-MULT_COLOR = 1.5      # Красное/Чёрное
-MULT_ZERO = 5         # Зеро
-MULT_NUMBER = 5       # Число
-MULT_RANGE = 1.2      # За каждый диапазон
+# ========== МНОЖИТЕЛИ ==========
+MULT_COLOR = 2
+MULT_ZERO = 36
+MULT_NUMBER = 36
+MULT_RANGE = 1.2
 
-# ========== АКТИВНЫЕ СТАВКИ ==========
+# ========== СОСТОЯНИЕ ==========
 active_bets = {}
+hl_games = {}  # user_id: {"number": x, "bet": y}
+bj_games = {}  # user_id: {"deck": [...], "player": [...], "dealer": [...], "bet": y}
 
 # ========== ВЕБ-СЕРВЕР ==========
 app = Flask(__name__)
@@ -101,22 +102,16 @@ def get_last_games(limit=10):
     c.execute("SELECT username, game, bet, win, detail, time FROM game_log ORDER BY id DESC LIMIT ?", (limit,))
     rows = c.fetchall(); conn.close(); return rows
 
-# ========== ФОРМАТИРОВАНИЕ ЛОГА ==========
-def format_log_detail(game, detail):
-    """Красиво форматирует детали для лога"""
-    if game == "рулетка":
-        # detail = "🔴 Красное 17" или "⚫ Чёрное 22"
-        parts = detail.split()
-        if len(parts) >= 2:
-            color = parts[0]
-            num = parts[-1]
-            return f"{num} {color}"
-        return detail
-    elif game == "слоты":
-        return detail  # "🍒🍋🍊"
-    elif game == "монетка":
-        return detail  # "орёл" / "решка"
-    return detail
+def get_last_results(limit=10):
+    """Последние результаты рулетки (числа)"""
+    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    c.execute("SELECT detail FROM game_log WHERE game='рулетка' ORDER BY id DESC LIMIT ?", (limit,))
+    rows = c.fetchall(); conn.close(); return rows
+
+def get_last_roulette_results(limit=10):
+    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    c.execute("SELECT detail FROM game_log WHERE game='рулетка' ORDER BY id DESC LIMIT ?", (limit,))
+    rows = c.fetchall(); conn.close(); return rows
 
 # ========== КЛАВИАТУРЫ ==========
 def main_menu_kb():
@@ -124,6 +119,8 @@ def main_menu_kb():
         [InlineKeyboardButton(text="🎡 Рулетка", callback_data="menu_roulette"),
          InlineKeyboardButton(text="🎰 Слоты", callback_data="menu_slots")],
         [InlineKeyboardButton(text="🪙 Монетка", callback_data="menu_coin"),
+         InlineKeyboardButton(text="🃏 Блэкджек", callback_data="menu_bj")],
+        [InlineKeyboardButton(text="⬆️⬇️ HL", callback_data="menu_hl"),
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
         [InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top"),
          InlineKeyboardButton(text="📜 Лог", callback_data="menu_log")]
@@ -131,9 +128,9 @@ def main_menu_kb():
 
 def roulette_kb(bet=100):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔴 Красное ×1.5", callback_data=f"bet_red_{bet}"),
-         InlineKeyboardButton(text="⚫ Чёрное ×1.5", callback_data=f"bet_black_{bet}")],
-        [InlineKeyboardButton(text="🟢 Зеро ×5", callback_data=f"bet_green_{bet}")],
+        [InlineKeyboardButton(text="🔴 Красное ×2", callback_data=f"bet_red_{bet}"),
+         InlineKeyboardButton(text="⚫ Чёрное ×2", callback_data=f"bet_black_{bet}")],
+        [InlineKeyboardButton(text="🟢 Зеро ×36", callback_data=f"bet_green_{bet}")],
         [InlineKeyboardButton(text="10", callback_data="setbet_10"),
          InlineKeyboardButton(text="100", callback_data="setbet_100"),
          InlineKeyboardButton(text="1K", callback_data="setbet_1000"),
@@ -161,14 +158,10 @@ async def cmd_start(message: Message):
         f"<code>го</code> — рулетка\n"
         f"<code>с 100</code> — слоты\n"
         f"<code>м 100 о</code> — монетка\n"
+        f"<code>хл 100 вверх</code> — HL\n"
+        f"<code>бж 100</code> — блэкджек\n"
         f"<code>топ</code> — топ\n"
-        f"<code>лог</code> — история\n\n"
-        f"🎡 <b>Ставки:</b>\n"
-        f"<code>к 1000</code> — красное (×1.5)\n"
-        f"<code>ч 1000</code> — чёрное (×1.5)\n"
-        f"<code>з 1000</code> — зеро (×5)\n"
-        f"<code>1000 5</code> — число (×5)\n"
-        f"<code>1000 1-9 10-18</code> — диапазоны"
+        f"<code>лог</code> — история"
     ).replace(',', ' ')
     await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
@@ -198,20 +191,14 @@ async def cmd_help(message: Message):
         f"❓ <b>Помощь</b>\n\n"
         f"💬 <b>Команды:</b>\n"
         f"<code>б</code> — баланс\n"
-        f"<code>п 1000</code> — перевод (ответом на сообщение)\n"
+        f"<code>п 1000</code> — перевод (ответом)\n"
         f"<code>го</code> — рулетка\n"
         f"<code>с 100</code> — слоты\n"
         f"<code>м 100 о</code> — монетка\n"
+        f"<code>хл 100 вверх</code> — HL\n"
+        f"<code>бж 100</code> — блэкджек\n"
         f"<code>топ</code> — топ\n"
-        f"<code>лог</code> — лог\n\n"
-        f"🎡 <b>Ставки:</b>\n"
-        f"<code>к/ч 100</code> — цвет (×1.5)\n"
-        f"<code>з 100</code> — зеро (×5)\n"
-        f"<code>100 7</code> — число (×5)\n"
-        f"<code>100 1-9 10-18</code> — диапазоны\n\n"
-        f"👑 <b>Админ:</b>\n"
-        f"<code>/give @user 1000</code>\n"
-        f"<code>/take @user 1000</code>",
+        f"<code>лог</code> — лог",
         parse_mode="HTML"
     )
 
@@ -286,8 +273,7 @@ async def callback_handler(call: CallbackQuery):
             f"🎡 <b>Рулетка</b>\n\n"
             f"💎 Баланс: <b>{balance:,}</b>\n\n"
             f"🎯 <b>Выбери ставку:</b>\n"
-            f"🔴 Красное ×1.5 | ⚫ Чёрное ×1.5\n"
-            f"🟢 Зеро ×5"
+            f"🔴 ×2 | ⚫ ×2 | 🟢 ×36"
         ).replace(',', ' ')
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=roulette_kb(100))
 
@@ -304,18 +290,19 @@ async def callback_handler(call: CallbackQuery):
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
     elif data == "menu_log":
-        rows = get_last_games(10)
+        rows = get_last_roulette_results(10)
         if not rows:
-            text = "📜 <b>Лог</b>\n\nПока пусто..."
+            text = "📜 <b>Последние результаты:</b>\n\nПока пусто..."
         else:
-            text = "📜 <b>Лог игр</b>\n\n"
-            for uname, game, bet, win, detail, time in rows:
-                icon = "🎡" if game == "рулетка" else ("🎰" if game == "слоты" else "🪙")
-                formatted = format_log_detail(game, detail)
-                if win > 0:
-                    text += f"{icon} {formatted} — <b>+{win:,}</b> [{time}]\n".replace(',', ' ')
+            text = "📜 <b>Последние результаты:</b>\n\n"
+            for i, (detail,) in enumerate(rows, 1):
+                parts = detail.split()
+                if len(parts) >= 2:
+                    num = parts[0]
+                    color = parts[1]
+                    text += f"{i}. {color} {num}\n"
                 else:
-                    text += f"{icon} {formatted} — <b>-{bet:,}</b> [{time}]\n".replace(',', ' ')
+                    text += f"{i}. {detail}\n"
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
     elif data == "menu_help":
@@ -326,9 +313,22 @@ async def callback_handler(call: CallbackQuery):
             f"<code>го</code> — рулетка\n"
             f"<code>с 100</code> — слоты\n"
             f"<code>м 100 о</code> — монетка\n"
-            f"<code>100 1-9 10-18</code> — диапазоны",
+            f"<code>хл 100 вверх</code> — HL\n"
+            f"<code>бж 100</code> — блэкджек",
             parse_mode="HTML", reply_markup=main_menu_kb()
         )
+
+    elif data == "menu_slots":
+        await call.answer("🎰 Напиши в чат: с 100", show_alert=True)
+
+    elif data == "menu_coin":
+        await call.answer("🪙 Напиши в чат: м 100 о", show_alert=True)
+
+    elif data == "menu_hl":
+        await call.answer("⬆️⬇️ Напиши в чат: хл 100 вверх", show_alert=True)
+
+    elif data == "menu_bj":
+        await call.answer("🃏 Напиши в чат: бж 100", show_alert=True)
 
     elif data.startswith("setbet_"):
         val = data.replace("setbet_", "")
@@ -347,9 +347,9 @@ async def callback_handler(call: CallbackQuery):
 
         set_balance(user_id, -bet)
         result = random.randint(0, 36)
-        if result == 0: color = "🟢 Зеро"
-        elif result in RED_NUMBERS: color = "🔴 Красное"
-        else: color = "⚫ Чёрное"
+        if result == 0: color = "🟢"
+        elif result in RED_NUMBERS: color = "🔴"
+        else: color = "⚫"
 
         win = False; mult = 0
         if bet_type == "red" and result in RED_NUMBERS: win = True; mult = MULT_COLOR
@@ -367,9 +367,93 @@ async def callback_handler(call: CallbackQuery):
             log_game(user_id, username, "рулетка", bet, 0, f"{result} {color}")
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
+    # БЛЭКДЖЕК - кнопки
+    elif data == "bj_hit":
+        if user_id not in bj_games:
+            await call.answer("❌ Игра не найдена!"); return
+        game = bj_games[user_id]
+        game["player"].append(game["deck"].pop())
+        p_score = hand_score(game["player"])
+        if p_score > 21:
+            await call.message.edit_text(
+                f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+                f"👤 Ты: {' '.join(game['player'])} = <b>{p_score}</b>\n"
+                f"🤖 Дилер: {' '.join(game['dealer'])}\n\n"
+                f"💥 <b>Перебор! Проигрыш</b>\n\n"
+                f"💎 Баланс: <b>{get_balance(user_id):,}</b>".replace(',', ' '),
+                parse_mode="HTML", reply_markup=main_menu_kb()
+            )
+            log_game(user_id, username, "блэкджек", game["bet"], 0, f"{p_score} перебор")
+            del bj_games[user_id]
+        else:
+            await call.message.edit_text(
+                f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+                f"👤 Ты: {' '.join(game['player'])} = <b>{p_score}</b>\n"
+                f"🤖 Дилер: {' '.join(game['dealer'])}\n\n"
+                f"🎯 <b>Ещё карту?</b>".replace(',', ' '),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="➕ Взять", callback_data="bj_hit"),
+                     InlineKeyboardButton(text="✋ Хватит", callback_data="bj_stand")]
+                ])
+            )
+
+    elif data == "bj_stand":
+        if user_id not in bj_games:
+            await call.answer("❌ Игра не найдена!"); return
+        game = bj_games[user_id]
+        while hand_score(game["dealer"]) < 17:
+            game["dealer"].append(game["deck"].pop())
+        p_score = hand_score(game["player"])
+        d_score = hand_score(game["dealer"])
+        if d_score > 21 or p_score > d_score:
+            wa = game["bet"] * 2
+            nb = set_balance(user_id, wa)
+            result_text = f"🎉 <b>ПОБЕДА!</b>\n💰 +{wa - game['bet']:,}"
+            log_game(user_id, username, "блэкджек", game["bet"], wa, f"{p_score} vs {d_score}")
+        elif p_score == d_score:
+            set_balance(user_id, game["bet"])
+            nb = get_balance(user_id)
+            result_text = f"🤝 <b>Ничья</b>"
+            log_game(user_id, username, "блэкджек", game["bet"], game["bet"], f"{p_score} vs {d_score}")
+        else:
+            nb = get_balance(user_id)
+            result_text = f"😢 <b>Проигрыш</b>\n💸 -{game['bet']:,}"
+            log_game(user_id, username, "блэкджек", game["bet"], 0, f"{p_score} vs {d_score}")
+        
+        await call.message.edit_text(
+            f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+            f"👤 Ты: {' '.join(game['player'])} = <b>{p_score}</b>\n"
+            f"🤖 Дилер: {' '.join(game['dealer'])} = <b>{d_score}</b>\n\n"
+            f"{result_text}\n\n"
+            f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
+            parse_mode="HTML", reply_markup=main_menu_kb()
+        )
+        del bj_games[user_id]
+
     await call.answer()
 
-# ========== ПАРСИНГ СТАВОК С ДИАПАЗОНАМИ ==========
+# ========== БЛЭКДЖЕК ФУНКЦИИ ==========
+def hand_score(cards):
+    score = 0
+    aces = 0
+    for c in cards:
+        val = c[:-1]
+        if val == 'A': score += 11; aces += 1
+        elif val in ['K','Q','J','10']: score += 10
+        else: score += int(val)
+    while score > 21 and aces > 0:
+        score -= 10; aces -= 1
+    return score
+
+def create_deck():
+    suits = ['♠','♥','♦','♣']
+    values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A']
+    deck = [v+s for s in suits for v in values]
+    random.shuffle(deck)
+    return deck
+
+# ========== ПАРСИНГ ДИАПАЗОНОВ ==========
 def parse_multi_bet(text):
     parts = text.split()
     if len(parts) < 2: return None, None
@@ -405,55 +489,23 @@ async def text_handler(message: Message):
     chat_id = message.chat.id
     ensure_user(user_id, username)
 
-    # ========== ПЕРЕВОД (п) ==========
+    # ========== ПЕРЕВОД ==========
     if parts[0] == 'п':
         if len(parts) < 2:
-            await message.reply(
-                f"💸 <b>Перевод</b>\n\n"
-                f"Ответь на сообщение игрока и напиши:\n"
-                f"<code>п 1000</code>",
-                parse_mode="HTML"
-            ); return
-        
+            await message.reply(f"💸 <b>Перевод</b>\n\nОтветь на сообщение и напиши: <code>п 1000</code>", parse_mode="HTML"); return
         if not message.reply_to_message or message.reply_to_message.from_user.is_bot:
-            await message.reply(
-                f"❌ <b>Ответь на сообщение игрока!</b>\n\n"
-                f"Затем напиши: <code>п 1000</code>",
-                parse_mode="HTML"
-            ); return
-        
+            await message.reply("❌ Ответь на сообщение игрока!"); return
         try: amount = int(parts[1])
-        except:
-            await message.reply("❌ Неверная сумма!"); return
-        
-        if amount < 1:
-            await message.reply("❌ Минимум 1 фишка!"); return
-        
+        except: await message.reply("❌ Неверная сумма!"); return
+        if amount < 1: await message.reply("❌ Минимум 1!"); return
         target = message.reply_to_message.from_user
-        target_id = target.id
-        target_name = target.username or target.first_name
-        
-        if target_id == user_id:
-            await message.reply("❌ Нельзя переводить себе!"); return
-        
+        if target.id == user_id: await message.reply("❌ Нельзя себе!"); return
         balance = get_balance(user_id)
-        if balance < amount:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
-        
-        ensure_user(target_id, target_name)
-        set_balance(user_id, -amount)
-        set_balance(target_id, amount)
-        nb = get_balance(user_id)
-        nb_target = get_balance(target_id)
-        
-        await message.reply(
-            f"💸 <b>Перевод выполнен!</b>\n\n"
-            f"👤 {username} → {target_name}\n"
-            f"💰 Сумма: <b>{amount:,}</b>\n\n"
-            f"💎 Твой баланс: <b>{nb:,}</b>\n"
-            f"💎 Баланс получателя: <b>{nb_target:,}</b>".replace(',', ' '),
-            parse_mode="HTML"
-        )
+        if balance < amount: await message.reply(f"❌ Недостаточно! {balance}"); return
+        ensure_user(target.id, target.username or target.first_name)
+        set_balance(user_id, -amount); set_balance(target.id, amount)
+        nb = get_balance(user_id); nt = get_balance(target.id)
+        await message.reply(f"💸 <b>Перевод!</b>\n\n👤 {username} → {target.username or target.first_name}\n💰 <b>{amount:,}</b>\n\n💎 Твой: <b>{nb:,}</b>\n💎 Получателя: <b>{nt:,}</b>".replace(',', ' '), parse_mode="HTML")
         return
 
     # ========== ОТМЕНА ==========
@@ -463,28 +515,27 @@ async def text_handler(message: Message):
             for b in active_bets[chat_id]["bets"]:
                 set_balance(b["user_id"], b["bet_total"])
             del active_bets[chat_id]
-            await message.reply(f"❌ <b>Ставки отменены!</b>\n\nВозвращено {count} ставок.", parse_mode="HTML")
+            await message.reply(f"❌ <b>Ставки отменены!</b>\nВозвращено {count} ставок.", parse_mode="HTML")
         return
 
     # ========== БАЛАНС ==========
     if text in ['б', 'баланс']:
         balance = get_balance(user_id)
-        await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b> фишек".replace(',', ' '), parse_mode="HTML")
+        await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' '), parse_mode="HTML")
         return
 
     # ========== ЛОГ ==========
     if text in ['лог', 'log']:
-        rows = get_last_games(10)
+        rows = get_last_roulette_results(10)
         if not rows:
-            await message.reply("📜 <b>Лог</b>\n\nПока пусто...", parse_mode="HTML"); return
-        out = "📜 <b>Лог игр</b>\n\n"
-        for uname, game, bet, win, detail, time in rows:
-            icon = "🎡" if game == "рулетка" else ("🎰" if game == "слоты" else "🪙")
-            formatted = format_log_detail(game, detail)
-            if win > 0:
-                out += f"{icon} {formatted} — <b>+{win:,}</b> [{time}]\n".replace(',', ' ')
+            await message.reply("📜 <b>Последние результаты:</b>\n\nПока пусто...", parse_mode="HTML"); return
+        out = "📜 <b>Последние результаты:</b>\n\n"
+        for i, (detail,) in enumerate(rows, 1):
+            parts_d = detail.split()
+            if len(parts_d) >= 2:
+                out += f"{i}. {parts_d[1]} {parts_d[0]}\n"
             else:
-                out += f"{icon} {formatted} — <b>-{bet:,}</b> [{time}]\n".replace(',', ' ')
+                out += f"{i}. {detail}\n"
         await message.reply(out, parse_mode="HTML")
         return
 
@@ -505,26 +556,16 @@ async def text_handler(message: Message):
     if text == 'го':
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]:
             await message.reply("❌ Нет активных ставок!"); return
-        
         bets = active_bets[chat_id]["bets"]
         total_bank = sum(b["bet_total"] for b in bets)
-        await message.reply(
-            f"🎡 <b>РУЛЕТКА ЗАПУЩЕНА!</b>\n\n"
-            f"💰 Банк: <b>{total_bank:,}</b>\n\n"
-            f"🕐 <b>Крутится...</b>".replace(',', ' '),
-            parse_mode="HTML"
-        )
-        
+        await message.reply(f"🎡 <b>РУЛЕТКА!</b>\n\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 Крутится...".replace(',', ' '), parse_mode="HTML")
         await asyncio.sleep(3)
-        
         result = random.randint(0, 36)
         if result == 0: color = "🟢"
         elif result in RED_NUMBERS: color = "🔴"
         else: color = "⚫"
-        
         result_text = f"🎰 <b>ВЫПАЛО: {color} {result}</b>\n\n"
         winners = []
-        
         for b in bets:
             win_amount = 0
             if b["type"] == "red" and result in RED_NUMBERS: win_amount = int(b["bet_total"] * MULT_COLOR)
@@ -534,97 +575,113 @@ async def text_handler(message: Message):
             elif b["type"] == "ranges":
                 win_mult = 0
                 for (a, z) in b["ranges"]:
-                    if a <= result <= z:
-                        win_mult += MULT_RANGE
-                if win_mult > 0:
-                    win_amount = int(b["bet_total"] * win_mult)
-            
+                    if a <= result <= z: win_mult += MULT_RANGE
+                if win_mult > 0: win_amount = int(b["bet_total"] * win_mult)
             if win_amount > 0:
                 set_balance(b["user_id"], win_amount)
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color}")
                 winners.append(f"🎉 {b['username']} — <b>+{win_amount:,}</b>".replace(',', ' '))
             else:
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color}")
-        
-        if winners:
-            result_text += "<b>Победители:</b>\n" + "\n".join(winners)
-        else:
-            result_text += "😢 <b>Победителей нет</b>"
-        
+        if winners: result_text += "<b>Победители:</b>\n" + "\n".join(winners)
+        else: result_text += "😢 <b>Победителей нет</b>"
         del active_bets[chat_id]
         await message.reply(result_text, parse_mode="HTML")
         return
 
-    # ========== СТАВКИ (к/ч/з) ==========
-    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
+    # ========== HL ==========
+    if len(parts) == 3 and parts[0] == 'хл':
         try: bet = int(parts[1])
         except: return
-        if bet < 10:
-            await message.reply("❌ Минимум 10 фишек!"); return
+        direction = parts[2].lower()
+        if direction not in ['вверх', 'вниз']:
+            await message.reply("❌ Напиши: хл 100 вверх или хл 100 вниз"); return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
         balance = get_balance(user_id)
-        if balance < bet:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
+        if balance < bet: await message.reply(f"❌ Недостаточно! {balance}"); return
         set_balance(user_id, -bet)
-        bet_type = 'red' if parts[0] == 'к' else ('black' if parts[0] == 'ч' else 'green')
-        if chat_id not in active_bets:
-            active_bets[chat_id] = {"bets": []}
-        active_bets[chat_id]["bets"].append({"user_id": user_id, "username": username, "type": bet_type, "bet": bet, "bet_total": bet})
-        bets = active_bets[chat_id]["bets"]
-        total_bank = sum(b["bet_total"] for b in bets)
-        color_icon = '🔴' if bet_type == 'red' else ('⚫' if bet_type == 'black' else '🟢')
+        current = random.randint(1, 100)
+        next_num = random.randint(1, 100)
+        win = False
+        if direction == 'вверх' and next_num > current: win = True
+        elif direction == 'вниз' and next_num < current: win = True
+        if win:
+            wa = bet * 2
+            nb = set_balance(user_id, wa)
+            log_game(user_id, username, "HL", bet, wa, f"{current}→{next_num}")
+            await message.reply(f"⬆️⬇️ <b>HL</b>\n\n🎯 Было: <b>{current}</b>\n🎯 Стало: <b>{next_num}</b>\n\n🎉 <b>+{wa:,}</b> (×2)\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        else:
+            nb = get_balance(user_id)
+            log_game(user_id, username, "HL", bet, 0, f"{current}→{next_num}")
+            await message.reply(f"⬆️⬇️ <b>HL</b>\n\n🎯 Было: <b>{current}</b>\n🎯 Стало: <b>{next_num}</b>\n\n😢 <b>-{bet:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        return
+
+    # ========== БЛЭКДЖЕК ==========
+    if len(parts) == 2 and parts[0] in ['бж', 'блэкджек']:
+        try: bet = int(parts[1])
+        except: return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
+        balance = get_balance(user_id)
+        if balance < bet: await message.reply(f"❌ Недостаточно! {balance}"); return
+        set_balance(user_id, -bet)
+        deck = create_deck()
+        player = [deck.pop(), deck.pop()]
+        dealer = [deck.pop(), deck.pop()]
+        bj_games[user_id] = {"deck": deck, "player": player, "dealer": dealer, "bet": bet}
+        p_score = hand_score(player)
         await message.reply(
-            f"📊 <b>Ставки приняты!</b>\n\n"
-            f"👤 {username}\n"
-            f"{color_icon} × <b>{bet:,}</b>\n\n"
-            f"⚡ Всего ставок: {len(bets)}\n"
-            f"💰 Банк: <b>{total_bank:,}</b>\n\n"
-            f"🕐 Напиши <code>го</code> для запуска\n"
-            f"❌ Или <code>отмена</code>".replace(',', ' '),
-            parse_mode="HTML"
+            f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+            f"👤 Ты: {' '.join(player)} = <b>{p_score}</b>\n"
+            f"🤖 Дилер: {' '.join(dealer)}\n\n"
+            f"🎯 <b>Ещё карту?</b>".replace(',', ' '),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Взять", callback_data="bj_hit"),
+                 InlineKeyboardButton(text="✋ Хватит", callback_data="bj_stand")]
+            ])
         )
         return
 
-    # ========== СТАВКИ НА ДИАПАЗОНЫ ==========
+    # ========== СТАВКИ К/Ч/З ==========
+    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
+        try: bet = int(parts[1])
+        except: return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
+        balance = get_balance(user_id)
+        if balance < bet: await message.reply(f"❌ Недостаточно! {balance}"); return
+        set_balance(user_id, -bet)
+        bet_type = 'red' if parts[0] == 'к' else ('black' if parts[0] == 'ч' else 'green')
+        if chat_id not in active_bets: active_bets[chat_id] = {"bets": []}
+        active_bets[chat_id]["bets"].append({"user_id": user_id, "username": username, "type": bet_type, "bet": bet, "bet_total": bet})
+        bets = active_bets[chat_id]["bets"]
+        total_bank = sum(b["bet_total"] for b in bets)
+        icon = '🔴' if bet_type == 'red' else ('⚫' if bet_type == 'black' else '🟢')
+        await message.reply(f"📊 <b>Ставка принята!</b>\n\n👤 {username}\n{icon} × <b>{bet:,}</b>\n\n⚡ Всего: {len(bets)}\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 <code>го</code> — запуск\n❌ <code>отмена</code>".replace(',', ' '), parse_mode="HTML")
+        return
+
+    # ========== ДИАПАЗОНЫ ==========
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
-        if bet < 10:
-            await message.reply("❌ Минимум 10 фишек!"); return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
         total_bet = bet * len(ranges)
         balance = get_balance(user_id)
-        if balance < total_bet:
-            await message.reply(f"❌ Недостаточно! Нужно {total_bet:,}, у тебя {balance:,}".replace(',', ' ')); return
+        if balance < total_bet: await message.reply(f"❌ Нужно {total_bet:,}, у тебя {balance:,}".replace(',', ' ')); return
         set_balance(user_id, -total_bet)
-        if chat_id not in active_bets:
-            active_bets[chat_id] = {"bets": []}
-        active_bets[chat_id]["bets"].append({
-            "user_id": user_id, "username": username, "type": "ranges",
-            "bet": bet, "bet_total": total_bet, "ranges": ranges
-        })
+        if chat_id not in active_bets: active_bets[chat_id] = {"bets": []}
+        active_bets[chat_id]["bets"].append({"user_id": user_id, "username": username, "type": "ranges", "bet": bet, "bet_total": total_bet, "ranges": ranges})
         bets = active_bets[chat_id]["bets"]
         total_bank = sum(b["bet_total"] for b in bets)
         ranges_str = " ".join([f"{a}-{z}" if a != z else str(a) for (a, z) in ranges])
-        await message.reply(
-            f"📊 <b>Ставки приняты!</b>\n\n"
-            f"👤 {username}\n"
-            f"🎯 Диапазоны: <b>{ranges_str}</b>\n"
-            f"💰 Ставка: <b>{bet:,}</b> × {len(ranges)} = <b>{total_bet:,}</b>\n\n"
-            f"⚡ Всего ставок: {len(bets)}\n"
-            f"💰 Банк: <b>{total_bank:,}</b>\n\n"
-            f"🕐 Напиши <code>го</code> для запуска\n"
-            f"❌ Или <code>отмена</code>".replace(',', ' '),
-            parse_mode="HTML"
-        )
+        await message.reply(f"📊 <b>Ставка принята!</b>\n\n👤 {username}\n🎯 <b>{ranges_str}</b>\n💰 <b>{bet:,}</b> × {len(ranges)} = <b>{total_bet:,}</b>\n\n⚡ Всего: {len(bets)}\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 <code>го</code> — запуск\n❌ <code>отмена</code>".replace(',', ' '), parse_mode="HTML")
         return
 
     # ========== СЛОТЫ ==========
     if len(parts) == 2 and parts[0] in ['с', 'слоты']:
         try: bet = int(parts[1])
         except: return
-        if bet < 10:
-            await message.reply("❌ Минимум 10 фишек!"); return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
         balance = get_balance(user_id)
-        if balance < bet:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
+        if balance < bet: await message.reply(f"❌ Недостаточно! {balance}"); return
         set_balance(user_id, -bet)
         symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣']
         r1, r2, r3 = random.choice(symbols), random.choice(symbols), random.choice(symbols)
@@ -652,18 +709,16 @@ async def text_handler(message: Message):
         if choice in ['о', 'орёл', 'орел']: choice = 'heads'
         elif choice in ['р', 'решка']: choice = 'tails'
         else: return
-        if bet < 10:
-            await message.reply("❌ Минимум 10 фишек!"); return
+        if bet < 10: await message.reply("❌ Минимум 10!"); return
         balance = get_balance(user_id)
-        if balance < bet:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
+        if balance < bet: await message.reply(f"❌ Недостаточно! {balance}"); return
         set_balance(user_id, -bet)
         result = random.choice(['heads', 'tails'])
         if result == choice:
             wa = bet * 2
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "монетка", bet, wa, "🦅" if result == 'heads' else "👑")
-            await message.reply(f"🪙 <b>МОНЕТКА</b>\n\n🎯 {'🦅 Орёл' if result == 'heads' else '👑 Решка'}\n\n🎉 <b>+{wa:,}</b> (×2)\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+            await message.reply(f"🪙 <b>МОНЕТКА</b>\n\n🎯 {'🦅 Орёл' if result == 'heads' else '👑 Решка'}\n\n🎉 <b>+{wa:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
         else:
             nb = get_balance(user_id)
             log_game(user_id, username, "монетка", bet, 0, "🦅" if result == 'heads' else "👑")
