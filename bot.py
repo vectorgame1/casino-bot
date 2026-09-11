@@ -602,4 +602,46 @@ async def text_handler(message: Message):
         if win:
             wa = bet * mult
             nb = set_balance(user_id, wa)
-            log_game(user_id, username, "слоты", bet, wa, f
+            log_game(user_id, username, "слоты", bet, wa, f"{r1}{r2}{r3}")
+            await message.reply(f"🎰 <b>СЛОТЫ</b>\n\n┃ {r1} ┃ {r2} ┃ {r3} ┃\n\n🎉 <b>+{wa:,}</b> (×{mult})\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        else:
+            nb = get_balance(user_id)
+            log_game(user_id, username, "слоты", bet, 0, f"{r1}{r2}{r3}")
+            await message.reply(f"🎰 <b>СЛОТЫ</b>\n\n┃ {r1} ┃ {r2} ┃ {r3} ┃\n\n😢 <b>-{bet:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        return
+
+    # ========== МОНЕТКА ==========
+    if len(parts) == 3 and parts[0] in ['м', 'монетка']:
+        try: bet = int(parts[1])
+        except: return
+        choice = parts[2].lower()
+        if choice in ['о', 'орёл', 'орел']: choice = 'heads'
+        elif choice in ['р', 'решка']: choice = 'tails'
+        else: return
+        if bet < 10:
+            await message.reply("❌ Минимум 10 фишек!"); return
+        balance = get_balance(user_id)
+        if balance < bet:
+            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
+        set_balance(user_id, -bet)
+        result = random.choice(['heads', 'tails'])
+        if result == choice:
+            wa = bet * 2
+            nb = set_balance(user_id, wa)
+            log_game(user_id, username, "монетка", bet, wa, "орёл" if result == 'heads' else "решка")
+            await message.reply(f"🪙 <b>МОНЕТКА</b>\n\n🎯 {'🦅 Орёл' if result == 'heads' else '👑 Решка'}\n\n🎉 <b>+{wa:,}</b> (×2)\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        else:
+            nb = get_balance(user_id)
+            log_game(user_id, username, "монетка", bet, 0, "орёл" if result == 'heads' else "решка")
+            await message.reply(f"🪙 <b>МОНЕТКА</b>\n\n🎯 {'🦅 Орёл' if result == 'heads' else '👑 Решка'}\n\n😢 <b>-{bet:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        return
+
+# ========== ЗАПУСК ==========
+async def main():
+    init_db()
+    logging.basicConfig(level=logging.INFO)
+    print("🎰 Бот запущен!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
