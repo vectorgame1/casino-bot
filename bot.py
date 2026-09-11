@@ -3,6 +3,7 @@ import logging
 import sqlite3
 import os
 import threading
+import random
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -12,6 +13,10 @@ from flask import Flask
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
 DB_PATH = "casino.db"
+
+# ========== ЦВЕТА РУЛЕТКИ ==========
+RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+BLACK_NUMBERS = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
 
 # ========== ФИКТИВНЫЙ ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
 app = Flask(__name__)
@@ -106,7 +111,12 @@ async def cmd_start(message: Message):
         f"<b>Команды:</b>\n"
         f"/balance — баланс\n"
         f"/top — топ игроков\n"
-        f"/help — помощь",
+        f"/help — помощь\n\n"
+        f"<b>🎡 Рулетка в чате:</b>\n"
+        f"<code>к 100</code> — ставка на красное\n"
+        f"<code>ч 100</code> — ставка на чёрное\n"
+        f"<code>з 100</code> — ставка на зеро\n"
+        f"<code>100 7</code> — ставка на число 7",
         parse_mode="HTML"
     )
 
@@ -208,9 +218,145 @@ async def cmd_help(message: Message):
         "🏆 /top — топ игроков\n\n"
         "<b>Только для админа:</b>\n"
         "➕ /give (ответом на сообщение) — дать монеты\n"
-        "➖ /take (ответом на сообщение) — забрать монеты",
+        "➖ /take (ответом на сообщение) — забрать монеты\n\n"
+        "<b>🎡 Рулетка в чате:</b>\n"
+        "<code>к 100</code> — ставка на красное\n"
+        "<code>ч 100</code> — ставка на чёрное\n"
+        "<code>з 100</code> — ставка на зеро\n"
+        "<code>100 7</code> — ставка на число 7",
         parse_mode="HTML"
     )
+
+# ========== 🎡 РУЛЕТКА В ЧАТЕ ==========
+@dp.message()
+async def roulette_handler(message: Message):
+    # Игнорируем команды
+    if not message.text or message.text.startswith('/'):
+        return
+    
+    # Игнорируем сообщения от ботов
+    if message.from_user.is_bot:
+        return
+    
+    text = message.text.strip().lower()
+    parts = text.split()
+    
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    ensure_user(user_id, username)
+    
+    # ========== СТАВКА НА КРАСНОЕ / ЧЁРНОЕ / ЗЕРО ==========
+    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з', 'k']:
+        try:
+            bet = int(parts[1])
+        except ValueError:
+            return
+        
+        if bet < 10:
+            await message.reply("❌ <b>Минимальная ставка — 10 монет!</b>", parse_mode="HTML")
+            return
+        
+        balance = get_user(user_id)[1]
+        if balance < bet:
+            await message.reply(f"❌ <b>Недостаточно монет! Баланс: {balance}</b>", parse_mode="HTML")
+            return
+        
+        # Списываем ставку
+        set_balance(user_id, -bet)
+        
+        # Крутим рулетку
+        result = random.randint(0, 36)
+        if result == 0:
+            color = "Зеро 🟢"
+            color_key = 'зелёное'
+        elif result in RED_NUMBERS:
+            color = "Красное 🔴"
+            color_key = 'красное'
+        else:
+            color = "Чёрное ⚫"
+            color_key = 'чёрное'
+        
+        # Проверяем выигрыш
+        bet_type = parts[0]
+        win = False
+        multiplier = 0
+        
+        if bet_type == 'к' and result in RED_NUMBERS:
+            win = True; multiplier = 2
+        elif bet_type == 'ч' and result in BLACK_NUMBERS:
+            win = True; multiplier = 2
+        elif bet_type == 'з' and result == 0:
+            win = True; multiplier = 36
+        
+        if win:
+            win_amount = bet * multiplier
+            new_balance = set_balance(user_id, win_amount)
+            await message.reply(
+                f"🎡 <b>Выпало: {result}</b> ({color})\n"
+                f"🎉 <b>ВЫИГРЫШ +{win_amount}!</b> (x{multiplier})\n"
+                f"💰 Баланс: <b>{new_balance}</b>",
+                parse_mode="HTML"
+            )
+        else:
+            new_balance = get_user(user_id)[1]
+            await message.reply(
+                f"🎡 <b>Выпало: {result}</b> ({color})\n"
+                f"😢 <b>Проигрыш -{bet}</b>\n"
+                f"💰 Баланс: <b>{new_balance}</b>",
+                parse_mode="HTML"
+            )
+        return
+    
+    # ========== СТАВКА НА ЧИСЛО (например: "100 7") ==========
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        try:
+            bet = int(parts[0])
+            number = int(parts[1])
+        except ValueError:
+            return
+        
+        if number < 0 or number > 36:
+            return  # Игнорируем — это не ставка
+        
+        if bet < 10:
+            await message.reply("❌ <b>Минимальная ставка — 10 монет!</b>", parse_mode="HTML")
+            return
+        
+        balance = get_user(user_id)[1]
+        if balance < bet:
+            await message.reply(f"❌ <b>Недостаточно монет! Баланс: {balance}</b>", parse_mode="HTML")
+            return
+        
+        # Списываем ставку
+        set_balance(user_id, -bet)
+        
+        # Крутим рулетку
+        result = random.randint(0, 36)
+        if result == 0:
+            color = "Зеро 🟢"
+        elif result in RED_NUMBERS:
+            color = "Красное 🔴"
+        else:
+            color = "Чёрное ⚫"
+        
+        if result == number:
+            win_amount = bet * 36
+            new_balance = set_balance(user_id, win_amount)
+            await message.reply(
+                f"🎡 <b>Выпало: {result}</b> ({color})\n"
+                f"🎉 <b>ДЖЕКПОТ! +{win_amount}!</b> (x36)\n"
+                f"💰 Баланс: <b>{new_balance}</b>",
+                parse_mode="HTML"
+            )
+        else:
+            new_balance = get_user(user_id)[1]
+            await message.reply(
+                f"🎡 <b>Выпало: {result}</b> ({color})\n"
+                f"😢 <b>Проигрыш -{bet}</b>\n"
+                f"💰 Баланс: <b>{new_balance}</b>",
+                parse_mode="HTML"
+            )
+        return
 
 # ========== ЗАПУСК ==========
 async def main():
