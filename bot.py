@@ -15,6 +15,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
 DB_PATH = "casino.db"
 
+# ========== ГИФКА ДЛЯ ПРИВЕТСТВИЯ ==========
+WELCOME_GIF = "CgACAgIAAxkBAAEifPBqo_Vfzg4W5Hfc0OVtbiFMgN5L_wACUK0AA7YhScBYTPh8mwc9PQQ"
+
 RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
 BLACK_NUMBERS = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
 
@@ -79,16 +82,15 @@ def get_balance(user_id):
 
 # ========== КЛАВИАТУРЫ ==========
 def main_menu_kb():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎡 Рулетка", callback_data="menu_roulette"),
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
         [InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top"),
          InlineKeyboardButton(text="❓ Помощь", callback_data="menu_help")]
     ])
-    return kb
 
 def roulette_kb(bet=100):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔴 Красное x2", callback_data=f"bet_red_{bet}"),
          InlineKeyboardButton(text="⚫ Чёрное x2", callback_data=f"bet_black_{bet}")],
         [InlineKeyboardButton(text="🟢 Зеро x36", callback_data=f"bet_green_{bet}"),
@@ -99,7 +101,6 @@ def roulette_kb(bet=100):
          InlineKeyboardButton(text="MAX", callback_data="setbet_max")],
         [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
     ])
-    return kb
 
 # ========== БОТ ==========
 bot = Bot(token=BOT_TOKEN)
@@ -114,15 +115,35 @@ async def cmd_start(message: Message):
     c.execute("INSERT OR IGNORE INTO groups (group_id, group_name) VALUES (?, ?)", (message.chat.id, message.chat.title or "Личка"))
     conn.commit(); conn.close()
     balance = get_balance(user_id)
-    text = (
-        f"╔══════════════════════╗\n"
-        f"║   🎰 WORLD CASINO   ║\n"
-        f"╚══════════════════════╝\n\n"
-        f"👤 Игрок: @{username}\n"
-        f"💰 Баланс: <b>{balance:,}</b> монет\n\n"
-        f"🎮 <b>Выбери действие:</b>"
-    ).replace(',', ' ')
-    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+    
+    # Отправляем гифку
+    try:
+        await bot.send_animation(
+            chat_id=message.chat.id,
+            animation=WELCOME_GIF,
+            caption=(
+                f"╔══════════════════════╗\n"
+                f"║   🎰 WORLD CASINO   ║\n"
+                f"╚══════════════════════╝\n\n"
+                f"👤 Игрок: @{username}\n"
+                f"💰 Баланс: <b>{balance:,}</b> монет\n\n"
+                f"🎮 <b>Выбери действие:</b>"
+            ).replace(',', ' '),
+            parse_mode="HTML",
+            reply_markup=main_menu_kb()
+        )
+    except Exception as e:
+        # Если гифка не сработает — просто текст
+        print(f"Ошибка гифки: {e}")
+        text = (
+            f"╔══════════════════════╗\n"
+            f"║   🎰 WORLD CASINO   ║\n"
+            f"╚══════════════════════╝\n\n"
+            f"👤 Игрок: @{username}\n"
+            f"💰 Баланс: <b>{balance:,}</b> монет\n\n"
+            f"🎮 <b>Выбери действие:</b>"
+        ).replace(',', ' ')
+        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
 @dp.message(Command("balance"))
 async def cmd_balance(message: Message):
@@ -291,6 +312,9 @@ async def callback_handler(call: CallbackQuery):
         if balance < bet:
             await call.answer(f"❌ Недостаточно! Баланс: {balance}", show_alert=True); return
 
+        if bet_type == "number":
+            await call.answer("🎯 Для числа — напиши в чат: 100 7", show_alert=True); return
+
         set_balance(user_id, -bet)
         result = random.randint(0, 36)
         if result == 0: color = "🟢 Зеро"
@@ -301,8 +325,6 @@ async def callback_handler(call: CallbackQuery):
         if bet_type == "red" and result in RED_NUMBERS: win = True; mult = 2
         elif bet_type == "black" and result in BLACK_NUMBERS: win = True; mult = 2
         elif bet_type == "green" and result == 0: win = True; mult = 36
-        elif bet_type == "number":
-            await call.answer("🎯 Для числа — напиши в чат: 100 7", show_alert=True); return
 
         if win:
             win_amount = bet * mult
@@ -331,80 +353,3 @@ async def callback_handler(call: CallbackQuery):
 @dp.message()
 async def roulette_handler(message: Message):
     if not message.text or message.text.startswith('/'): return
-    if message.from_user.is_bot: return
-    text = message.text.strip().lower()
-    parts = text.split()
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    ensure_user(user_id, username)
-
-    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
-        try: bet = int(parts[1])
-        except: return
-        if bet < 10:
-            await message.reply("❌ Минимум 10 монет!"); return
-        balance = get_balance(user_id)
-        if balance < bet:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
-        set_balance(user_id, -bet)
-        result = random.randint(0, 36)
-        if result == 0: color = "🟢 Зеро"
-        elif result in RED_NUMBERS: color = "🔴 Красное"
-        else: color = "⚫ Чёрное"
-        win = False; mult = 0
-        if parts[0] == 'к' and result in RED_NUMBERS: win = True; mult = 2
-        elif parts[0] == 'ч' and result in BLACK_NUMBERS: win = True; mult = 2
-        elif parts[0] == 'з' and result == 0: win = True; mult = 36
-        if win:
-            wa = bet * mult
-            nb = set_balance(user_id, wa)
-            await message.reply(
-                f"🎡 <b>РУЛЕТКА</b>\n━━━━━━━━━━━━━━━━━━\n🎯 Выпало: <b>{result}</b> ({color})\n🎉 <b>ВЫИГРЫШ +{wa:,}</b> (x{mult})\n💰 Баланс: <b>{nb:,}</b>\n━━━━━━━━━━━━━━━━━━".replace(',', ' '),
-                parse_mode="HTML"
-            )
-        else:
-            nb = get_balance(user_id)
-            await message.reply(
-                f"🎡 <b>РУЛЕТКА</b>\n━━━━━━━━━━━━━━━━━━\n🎯 Выпало: <b>{result}</b> ({color})\n😢 <b>Проигрыш -{bet:,}</b>\n💰 Баланс: <b>{nb:,}</b>\n━━━━━━━━━━━━━━━━━━".replace(',', ' '),
-                parse_mode="HTML"
-            )
-        return
-
-    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-        try: bet = int(parts[0]); number = int(parts[1])
-        except: return
-        if number < 0 or number > 36: return
-        if bet < 10:
-            await message.reply("❌ Минимум 10 монет!"); return
-        balance = get_balance(user_id)
-        if balance < bet:
-            await message.reply(f"❌ Недостаточно! Баланс: {balance}"); return
-        set_balance(user_id, -bet)
-        result = random.randint(0, 36)
-        if result == 0: color = "🟢 Зеро"
-        elif result in RED_NUMBERS: color = "🔴 Красное"
-        else: color = "⚫ Чёрное"
-        if result == number:
-            wa = bet * 36
-            nb = set_balance(user_id, wa)
-            await message.reply(
-                f"🎡 <b>РУЛЕТКА</b>\n━━━━━━━━━━━━━━━━━━\n🎯 Выпало: <b>{result}</b> ({color})\n🏆 <b>ДЖЕКПОТ! +{wa:,}</b> (x36)\n💰 Баланс: <b>{nb:,}</b>\n━━━━━━━━━━━━━━━━━━".replace(',', ' '),
-                parse_mode="HTML"
-            )
-        else:
-            nb = get_balance(user_id)
-            await message.reply(
-                f"🎡 <b>РУЛЕТКА</b>\n━━━━━━━━━━━━━━━━━━\n🎯 Выпало: <b>{result}</b> ({color})\n😢 <b>Проигрыш -{bet:,}</b>\n💰 Баланс: <b>{nb:,}</b>\n━━━━━━━━━━━━━━━━━━".replace(',', ' '),
-                parse_mode="HTML"
-            )
-        return
-
-# ========== ЗАПУСК ==========
-async def main():
-    init_db()
-    logging.basicConfig(level=logging.INFO)
-    print("🎰 Бот запущен!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
