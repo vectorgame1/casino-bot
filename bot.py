@@ -24,6 +24,28 @@ MULT_ZERO = 36
 MULT_NUMBER = 36
 MULT_RANGE = 1.2
 
+# ========== HL КАРТЫ ==========
+CARD_DECK = ['2','3','4','5','6','7','8','9','10','J','Q','K','A']
+CARD_VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+    '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+}
+
+def get_hl_mults(card):
+    """Возвращает множители для ВЫШЕ и НИЖЕ в зависимости от карты"""
+    v = CARD_VALUES[card]
+    total = 13
+    up_chance = (total - v) / (total - 1) if v < total else 0
+    down_chance = (v - 1) / (total - 1) if v > 1 else 0
+    up_mult = round(0.95 / up_chance, 2) if up_chance > 0 else 0
+    down_mult = round(0.95 / down_chance, 2) if down_chance > 0 else 0
+    up_mult = min(up_mult, 12.48)
+    down_mult = min(down_mult, 12.48)
+    return up_mult, down_mult
+
+def get_random_card():
+    return random.choice(CARD_DECK)
+
 # ========== СОСТОЯНИЕ ==========
 active_bets = {}
 hl_games = {}
@@ -56,9 +78,11 @@ def api_update():
 
 def run_web():
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
-threading.Thread(target=run_web, daemon=True).start()
+web_thread = threading.Thread(target=run_web)
+web_thread.daemon = False
+web_thread.start()
 
 # ========== БАЗА ==========
 def init_db():
@@ -169,7 +193,7 @@ def games_kb():
          InlineKeyboardButton(text="🎰 Слоты", callback_data="info_slots")],
         [InlineKeyboardButton(text="🪙 Монетка", callback_data="info_coin"),
          InlineKeyboardButton(text="🃏 Блэкджек", callback_data="info_bj")],
-        [InlineKeyboardButton(text="⬆️⬇️ HL", callback_data="info_hl")],
+        [InlineKeyboardButton(text="🃏 HL (карты)", callback_data="info_hl")],
         [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
     ])
 
@@ -190,11 +214,11 @@ def roulette_kb(bet=100):
         [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
     ])
 
-def hl_kb():
+def hl_kb(up_mult=0, down_mult=0, cashout=0):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬆️ Вверх", callback_data="hl_up"),
-         InlineKeyboardButton(text="⬇️ Вниз", callback_data="hl_down")],
-        [InlineKeyboardButton(text="💰 Забрать", callback_data="hl_cashout")]
+        [InlineKeyboardButton(text=f"⬇️ Ниже ×{down_mult}", callback_data="hl_down"),
+         InlineKeyboardButton(text=f"⬆️ Выше ×{up_mult}", callback_data="hl_up")],
+        [InlineKeyboardButton(text=f"💰 Забрать (−10%)", callback_data="hl_cashout")]
     ])
 
 def bj_kb():
@@ -260,7 +284,7 @@ async def cmd_help(message: Message):
         f"<code>го</code> — запуск рулетки\n"
         f"<code>спин 100</code> — слоты\n"
         f"<code>орёл 100</code> / <code>решка 100</code> — монетка\n"
-        f"<code>хл 100</code> — HL\n"
+        f"<code>хл 100</code> — HL (карты)\n"
         f"<code>бж 100</code> — блэкджек",
         parse_mode="HTML"
     )
@@ -387,32 +411,23 @@ async def callback_handler(call: CallbackQuery):
         txt = (
             f"🎡 <b>РУЛЕТКА</b>\n\n"
             f"<b>Как играть:</b>\n"
-            f"1. Напиши ставку в чат:\n"
-            f"   <code>к 1000</code> — красное (×2)\n"
-            f"   <code>ч 1000</code> — чёрное (×2)\n"
-            f"   <code>з 1000</code> — зеро (×36)\n"
-            f"   <code>1000 5</code> — число 5 (×36)\n"
-            f"   <code>1000 1-9 10-18</code> — диапазоны\n\n"
-            f"2. Напиши <code>го</code> — запуск\n"
-            f"3. <code>отмена</code> — отмена\n\n"
-            f"<b>Пример:</b>\n"
-            f"<code>к 1000</code>\n"
-            f"<code>го</code>"
+            f"<code>к 1000</code> — красное (×2)\n"
+            f"<code>ч 1000</code> — чёрное (×2)\n"
+            f"<code>з 1000</code> — зеро (×36)\n"
+            f"<code>1000 5</code> — число 5 (×36)\n"
+            f"<code>1000 1-9 10-18</code> — диапазоны\n\n"
+            f"<code>го</code> — запуск\n"
+            f"<code>отмена</code> — отмена"
         )
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
 
     elif data == "info_slots":
         txt = (
             f"🎰 <b>СЛОТЫ</b>\n\n"
-            f"<b>Как играть:</b>\n"
             f"Напиши: <code>спин 1000</code>\n\n"
-            f"<b>Коэффициенты:</b>\n"
-            f"🍒🍒🍒 — ×10\n"
-            f"🍋🍋🍋 — ×15\n"
-            f"🍊🍊🍊 — ×20\n"
-            f"🍇🍇🍇 — ×25\n"
-            f"💎💎💎 — ×50\n"
-            f"7️⃣7️⃣7️⃣ — ×100\n"
+            f"🍒🍒🍒 ×10 | 🍋🍋🍋 ×15\n"
+            f"🍊🍊🍊 ×20 | 🍇🍇🍇 ×25\n"
+            f"💎💎💎 ×50 | 7️⃣7️⃣7️⃣ ×100\n"
             f"Два одинаковых — ×2"
         )
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
@@ -420,7 +435,6 @@ async def callback_handler(call: CallbackQuery):
     elif data == "info_coin":
         txt = (
             f"🪙 <b>МОНЕТКА</b>\n\n"
-            f"<b>Как играть:</b>\n"
             f"<code>орёл 1000</code> — на орла\n"
             f"<code>решка 1000</code> — на решку\n\n"
             f"Угадал — ×2"
@@ -430,11 +444,9 @@ async def callback_handler(call: CallbackQuery):
     elif data == "info_bj":
         txt = (
             f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
-            f"<b>Как играть:</b>\n"
             f"Напиши: <code>бж 1000</code>\n\n"
             f"Цель — 21 или ближе к 21, чем дилер\n"
             f"A = 1 или 11, J/Q/K = 10\n\n"
-            f"<b>Кнопки:</b>\n"
             f"➕ Взять — ещё карту\n"
             f"✋ Хватит — остановиться\n\n"
             f"Выигрыш — ×2"
@@ -443,15 +455,17 @@ async def callback_handler(call: CallbackQuery):
 
     elif data == "info_hl":
         txt = (
-            f"⬆️⬇️ <b>HL</b>\n\n"
+            f"🃏 <b>HL (Higher/Lower) — на картах</b>\n\n"
             f"<b>Как играть:</b>\n"
             f"1. Напиши: <code>хл 1000</code>\n"
-            f"2. Бот выдаёт число\n"
-            f"3. Угадай — больше или меньше\n"
-            f"4. Угадал — коэффициент растёт\n"
-            f"5. Не угадал — всё сгорает\n"
-            f"6. <b>💰 Забрать</b> — забрать выигрыш\n\n"
-            f"Коэффициент от ×1.1 до ×2.2"
+            f"2. Бот выдаёт карту (2-10, J, Q, K, A)\n"
+            f"3. Угадай — следующая будет <b>Выше</b> или <b>Ниже</b>\n"
+            f"4. Коэффициент зависит от карты:\n"
+            f"   • 2 — выше шанс, ×1.13\n"
+            f"   • A — ниже шанс, ×12.48\n"
+            f"5. Угадал — множитель растёт\n"
+            f"6. <b>💰 Забрать</b> — с комиссией 10%\n"
+            f"7. Не угадал — всё сгорает"
         )
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
 
@@ -562,29 +576,44 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Игра не найдена!")
             return
         game = hl_games[user_id]
-        current = game["number"]
-        next_num = random.randint(1, 100)
+        current_card = game["card"]
+        next_card = get_random_card()
+        current_value = CARD_VALUES[current_card]
+        next_value = CARD_VALUES[next_card]
         direction = "up" if data == "hl_up" else "down"
         win = False
-        if direction == "up" and next_num > current:
+        if direction == "up" and next_value > current_value:
             win = True
-        elif direction == "down" and next_num < current:
+        elif direction == "down" and next_value < current_value:
             win = True
         if win:
-            mult = round(random.uniform(1.1, 2.2), 1)
-            game["win_amount"] = int(game["win_amount"] * mult)
-            game["number"] = next_num
+            up_mult, down_mult = get_hl_mults(current_card)
+            mult = up_mult if direction == "up" else down_mult
+            game["mult"] = round(game["mult"] * mult, 2)
+            game["win_amount"] = int(game["bet"] * game["mult"])
+            game["card"] = next_card
             game["streak"] += 1
+            up_mult_new, down_mult_new = get_hl_mults(next_card)
             await call.message.edit_text(
-                f"⬆️⬇️ <b>HL</b>\n\n🎯 Было: <b>{current}</b>\n🎯 Стало: <b>{next_num}</b>\n\n✅ <b>Угадал!</b>\n💰 <b>{game['win_amount']:,}</b> (×{mult})\n🔥 Серия: {game['streak']}\n\n⬆️ Вверх или ⬇️ Вниз?".replace(',', ' '),
+                f"🃏 <b>HL — Карты</b>\n\n"
+                f"✅ Верно! Было: <b>{current_card}</b> → Стало: <b>{next_card}</b>\n\n"
+                f"🃏 Текущая карта: <b>{next_card}</b>\n"
+                f"📈 Множитель: <b>×{game['mult']:.2f}</b>\n"
+                f"💰 При выводе: <b>{game['win_amount']:,}</b> фишек\n\n"
+                f"⬆️ Выше → <b>×{up_mult_new}</b> за шаг\n"
+                f"⬇️ Ниже → <b>×{down_mult_new}</b> за шаг\n\n"
+                f"😉 Нажимай на кнопки ниже!".replace(',', ' '),
                 parse_mode="HTML",
-                reply_markup=hl_kb()
+                reply_markup=hl_kb(up_mult_new, down_mult_new, game["win_amount"])
             )
         else:
             nb = get_balance(user_id)
-            log_game(user_id, username, "HL", game["bet"], 0, f"{current}→{next_num}")
+            log_game(user_id, username, "HL", game["bet"], 0, f"{current_card}→{next_card}")
             await call.message.edit_text(
-                f"⬆️⬇️ <b>HL</b>\n\n🎯 Было: <b>{current}</b>\n🎯 Стало: <b>{next_num}</b>\n\n💥 <b>Не угадал!</b>\n💸 -{game['bet']:,}\n\n💎 <b>{nb:,}</b>".replace(',', ' '),
+                f"💥 <b>Неверно! Карта: {next_card}</b>\n\n"
+                f"📉 Ты проиграл <b>{game['bet']:,}</b> фишек\n\n"
+                f"🏁 <b>Игра окончена</b>\n\n"
+                f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
                 parse_mode="HTML",
                 reply_markup=main_menu_kb()
             )
@@ -595,11 +624,15 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Игра не найдена!")
             return
         game = hl_games[user_id]
-        wa = game["win_amount"]
+        wa = int(game["win_amount"] * 0.9)
         nb = set_balance(user_id, wa)
-        log_game(user_id, username, "HL", game["bet"], wa, f"забрал ×{game['streak']}")
+        log_game(user_id, username, "HL", game["bet"], wa, f"забрал ×{game['mult']}")
         await call.message.edit_text(
-            f"⬆️⬇️ <b>HL</b>\n\n💰 <b>Забрал: {wa:,}</b>\n🔥 Серия: {game['streak']}\n\n💎 <b>{nb:,}</b>".replace(',', ' '),
+            f"💰 <b>Забрал: {wa:,} фишек</b>\n\n"
+            f"📉 Комиссия 10%: −{int(game['win_amount'] * 0.1):,}\n"
+            f"🔥 Серия: {game['streak']}\n"
+            f"📈 Множитель: ×{game['mult']:.2f}\n\n"
+            f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
             parse_mode="HTML",
             reply_markup=main_menu_kb()
         )
@@ -856,12 +889,25 @@ async def text_handler(message: Message):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
-        current = random.randint(1, 100)
-        hl_games[user_id] = {"number": current, "bet": bet, "streak": 0, "win_amount": bet}
+        card = get_random_card()
+        hl_games[user_id] = {
+            "card": card,
+            "bet": bet,
+            "mult": 1.0,
+            "win_amount": bet,
+            "streak": 0
+        }
+        up_mult, down_mult = get_hl_mults(card)
         await message.reply(
-            f"⬆️⬇️ <b>HL</b>\n\n🎯 Текущее число: <b>{current}</b>\n\n⬆️ Вверх или ⬇️ Вниз?".replace(',', ' '),
+            f"🃏 <b>HL — Карты</b>\n\n"
+            f"🃏 Текущая карта: <b>{card}</b>\n"
+            f"📈 Множитель: <b>×1.00</b>\n"
+            f"💰 При выводе: <b>{bet:,}</b> фишек\n\n"
+            f"⬆️ Выше → <b>×{up_mult}</b> за шаг\n"
+            f"⬇️ Ниже → <b>×{down_mult}</b> за шаг\n\n"
+            f"😉 Нажимай на кнопки ниже!".replace(',', ' '),
             parse_mode="HTML",
-            reply_markup=hl_kb()
+            reply_markup=hl_kb(up_mult, down_mult, bet)
         )
         return
 
