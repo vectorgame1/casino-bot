@@ -86,6 +86,10 @@ def get_top(limit=10):
     conn.close()
     return rows
 
+def get_balance(user_id):
+    user = get_user(user_id)
+    return user[1] if user else 1000
+
 # ========== БОТ ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -103,7 +107,7 @@ async def cmd_start(message: Message):
     conn.commit()
     conn.close()
     
-    balance = get_user(user_id)[1]
+    balance = get_balance(user_id)
     await message.answer(
         f"🎰 <b>Добро пожаловать в World Casino!</b>\n\n"
         f"👤 Ты: @{username}\n"
@@ -125,7 +129,7 @@ async def cmd_balance(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
-    balance = get_user(user_id)[1]
+    balance = get_balance(user_id)
     await message.answer(f"💰 <b>Баланс: {balance} монет</b>", parse_mode="HTML")
 
 @dp.message(Command("give"))
@@ -135,12 +139,17 @@ async def cmd_give(message: Message):
         return
     
     if not message.reply_to_message:
-        await message.answer("🎯 <b>Ответь на сообщение пользователя:</b>\n/give 1000", parse_mode="HTML")
+        await message.answer("🎯 <b>Ответь на сообщение пользователя:</b>\n<code>/give 1000</code>", parse_mode="HTML")
+        return
+    
+    # Проверяем, что replied сообщение — не от бота
+    if message.reply_to_message.from_user.is_bot:
+        await message.answer("❌ <b>Это сообщение от бота — нельзя дать ему монеты!</b>", parse_mode="HTML")
         return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("🎯 <b>Укажи сумму:</b>\n/give 1000", parse_mode="HTML")
+        await message.answer("🎯 <b>Укажи сумму:</b>\n<code>/give 1000</code>", parse_mode="HTML")
         return
     
     try:
@@ -169,12 +178,17 @@ async def cmd_take(message: Message):
         return
     
     if not message.reply_to_message:
-        await message.answer("🎯 <b>Ответь на сообщение пользователя:</b>\n/take 1000", parse_mode="HTML")
+        await message.answer("🎯 <b>Ответь на сообщение пользователя:</b>\n<code>/take 1000</code>", parse_mode="HTML")
+        return
+    
+    # Проверяем, что replied сообщение — не от бота
+    if message.reply_to_message.from_user.is_bot:
+        await message.answer("❌ <b>Это сообщение от бота — нельзя забрать у него монеты!</b>", parse_mode="HTML")
         return
     
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("🎯 <b>Укажи сумму:</b>\n/take 1000", parse_mode="HTML")
+        await message.answer("🎯 <b>Укажи сумму:</b>\n<code>/take 1000</code>", parse_mode="HTML")
         return
     
     try:
@@ -246,7 +260,7 @@ async def roulette_handler(message: Message):
     ensure_user(user_id, username)
     
     # ========== СТАВКА НА КРАСНОЕ / ЧЁРНОЕ / ЗЕРО ==========
-    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з', 'k']:
+    if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
         try:
             bet = int(parts[1])
         except ValueError:
@@ -256,7 +270,7 @@ async def roulette_handler(message: Message):
             await message.reply("❌ <b>Минимальная ставка — 10 монет!</b>", parse_mode="HTML")
             return
         
-        balance = get_user(user_id)[1]
+        balance = get_balance(user_id)
         if balance < bet:
             await message.reply(f"❌ <b>Недостаточно монет! Баланс: {balance}</b>", parse_mode="HTML")
             return
@@ -268,13 +282,10 @@ async def roulette_handler(message: Message):
         result = random.randint(0, 36)
         if result == 0:
             color = "Зеро 🟢"
-            color_key = 'зелёное'
         elif result in RED_NUMBERS:
             color = "Красное 🔴"
-            color_key = 'красное'
         else:
             color = "Чёрное ⚫"
-            color_key = 'чёрное'
         
         # Проверяем выигрыш
         bet_type = parts[0]
@@ -298,7 +309,7 @@ async def roulette_handler(message: Message):
                 parse_mode="HTML"
             )
         else:
-            new_balance = get_user(user_id)[1]
+            new_balance = get_balance(user_id)
             await message.reply(
                 f"🎡 <b>Выпало: {result}</b> ({color})\n"
                 f"😢 <b>Проигрыш -{bet}</b>\n"
@@ -316,13 +327,13 @@ async def roulette_handler(message: Message):
             return
         
         if number < 0 or number > 36:
-            return  # Игнорируем — это не ставка
+            return
         
         if bet < 10:
             await message.reply("❌ <b>Минимальная ставка — 10 монет!</b>", parse_mode="HTML")
             return
         
-        balance = get_user(user_id)[1]
+        balance = get_balance(user_id)
         if balance < bet:
             await message.reply(f"❌ <b>Недостаточно монет! Баланс: {balance}</b>", parse_mode="HTML")
             return
@@ -349,7 +360,7 @@ async def roulette_handler(message: Message):
                 parse_mode="HTML"
             )
         else:
-            new_balance = get_user(user_id)[1]
+            new_balance = get_balance(user_id)
             await message.reply(
                 f"🎡 <b>Выпало: {result}</b> ({color})\n"
                 f"😢 <b>Проигрыш -{bet}</b>\n"
