@@ -65,7 +65,14 @@ def health():
 
 @app.route('/api/balance/<int:user_id>')
 def api_balance(user_id):
-    return jsonify({"user_id": user_id, "balance": get_balance(user_id), "bank": get_bank(user_id)})
+    if is_banned(user_id):
+        return jsonify({"error": "Banned", "banned": True}), 403
+    return jsonify({
+        "user_id": user_id,
+        "balance": get_balance(user_id),
+        "bank": get_bank(user_id),
+        "unlimited": is_unlimited(user_id)
+    })
 
 @app.route('/api/update', methods=['POST'])
 def api_update():
@@ -74,6 +81,8 @@ def api_update():
     amt = data.get('amount')
     if uid is None or amt is None:
         return jsonify({"error": "Missing"}), 400
+    if is_banned(uid):
+        return jsonify({"error": "Banned"}), 403
     return jsonify({"user_id": uid, "balance": set_balance(uid, amt)})
 
 @app.route('/api/transfer', methods=['POST'])
@@ -109,7 +118,9 @@ def init_db():
         user_id BIGINT PRIMARY KEY,
         username TEXT,
         balance BIGINT DEFAULT 1000,
-        bank BIGINT DEFAULT 0
+        bank BIGINT DEFAULT 0,
+        banned BOOLEAN DEFAULT FALSE,
+        unlimited BOOLEAN DEFAULT FALSE
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS game_log (
         id SERIAL PRIMARY KEY,
@@ -143,8 +154,52 @@ def ensure_user(user_id, username):
     c.close()
     conn.close()
 
+def is_banned(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT banned FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row and row[0] else False
+
+def set_banned(user_id, banned=True):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO users (user_id, banned) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET banned = %s",
+              (user_id, banned, banned))
+    conn.commit()
+    c.close()
+    conn.close()
+
+def is_unlimited(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT unlimited FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row and row[0] else False
+
+def set_unlimited(user_id, unlimited=True):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO users (user_id, unlimited) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET unlimited = %s",
+              (user_id, unlimited, unlimited))
+    conn.commit()
+    c.close()
+    conn.close()
+
 def set_balance(user_id, amount):
     amount = int(amount)
+    if is_unlimited(user_id) and amount < 0:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT balance FROM users WHERE user_id = %s", (user_id,))
+        row = c.fetchone()
+        c.close()
+        conn.close()
+        return row[0] if row else 0
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT INTO users (user_id, balance) VALUES (%s, 1000) ON CONFLICT (user_id) DO NOTHING", (user_id,))
@@ -300,14 +355,25 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
+    if is_banned(user_id):
+        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
     balance = get_balance(user_id)
     bank = get_bank(user_id)
     is_private = message.chat.type == 'private'
     if is_private:
-        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b> фишек\n🏦 Банк: <b>{bank:,}</b>\n\n🎮 <b>Играй в Mini App!</b>\nНажми кнопку ниже 👇".replace(',', ' ')
+        if is_unlimited(user_id):
+            bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
+        else:
+            bal_line = f"💎 <b>{balance:,}</b> фишек".replace(',', ' ')
+        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n{bal_line}\n🏦 Банк: <b>{bank:,}</b>\n\n🎮 <b>Играй в Mini App!</b>\nНажми кнопку ниже 👇".replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=private_kb())
     else:
-        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b> фишек\n🏦 Банк: <b>{bank:,}</b>\n\n🎮 Нажми <b>Игры</b>!\n\n<code>б</code> — баланс | <code>топ</code> — топ\n<code>банк</code> — банк | <code>дуэль 1000 @user</code>\n<code>хл 100</code> — HL | <code>бж 100</code> — блэкджек\n<code>спин 100</code> — слоты\n<code>орёл 100</code> / <code>решка 100</code> — монетка\n<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск".replace(',', ' ')
+        if is_unlimited(user_id):
+            bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
+        else:
+            bal_line = f"💎 <b>{balance:,}</b> фишек".replace(',', ' ')
+        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n{bal_line}\n🏦 Банк: <b>{bank:,}</b>\n\n🎮 Нажми <b>Игры</b>!\n\n<code>б</code> — баланс | <code>топ</code> — топ\n<code>банк</code> — банк | <code>дуэль 1000 @user</code>\n<code>хл 100</code> — HL | <code>бж 100</code> — блэкджек\n<code>спин 100</code> — слоты\n<code>орёл 100</code> / <code>решка 100</code> — монетка\n<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск".replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=group_kb())
 
 @dp.message(Command("balance"))
@@ -315,9 +381,15 @@ async def cmd_balance(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
+    if is_banned(user_id):
+        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
     balance = get_balance(user_id)
     bank = get_bank(user_id)
-    await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 Баланс: <b>{balance:,}</b>\n🏦 В банке: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
+    if is_unlimited(user_id):
+        await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n♾️ <b>У тебя БЕЗЛИМИТ</b>\n🏦 В банке: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
+    else:
+        await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 Баланс: <b>{balance:,}</b>\n🏦 В банке: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
 
 @dp.message(Command("top"))
 async def cmd_top(message: Message):
@@ -338,14 +410,18 @@ async def cmd_give(message: Message):
         return
     args = message.text.split()
     if len(args) >= 2 and args[1].lower() in ['unlimited', 'безлимит', '∞']:
-        if message.reply_to_message and not message.reply_to_message.from_user.is_bot:
-            target = message.reply_to_message.from_user
-            ensure_user(target.id, target.username or target.first_name)
-            nb = set_balance(target.id, 999999999999)
-            await message.answer(f"♾️ <b>БЕЗЛИМИТ ВЫДАН!</b>\n\n👤 {target.username or target.first_name}\n💰 +999 999 999 999\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
-        else:
-            nb = set_balance(message.from_user.id, 999999999999)
-            await message.answer(f"♾️ <b>БЕЗЛИМИТ ВЫДАН!</b>\n\n👤 {message.from_user.username or message.from_user.first_name}\n💰 +999 999 999 999\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
+        set_unlimited(message.from_user.id, True)
+        await message.answer(
+            f"♾️ <b>БЕЗЛИМИТ АКТИВИРОВАН!</b>\n\n"
+            f"👤 {message.from_user.username or message.from_user.first_name}\n"
+            f"💰 Теперь у тебя бесконечные фишки!\n\n"
+            f"❌ Чтобы снять — напиши <code>/give all</code>",
+            parse_mode="HTML"
+        )
+        return
+    if len(args) >= 2 and args[1].lower() in ['all', 'off', 'выкл']:
+        set_unlimited(message.from_user.id, False)
+        await message.answer(f"✅ <b>БЕЗЛИМИТ ОТКЛЮЧЁН</b>\n\nТеперь фишки тратятся как обычно.", parse_mode="HTML")
         return
     if len(args) >= 3 and args[1].startswith('@'):
         username = args[1][1:]
@@ -426,7 +502,69 @@ async def cmd_take(message: Message):
     ensure_user(target.id, target.username or target.first_name)
     nb = set_balance(target.id, -amount)
     await message.answer(f"✅ <b>-{amount:,}</b> ← {target.username or target.first_name}\n💎 {nb:,}".replace(',', ' '), parse_mode="HTML")
-    
+
+@dp.message(Command("ban"))
+async def cmd_ban(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    target = None
+    if message.reply_to_message and not message.reply_to_message.from_user.is_bot:
+        target = message.reply_to_message.from_user
+    else:
+        args = message.text.split()
+        if len(args) >= 2 and args[1].startswith('@'):
+            username = args[1][1:]
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT user_id, username FROM users WHERE username = %s", (username,))
+            row = c.fetchone()
+            c.close()
+            conn.close()
+            if row:
+                ensure_user(row[0], row[1])
+                set_banned(row[0], True)
+                await message.answer(f"🚫 <b>Игрок @{username} забанен!</b>", parse_mode="HTML")
+            else:
+                await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+    if not target:
+        await message.answer("❌ Ответь на сообщение или напиши: <code>/ban @username</code>", parse_mode="HTML")
+        return
+    ensure_user(target.id, target.username or target.first_name)
+    set_banned(target.id, True)
+    await message.answer(f"🚫 <b>Игрок {target.username or target.first_name} забанен!</b>", parse_mode="HTML")
+
+@dp.message(Command("unban"))
+async def cmd_unban(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    target = None
+    if message.reply_to_message and not message.reply_to_message.from_user.is_bot:
+        target = message.reply_to_message.from_user
+    else:
+        args = message.text.split()
+        if len(args) >= 2 and args[1].startswith('@'):
+            username = args[1][1:]
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT user_id, username FROM users WHERE username = %s", (username,))
+            row = c.fetchone()
+            c.close()
+            conn.close()
+            if row:
+                ensure_user(row[0], row[1])
+                set_banned(row[0], False)
+                await message.answer(f"✅ <b>Игрок @{username} разбанен!</b>", parse_mode="HTML")
+            else:
+                await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+    if not target:
+        await message.answer("❌ Ответь на сообщение или напиши: <code>/unban @username</code>", parse_mode="HTML")
+        return
+    ensure_user(target.id, target.username or target.first_name)
+    set_banned(target.id, False)
+    await message.answer(f"✅ <b>Игрок {target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
+
 # ========== КНОПКИ ==========
 @dp.callback_query()
 async def callback_handler(call: CallbackQuery):
@@ -434,11 +572,18 @@ async def callback_handler(call: CallbackQuery):
     user_id = call.from_user.id
     username = call.from_user.username or call.from_user.first_name
     ensure_user(user_id, username)
+    if is_banned(user_id):
+        await call.answer("🚫 ВЫ ЗАБЛОКИРОВАНЫ", show_alert=True)
+        return
     balance = get_balance(user_id)
     bank = get_bank(user_id)
 
     if data == "menu_main":
-        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>\n🏦 <b>{bank:,}</b>".replace(',', ' ')
+        if is_unlimited(user_id):
+            bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
+        else:
+            bal_line = f"💎 <b>{balance:,}</b>".replace(',', ' ')
+        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n{bal_line}\n🏦 <b>{bank:,}</b>".replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
     elif data == "menu_games":
@@ -446,7 +591,10 @@ async def callback_handler(call: CallbackQuery):
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=games_kb())
 
     elif data == "menu_balance":
-        await call.answer(f"💎 Баланс: {balance:,}\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
+        if is_unlimited(user_id):
+            await call.answer(f"♾️ У тебя БЕЗЛИМИТ\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
+        else:
+            await call.answer(f"💎 Баланс: {balance:,}\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
 
     elif data == "menu_bank":
         txt = f"🏦 <b>БАНК</b>\n\n👤 {username}\n💎 Баланс: <b>{balance:,}</b>\n🏦 В банке: <b>{bank:,}</b>\n\n<b>Команды в чате:</b>\n<code>банк положить 1000</code>\n<code>банк снять 1000</code>\n\n🔥 <b>+5% в день</b> за хранение!".replace(',', ' ')
@@ -512,7 +660,7 @@ async def callback_handler(call: CallbackQuery):
         if bet < 10:
             await call.answer("❌ Минимум 10!", show_alert=True)
             return
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
         set_balance(user_id, -bet)
@@ -557,7 +705,7 @@ async def callback_handler(call: CallbackQuery):
         if bet < 10:
             await call.answer("❌ Минимум 10!", show_alert=True)
             return
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
         set_balance(user_id, -bet)
@@ -720,6 +868,11 @@ async def text_handler(message: Message):
     chat_id = message.chat.id
     ensure_user(user_id, username)
 
+    # БАН
+    if is_banned(user_id):
+        await message.reply("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
+
     # ДУЭЛЬ
     if len(parts) >= 3 and parts[0] == 'дуэль':
         try:
@@ -731,7 +884,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         target_username = None
@@ -776,11 +929,11 @@ async def text_handler(message: Message):
             return
         c_balance = get_balance(duel["challenger_id"])
         o_balance = get_balance(duel["opponent_id"])
-        if c_balance < duel["challenger_bet"]:
+        if c_balance < duel["challenger_bet"] and not is_unlimited(duel["challenger_id"]):
             await message.reply(f"❌ У {duel['challenger_name']} недостаточно фишек!")
             del duel_games[chat_id]
             return
-        if o_balance < duel["opponent_bet"]:
+        if o_balance < duel["opponent_bet"] and not is_unlimited(duel["opponent_id"]):
             await message.reply(f"❌ У тебя недостаточно! Нужно {duel['opponent_bet']:,}".replace(',', ' '))
             return
         set_balance(duel["challenger_id"], -duel["challenger_bet"])
@@ -831,7 +984,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 1!")
             return
         balance = get_balance(user_id)
-        if balance < amount:
+        if balance < amount and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -amount)
@@ -880,7 +1033,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Нельзя себе!")
             return
         balance = get_balance(user_id)
-        if balance < amount:
+        if balance < amount and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         ensure_user(target.id, target.username or target.first_name)
@@ -905,7 +1058,10 @@ async def text_handler(message: Message):
     if text in ['б', 'баланс']:
         balance = get_balance(user_id)
         bank = get_bank(user_id)
-        await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>\n🏦 Банк: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
+        if is_unlimited(user_id):
+            await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n♾️ <b>У тебя БЕЗЛИМИТ</b>\n🏦 Банк: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
+        else:
+            await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>\n🏦 Банк: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
         return
 
     # ИГРЫ
@@ -994,8 +1150,7 @@ async def text_handler(message: Message):
         del active_bets[chat_id]
         if user_last_bet:
             rkb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"group_bet_{
-                    user_last_bet['type']}_{user_last_bet['bet']}"),
+                [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"group_bet_{user_last_bet['type']}_{user_last_bet['bet']}"),
                  InlineKeyboardButton(text="⬆️ Удвоить", callback_data=f"group_bet_{user_last_bet['type']}_{user_last_bet['bet']*2}")],
                 [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
             ])
@@ -1014,7 +1169,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
@@ -1051,7 +1206,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
@@ -1078,7 +1233,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
@@ -1108,7 +1263,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
@@ -1133,7 +1288,7 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         balance = get_balance(user_id)
-        if balance < bet:
+        if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
@@ -1155,7 +1310,7 @@ async def text_handler(message: Message):
             return
         total_bet = bet * len(ranges)
         balance = get_balance(user_id)
-        if balance < total_bet:
+        if balance < total_bet and not is_unlimited(user_id):
             await message.reply(f"❌ Нужно {total_bet:,}, у тебя {balance:,}".replace(',', ' '))
             return
         set_balance(user_id, -total_bet)
