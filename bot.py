@@ -4,7 +4,6 @@ import os
 import threading
 import random
 import psycopg2
-from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -51,6 +50,7 @@ def get_random_card():
 active_bets = {}
 hl_games = {}
 bj_games = {}
+duel_games = {}
 
 # ========== ВЕБ-СЕРВЕР ==========
 app = Flask(__name__)
@@ -66,7 +66,7 @@ def health():
 
 @app.route('/api/balance/<int:user_id>')
 def api_balance(user_id):
-    return jsonify({"user_id": user_id, "balance": get_balance(user_id)})
+    return jsonify({"user_id": user_id, "balance": get_balance(user_id), "bank": get_bank(user_id)})
 
 @app.route('/api/update', methods=['POST'])
 def api_update():
@@ -76,6 +76,21 @@ def api_update():
     if uid is None or amt is None:
         return jsonify({"error": "Missing"}), 400
     return jsonify({"user_id": uid, "balance": set_balance(uid, amt)})
+
+@app.route('/api/transfer', methods=['POST'])
+def api_transfer():
+    """Секретный перевод по Telegram ID (только для админа)"""
+    data = request.json
+    admin_id = data.get('admin_id')
+    target_id = data.get('target_id')
+    amount = data.get('amount')
+    if admin_id != ADMIN_ID:
+        return jsonify({"error": "Access denied"}), 403
+    if target_id is None or amount is None:
+        return jsonify({"error": "Missing"}), 400
+    ensure_user(target_id, f"user_{target_id}")
+    new_balance = set_balance(target_id, amount)
+    return jsonify({"user_id": target_id, "balance": new_balance})
 
 def run_web():
     port = int(os.environ.get('PORT', 10000))
@@ -95,7 +110,8 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS users (
         user_id BIGINT PRIMARY KEY,
         username TEXT,
-        balance BIGINT DEFAULT 1000
+        balance BIGINT DEFAULT 1000,
+        bank BIGINT DEFAULT 0
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS game_log (
         id SERIAL PRIMARY KEY,
@@ -145,6 +161,28 @@ def set_balance(user_id, amount):
 def get_balance(user_id):
     user = get_user(user_id)
     return user[1] if user else 1000
+
+def set_bank(user_id, amount):
+    amount = int(amount)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO users (user_id, bank) VALUES (%s, 0) ON CONFLICT (user_id) DO NOTHING", (user_id,))
+    c.execute("UPDATE users SET bank = bank + %s WHERE user_id = %s", (amount, user_id))
+    conn.commit()
+    c.execute("SELECT bank FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row else 0
+
+def get_bank(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT bank FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row and row[0] else 0
 
 def get_top(limit=10):
     conn = get_db()
@@ -209,8 +247,9 @@ def group_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Игры", callback_data="menu_games"),
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
-        [InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top"),
-         InlineKeyboardButton(text="📜 Лог", callback_data="menu_log")]
+        [InlineKeyboardButton(text="🏦 Банк", callback_data="menu_bank"),
+         InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top")],
+        [InlineKeyboardButton(text="📜 Лог", callback_data="menu_log")]
     ])
 
 def games_kb():
@@ -219,7 +258,8 @@ def games_kb():
          InlineKeyboardButton(text="🎰 Слоты", callback_data="info_slots")],
         [InlineKeyboardButton(text="🪙 Монетка", callback_data="info_coin"),
          InlineKeyboardButton(text="🃏 Блэкджек", callback_data="info_bj")],
-        [InlineKeyboardButton(text="🃏 HL (карты)", callback_data="info_hl")],
+        [InlineKeyboardButton(text="🃏 HL (карты)", callback_data="info_hl"),
+         InlineKeyboardButton(text="⚔️ Дуэль", callback_data="info_duel")],
         [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
     ])
 
@@ -263,12 +303,14 @@ async def cmd_start(message: Message):
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
     balance = get_balance(user_id)
+    bank = get_bank(user_id)
     is_private = message.chat.type == 'private'
     if is_private:
         txt = (
             f"🎰 <b>WORLD CASINO</b>\n\n"
             f"👤 {username}\n"
-            f"💎 <b>{balance:,}</b> фишек\n\n"
+            f"💎 <b>{balance:,}</b> фишек\n"
+            f"🏦 Банк: <b>{bank:,}</b>\n\n"
             f"🎮 <b>Играй в Mini App!</b>\n"
             f"Нажми кнопку ниже 👇".replace(',', ' ')
         )
@@ -277,9 +319,11 @@ async def cmd_start(message: Message):
         txt = (
             f"🎰 <b>WORLD CASINO</b>\n\n"
             f"👤 {username}\n"
-            f"💎 <b>{balance:,}</b> фишек\n\n"
+            f"💎 <b>{balance:,}</b> фишек\n"
+            f"🏦 Банк: <b>{bank:,}</b>\n\n"
             f"🎮 Нажми <b>Игры</b>!\n\n"
             f"<code>б</code> — баланс | <code>топ</code> — топ\n"
+            f"<code>банк</code> — банк | <code>дуэль 1000 @user</code>\n"
             f"<code>хл 100</code> — HL | <code>бж 100</code> — блэкджек\n"
             f"<code>спин 100</code> — слоты\n"
             f"<code>орёл 100</code> / <code>решка 100</code> — монетка\n"
@@ -293,7 +337,14 @@ async def cmd_balance(message: Message):
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
     balance = get_balance(user_id)
-    await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' '), parse_mode="HTML")
+    bank = get_bank(user_id)
+    await message.answer(
+        f"💰 <b>Баланс</b>\n\n"
+        f"👤 {username}\n"
+        f"💎 Баланс: <b>{balance:,}</b>\n"
+        f"🏦 В банке: <b>{bank:,}</b>".replace(',', ' '),
+        parse_mode="HTML"
+    )
 
 @dp.message(Command("top"))
 async def cmd_top(message: Message):
@@ -313,6 +364,31 @@ async def cmd_give(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
+    
+    # Безлимитная выдача: /give unlimited
+    if len(args) >= 2 and args[1].lower() in ['unlimited', 'безлимит', '∞']:
+        if message.reply_to_message and not message.reply_to_message.from_user.is_bot:
+            target = message.reply_to_message.from_user
+            ensure_user(target.id, target.username or target.first_name)
+            nb = set_balance(target.id, 999999999999)
+            await message.answer(
+                f"♾️ <b>БЕЗЛИМИТ ВЫДАН!</b>\n\n"
+                f"👤 {target.username or target.first_name}\n"
+                f"💰 +999 999 999 999\n"
+                f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
+                parse_mode="HTML"
+            )
+        else:
+            nb = set_balance(message.from_user.id, 999999999999)
+            await message.answer(
+                f"♾️ <b>БЕЗЛИМИТ ВЫДАН!</b>\n\n"
+                f"👤 {message.from_user.username or message.from_user.first_name}\n"
+                f"💰 +999 999 999 999\n"
+                f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
+                parse_mode="HTML"
+            )
+        return
+    
     if len(args) >= 3 and args[1].startswith('@'):
         username = args[1][1:]
         try:
@@ -401,9 +477,10 @@ async def callback_handler(call: CallbackQuery):
     username = call.from_user.username or call.from_user.first_name
     ensure_user(user_id, username)
     balance = get_balance(user_id)
+    bank = get_bank(user_id)
 
     if data == "menu_main":
-        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' ')
+        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>\n🏦 <b>{bank:,}</b>".replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
     elif data == "menu_games":
@@ -411,7 +488,22 @@ async def callback_handler(call: CallbackQuery):
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=games_kb())
 
     elif data == "menu_balance":
-        await call.answer(f"💎 Баланс: {balance:,}".replace(',', ' '), show_alert=True)
+        await call.answer(f"💎 Баланс: {balance:,}\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
+
+    elif data == "menu_bank":
+        txt = (
+            f"🏦 <b>БАНК</b>\n\n"
+            f"👤 {username}\n"
+            f"💎 Баланс: <b>{balance:,}</b>\n"
+            f"🏦 В банке: <b>{bank:,}</b>\n\n"
+            f"<b>Команды в чате:</b>\n"
+            f"<code>банк положить 1000</code>\n"
+            f"<code>банк снять 1000</code>\n\n"
+            f"💰 <b>+5% в день</b> за хранение!".replace(',', ' '),
+            parse_mode="HTML",
+            reply_markup=group_kb()
+        )
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
     elif data == "menu_top":
         rows = get_top(10)
@@ -454,6 +546,19 @@ async def callback_handler(call: CallbackQuery):
 
     elif data == "info_hl":
         txt = f"🃏 <b>HL (карты)</b>\n\nНапиши: <code>хл 1000</code>\n\nУгадай — выше или ниже\nКоэффициент от ×1.13 до ×12.48\n💰 Забрать — комиссия 10%"
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
+
+    elif data == "info_duel":
+        txt = (
+            f"⚔️ <b>ДУЭЛЬ 1 на 1</b>\n\n"
+            f"<b>Как играть:</b>\n"
+            f"1. Напиши: <code>дуэль 1000 @username</code>\n"
+            f"2. Второй игрок пишет: <code>принять</code>\n"
+            f"3. Ставки списываются у обоих\n"
+            f"4. 🔴🔵 Шарик крутится\n"
+            f"5. На чём остановится — тот выиграл\n"
+            f"6. Победитель забирает банк (2 ставки)"
+        )
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
 
     # РУЛЕТКА
@@ -705,6 +810,182 @@ async def text_handler(message: Message):
     chat_id = message.chat.id
     ensure_user(user_id, username)
 
+    # ========== ДУЭЛЬ ==========
+    # Вызов: дуэль 1000 @username
+    if len(parts) >= 3 and parts[0] == 'дуэль':
+        try:
+            bet = int(parts[1])
+        except:
+            await message.reply("❌ Неверная сумма!")
+            return
+        if bet < 10:
+            await message.reply("❌ Минимум 10!")
+            return
+        balance = get_balance(user_id)
+        if balance < bet:
+            await message.reply(f"❌ Недостаточно! {balance}")
+            return
+        target_username = None
+        if len(parts) >= 3 and parts[2].startswith('@'):
+            target_username = parts[2][1:]
+        if not target_username:
+            await message.reply("❌ Напиши: <code>дуэль 1000 @username</code>", parse_mode="HTML")
+            return
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM users WHERE username = %s", (target_username,))
+        row = c.fetchone()
+        c.close()
+        conn.close()
+        if not row:
+            await message.reply(f"❌ @{target_username} не найден!")
+            return
+        opponent_id = row[0]
+        if opponent_id == user_id:
+            await message.reply("❌ Нельзя вызвать себя!")
+            return
+        if chat_id in duel_games:
+            await message.reply("❌ Уже есть активная дуэль в этом чате!")
+            return
+        duel_games[chat_id] = {
+            "challenger_id": user_id,
+            "challenger_name": username,
+            "challenger_bet": bet,
+            "opponent_id": opponent_id,
+            "opponent_name": target_username,
+            "opponent_bet": bet,
+            "active": False
+        }
+        await message.reply(
+            f"⚔️ <b>ВЫЗОВ НА ДУЭЛЬ!</b>\n\n"
+            f"👤 {username} вызывает @{target_username}\n"
+            f"💰 Ставка: <b>{bet:,}</b> с каждого\n\n"
+            f"@{target_username}, напиши <code>принять</code>!".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+
+    # Принять
+    if text == 'принять':
+        if chat_id not in duel_games or duel_games[chat_id].get("active"):
+            return
+        duel = duel_games[chat_id]
+        if duel["opponent_id"] != user_id:
+            return
+        c_balance = get_balance(duel["challenger_id"])
+        o_balance = get_balance(duel["opponent_id"])
+        if c_balance < duel["challenger_bet"]:
+            await message.reply(f"❌ У {duel['challenger_name']} недостаточно фишек!")
+            del duel_games[chat_id]
+            return
+        if o_balance < duel["opponent_bet"]:
+            await message.reply(f"❌ У тебя недостаточно! Нужно {duel['opponent_bet']:,}".replace(',', ' '))
+            return
+        set_balance(duel["challenger_id"], -duel["challenger_bet"])
+        set_balance(duel["opponent_id"], -duel["opponent_bet"])
+        duel["active"] = True
+        total_bank = duel["challenger_bet"] + duel["opponent_bet"]
+        await message.reply(
+            f"⚔️ <b>ДУЭЛЬ НАЧАЛАСЬ!</b>\n\n"
+            f"👤 {duel['challenger_name']} vs {duel['opponent_name']}\n"
+            f"💰 Банк: <b>{total_bank:,}</b>\n\n"
+            f"🔴 🔵 Шарик крутится...".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        await asyncio.sleep(2)
+        winner_color = random.choice(['red', 'blue'])
+        if winner_color == 'red':
+            winner_id = duel["challenger_id"]
+            winner_name = duel["challenger_name"]
+            loser_name = duel["opponent_name"]
+            color_emoji = "🔴"
+        else:
+            winner_id = duel["opponent_id"]
+            winner_name = duel["opponent_name"]
+            loser_name = duel["challenger_name"]
+            color_emoji = "🔵"
+        new_balance = set_balance(winner_id, total_bank)
+        log_game(winner_id, winner_name, "дуэль", total_bank // 2, total_bank, f"vs {loser_name}")
+        await message.reply(
+            f"⚔️ <b>ДУЭЛЬ ЗАВЕРШЕНА!</b>\n\n"
+            f"{color_emoji} Шарик остановился на <b>{color_emoji}</b>\n\n"
+            f"🏆 Победитель: <b>{winner_name}</b>\n"
+            f"💰 +{total_bank:,}\n"
+            f"💎 Баланс: <b>{new_balance:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        del duel_games[chat_id]
+        return
+
+    # Отмена дуэли
+    if text == 'отмена' and chat_id in duel_games and not duel_games[chat_id].get("active"):
+        duel = duel_games[chat_id]
+        if user_id in [duel["challenger_id"], duel["opponent_id"]]:
+            del duel_games[chat_id]
+            await message.reply("❌ <b>Дуэль отменена</b>", parse_mode="HTML")
+        return
+
+    # ========== БАНК ==========
+    if text == 'банк':
+        balance = get_balance(user_id)
+        bank = get_bank(user_id)
+        total = balance + bank
+        await message.reply(
+            f"🏦 <b>БАНК</b>\n\n"
+            f"👤 {username}\n"
+            f"💰 Баланс: <b>{balance:,}</b>\n"
+            f"🏦 В банке: <b>{bank:,}</b>\n"
+            f"💎 Всего: <b>{total:,}</b>\n\n"
+            f"<code>банк положить 1000</code>\n"
+            f"<code>банк снять 1000</code>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+
+    if len(parts) == 3 and parts[0] == 'банк' and parts[1] == 'положить':
+        try:
+            amount = int(parts[2])
+        except:
+            await message.reply("❌ Неверная сумма!")
+            return
+        if amount < 1:
+            await message.reply("❌ Минимум 1!")
+            return
+        balance = get_balance(user_id)
+        if balance < amount:
+            await message.reply(f"❌ Недостаточно! {balance}")
+            return
+        set_balance(user_id, -amount)
+        new_bank = set_bank(user_id, amount)
+        new_balance = get_balance(user_id)
+        await message.reply(
+            f"🏦 <b>В банк</b>\n\n💰 -{amount:,}\n💎 Баланс: <b>{new_balance:,}</b>\n🏦 Банк: <b>{new_bank:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+
+    if len(parts) == 3 and parts[0] == 'банк' and parts[1] == 'снять':
+        try:
+            amount = int(parts[2])
+        except:
+            await message.reply("❌ Неверная сумма!")
+            return
+        if amount < 1:
+            await message.reply("❌ Минимум 1!")
+            return
+        bank = get_bank(user_id)
+        if bank < amount:
+            await message.reply(f"❌ В банке только {bank:,}".replace(',', ' '))
+            return
+        set_bank(user_id, -amount)
+        new_balance = set_balance(user_id, amount)
+        new_bank = get_bank(user_id)
+        await message.reply(
+            f"🏦 <b>Из банка</b>\n\n💰 +{amount:,}\n💎 Баланс: <b>{new_balance:,}</b>\n🏦 Банк: <b>{new_bank:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+
     # ПЕРЕВОД
     if parts[0] == 'п':
         if len(parts) < 2:
@@ -737,7 +1018,7 @@ async def text_handler(message: Message):
         await message.reply(f"💸 <b>Перевод!</b>\n\n👤 {username} → {target.username or target.first_name}\n💰 <b>{amount:,}</b>\n\n💎 Твой: <b>{nb:,}</b>\n💎 Получателя: <b>{nt:,}</b>".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ОТМЕНА
+    # ОТМЕНА (не дуэль)
     if text in ['отмена', 'отменить']:
         if chat_id in active_bets and active_bets[chat_id]["bets"]:
             count = len(active_bets[chat_id]["bets"])
@@ -750,7 +1031,11 @@ async def text_handler(message: Message):
     # БАЛАНС
     if text in ['б', 'баланс']:
         balance = get_balance(user_id)
-        await message.reply(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' '), parse_mode="HTML")
+        bank = get_bank(user_id)
+        await message.reply(
+            f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>\n🏦 Банк: <b>{bank:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
         return
 
     # ИГРЫ
@@ -1013,10 +1298,26 @@ async def text_handler(message: Message):
         return
 
 # ========== ЗАПУСК ==========
+async def bank_interest_loop():
+    """Начисление процентов на банк раз в сутки"""
+    while True:
+        await asyncio.sleep(86400)
+        try:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("UPDATE users SET bank = bank + (bank * 0.05)::BIGINT WHERE bank > 0")
+            conn.commit()
+            c.close()
+            conn.close()
+            print("🏦 Проценты начислены")
+        except Exception as e:
+            print(f"Ошибка процентов: {e}")
+
 async def main():
     init_db()
     logging.basicConfig(level=logging.INFO)
     print("🎰 Бот запущен!")
+    asyncio.create_task(bank_interest_loop())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
