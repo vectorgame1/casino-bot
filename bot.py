@@ -491,7 +491,8 @@ async def callback_handler(call: CallbackQuery):
         await call.answer(f"💎 Баланс: {balance:,}\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
 
     elif data == "menu_bank":
-               txt = (
+                  elif data == "menu_bank":
+        txt = (
             f"🏦 <b>БАНК</b>\n\n"
             f"👤 {username}\n"
             f"💎 Баланс: <b>{balance:,}</b>\n"
@@ -502,7 +503,6 @@ async def callback_handler(call: CallbackQuery):
             f"🔥 <b>+5% в день</b> за хранение!"
         ).replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
-
     elif data == "menu_top":
         rows = get_top(10)
         txt = "🏆 <b>ТОП-10</b>\n\n"
@@ -512,8 +512,6 @@ async def callback_handler(call: CallbackQuery):
             txt += f"{medal} {uname} — <b>{bal:,}</b>\n".replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
-    elif data == "menu_log":
-        rows = get_last_roulette_results(10)
         if not rows:
             txt = "📜 <b>Последние результаты:</b>\n\nПока пусто..."
         else:
