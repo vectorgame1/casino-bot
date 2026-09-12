@@ -1,9 +1,10 @@
 import asyncio
 import logging
-import sqlite3
 import os
 import threading
 import random
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -14,7 +15,7 @@ from flask_cors import CORS
 # ========== НАСТРОЙКИ ==========
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
-DB_PATH = "casino.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 MINI_APP_URL = "https://vectorgame1.github.io/casino/"
 
 RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
@@ -84,44 +85,60 @@ web_thread = threading.Thread(target=run_web)
 web_thread.daemon = False
 web_thread.start()
 
-# ========== БАЗА ==========
+# ========== БАЗА (PostgreSQL) ==========
+def get_db():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, balance INTEGER DEFAULT 1000)")
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id BIGINT PRIMARY KEY,
+        username TEXT,
+        balance BIGINT DEFAULT 1000
+    )""")
     c.execute("""CREATE TABLE IF NOT EXISTS game_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, username TEXT, game TEXT,
-        bet INTEGER, win INTEGER, detail TEXT, time TEXT
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        username TEXT,
+        game TEXT,
+        bet BIGINT,
+        win BIGINT,
+        detail TEXT,
+        time TEXT
     )""")
     conn.commit()
+    c.close()
     conn.close()
 
 def get_user(user_id):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT username, balance FROM users WHERE user_id = ?", (user_id,))
+    c.execute("SELECT username, balance FROM users WHERE user_id = %s", (user_id,))
     row = c.fetchone()
+    c.close()
     conn.close()
     return row
 
 def ensure_user(user_id, username):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
-    c.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, user_id))
+    c.execute("INSERT INTO users (user_id, username) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET username = %s",
+              (user_id, username, username))
     conn.commit()
+    c.close()
     conn.close()
 
 def set_balance(user_id, amount):
     amount = int(amount)
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (user_id, balance) VALUES (?, 1000)", (user_id,))
-    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    c.execute("INSERT INTO users (user_id, balance) VALUES (%s, 1000) ON CONFLICT (user_id) DO NOTHING", (user_id,))
+    c.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
     conn.commit()
-    c.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    c.execute("SELECT balance FROM users WHERE user_id = %s", (user_id,))
     row = c.fetchone()
+    c.close()
     conn.close()
     return row[0] if row else 0
 
@@ -130,26 +147,29 @@ def get_balance(user_id):
     return user[1] if user else 1000
 
 def get_top(limit=10):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT user_id, username, balance FROM users ORDER BY balance DESC LIMIT ?", (limit,))
+    c.execute("SELECT user_id, username, balance FROM users ORDER BY balance DESC LIMIT %s", (limit,))
     rows = c.fetchall()
+    c.close()
     conn.close()
     return rows
 
 def log_game(user_id, username, game, bet, win, detail):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("INSERT INTO game_log (user_id, username, game, bet, win, detail, time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    c.execute("INSERT INTO game_log (user_id, username, game, bet, win, detail, time) VALUES (%s, %s, %s, %s, %s, %s, %s)",
               (user_id, username, game, bet, int(win), detail, datetime.now().strftime("%H:%M:%S")))
     conn.commit()
+    c.close()
     conn.close()
 
 def get_last_roulette_results(limit=10):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT detail FROM game_log WHERE game='рулетка' ORDER BY id DESC LIMIT ?", (limit,))
+    c.execute("SELECT detail FROM game_log WHERE game='рулетка' ORDER BY id DESC LIMIT %s", (limit,))
     rows = c.fetchall()
+    c.close()
     conn.close()
     return rows
 
@@ -180,14 +200,12 @@ def create_deck():
 
 # ========== КЛАВИАТУРЫ ==========
 def private_kb():
-    """Клавиатура для ЛИЧКИ — только Mini App и Топ"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Открыть Casino", web_app={"url": MINI_APP_URL})],
         [InlineKeyboardButton(text="🏆 Топ игроков", callback_data="menu_top")]
     ])
 
 def group_kb():
-    """Клавиатура для ГРУППЫ — все игры"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Игры", callback_data="menu_games"),
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
@@ -245,33 +263,28 @@ async def cmd_start(message: Message):
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
     balance = get_balance(user_id)
-    
-    # Проверяем — личка или группа
     is_private = message.chat.type == 'private'
-    
     if is_private:
         txt = (
             f"🎰 <b>WORLD CASINO</b>\n\n"
             f"👤 {username}\n"
             f"💎 <b>{balance:,}</b> фишек\n\n"
             f"🎮 <b>Играй в Mini App!</b>\n"
-            f"Нажми кнопку ниже 👇\n\n"
-            f"<b>Команды в группе:</b>\n"
-            f"Добавь меня в группу — и играй с друзьями!"
-        ).replace(',', ' ')
+            f"Нажми кнопку ниже 👇".replace(',', ' ')
+        )
         await message.answer(txt, parse_mode="HTML", reply_markup=private_kb())
     else:
         txt = (
             f"🎰 <b>WORLD CASINO</b>\n\n"
             f"👤 {username}\n"
             f"💎 <b>{balance:,}</b> фишек\n\n"
-            f"🎮 Нажми <b>Игры</b> — там все игры!\n\n"
+            f"🎮 Нажми <b>Игры</b>!\n\n"
             f"<code>б</code> — баланс | <code>топ</code> — топ\n"
             f"<code>хл 100</code> — HL | <code>бж 100</code> — блэкджек\n"
             f"<code>спин 100</code> — слоты\n"
             f"<code>орёл 100</code> / <code>решка 100</code> — монетка\n"
-            f"<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск"
-        ).replace(',', ' ')
+            f"<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск".replace(',', ' ')
+        )
         await message.answer(txt, parse_mode="HTML", reply_markup=group_kb())
 
 @dp.message(Command("balance"))
@@ -280,7 +293,7 @@ async def cmd_balance(message: Message):
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
     balance = get_balance(user_id)
-    await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b> фишек".replace(',', ' '), parse_mode="HTML")
+    await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' '), parse_mode="HTML")
 
 @dp.message(Command("top"))
 async def cmd_top(message: Message):
@@ -295,24 +308,6 @@ async def cmd_top(message: Message):
         txt += f"{medal} {uname} — <b>{bal:,}</b>\n".replace(',', ' ')
     await message.answer(txt, parse_mode="HTML")
 
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
-    await message.answer(
-        f"❓ <b>Помощь</b>\n\n"
-        f"<code>б</code> — баланс\n"
-        f"<code>игры</code> — список игр\n"
-        f"<code>топ</code> — топ\n"
-        f"<code>лог</code> — лог\n\n"
-        f"<code>п 1000</code> — перевод (ответом)\n"
-        f"<code>к/ч/з 1000</code> — рулетка\n"
-        f"<code>го</code> — запуск рулетки\n"
-        f"<code>спин 100</code> — слоты\n"
-        f"<code>орёл 100</code> / <code>решка 100</code> — монетка\n"
-        f"<code>хл 100</code> — HL (карты)\n"
-        f"<code>бж 100</code> — блэкджек",
-        parse_mode="HTML"
-    )
-
 @dp.message(Command("give"))
 async def cmd_give(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -324,10 +319,11 @@ async def cmd_give(message: Message):
             amount = int(args[2])
         except:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT user_id FROM users WHERE username = ?", (username,))
+        c.execute("SELECT user_id FROM users WHERE username = %s", (username,))
         row = c.fetchone()
+        c.close()
         conn.close()
         if not row:
             await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
@@ -353,35 +349,30 @@ async def cmd_take(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
-    
-    # /take all
     if len(args) >= 2 and args[1].lower() == 'all':
         if not message.reply_to_message or message.reply_to_message.from_user.is_bot:
-            await message.answer("❌ Ответь на сообщение игрока и напиши: <code>/take all</code>", parse_mode="HTML")
+            await message.answer("❌ Ответь на сообщение игрока: <code>/take all</code>", parse_mode="HTML")
             return
         target = message.reply_to_message.from_user
         ensure_user(target.id, target.username or target.first_name)
-        target_balance = get_balance(target.id)
-        if target_balance <= 0:
-            await message.answer(f"❌ У {target.username or target.first_name} нет фишек!", parse_mode="HTML")
+        tb = get_balance(target.id)
+        if tb <= 0:
+            await message.answer(f"❌ Нет фишек!", parse_mode="HTML")
             return
-        set_balance(target.id, -target_balance)
-        await message.answer(
-            f"✅ <b>Забрано всё!</b>\n\n👤 {target.username or target.first_name}\n💸 -{target_balance:,} фишек\n💎 Баланс: <b>0</b>".replace(',', ' '),
-            parse_mode="HTML"
-        )
+        set_balance(target.id, -tb)
+        await message.answer(f"✅ <b>Забрано всё!</b>\n\n👤 {target.username or target.first_name}\n💸 -{tb:,}\n💎 Баланс: <b>0</b>".replace(',', ' '), parse_mode="HTML")
         return
-    
     if len(args) >= 3 and args[1].startswith('@'):
         username = args[1][1:]
         try:
             amount = int(args[2])
         except:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT user_id FROM users WHERE username = ?", (username,))
+        c.execute("SELECT user_id FROM users WHERE username = %s", (username,))
         row = c.fetchone()
+        c.close()
         conn.close()
         if not row:
             await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
@@ -412,11 +403,11 @@ async def callback_handler(call: CallbackQuery):
     balance = get_balance(user_id)
 
     if data == "menu_main":
-        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b> фишек".replace(',', ' ')
+        txt = f"🎰 <b>WORLD CASINO</b>\n\n👤 {username}\n💎 <b>{balance:,}</b>".replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
     elif data == "menu_games":
-        txt = "🎮 <b>ИГРЫ</b>\n\nВыбери игру, чтобы узнать правила:"
+        txt = "🎮 <b>ИГРЫ</b>\n\nВыбери игру:"
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=games_kb())
 
     elif data == "menu_balance":
@@ -445,17 +436,8 @@ async def callback_handler(call: CallbackQuery):
                     txt += f"{i}. {detail}\n"
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
-    # Инфо о играх
     elif data == "info_roulette":
-        txt = (
-            f"🎡 <b>РУЛЕТКА</b>\n\n"
-            f"<code>к 1000</code> — красное (×2)\n"
-            f"<code>ч 1000</code> — чёрное (×2)\n"
-            f"<code>з 1000</code> — зеро (×36)\n"
-            f"<code>1000 5</code> — число (×36)\n"
-            f"<code>1000 1-9 10-18</code> — диапазоны\n\n"
-            f"<code>го</code> — запуск"
-        )
+        txt = f"🎡 <b>РУЛЕТКА</b>\n\n<code>к 1000</code> — красное (×2)\n<code>ч 1000</code> — чёрное (×2)\n<code>з 1000</code> — зеро (×36)\n<code>1000 5</code> — число (×36)\n<code>1000 1-9 10-18</code> — диапазоны\n\n<code>го</code> — запуск"
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=back_to_games_kb())
 
     elif data == "info_slots":
@@ -486,10 +468,10 @@ async def callback_handler(call: CallbackQuery):
         bet_type = parts[1]
         bet = int(parts[2])
         if bet < 10:
-            await call.answer("❌ Минимум 10 фишек!", show_alert=True)
+            await call.answer("❌ Минимум 10!", show_alert=True)
             return
         if balance < bet:
-            await call.answer(f"❌ Недостаточно! Баланс: {balance}", show_alert=True)
+            await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
         set_balance(user_id, -bet)
         result = random.randint(0, 36)
@@ -526,16 +508,16 @@ async def callback_handler(call: CallbackQuery):
         ])
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=rkb)
 
-    # ГРУППОВАЯ СТАВКА (Повторить/Удвоить)
+    # ГРУППОВАЯ СТАВКА
     elif data.startswith("group_bet_"):
         parts = data.split("_")
         bet_type = parts[2]
         bet = int(parts[3])
         if bet < 10:
-            await call.answer("❌ Минимум 10 фишек!", show_alert=True)
+            await call.answer("❌ Минимум 10!", show_alert=True)
             return
         if balance < bet:
-            await call.answer(f"❌ Недостаточно! Баланс: {balance}", show_alert=True)
+            await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
         set_balance(user_id, -bet)
         result = random.randint(0, 36)
@@ -714,11 +696,8 @@ async def text_handler(message: Message):
         return
     if message.from_user.is_bot:
         return
-    
-    # В ЛИЧКЕ — игнорируем все команды (кроме /start)
     if message.chat.type == 'private':
         return
-    
     text = message.text.strip().lower()
     parts = text.split()
     user_id = message.from_user.id
@@ -776,7 +755,7 @@ async def text_handler(message: Message):
 
     # ИГРЫ
     if text in ['игры', 'игра']:
-        await message.reply("🎮 <b>ИГРЫ</b>\n\nВыбери игру, чтобы узнать правила:", parse_mode="HTML", reply_markup=games_kb())
+        await message.reply("🎮 <b>ИГРЫ</b>\n\nВыбери игру:", parse_mode="HTML", reply_markup=games_kb())
         return
 
     # ЛОГ
@@ -857,10 +836,7 @@ async def text_handler(message: Message):
             result_text += "<b>Победители:</b>\n" + "\n".join(winners)
         else:
             result_text += "😢 <b>Победителей нет</b>"
-        
         del active_bets[chat_id]
-        
-        # Кнопки для того, кто написал "го"
         if user_last_bet:
             rkb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"group_bet_{user_last_bet['type']}_{user_last_bet['bet']}"),
