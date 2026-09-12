@@ -491,18 +491,16 @@ async def callback_handler(call: CallbackQuery):
         await call.answer(f"💎 Баланс: {balance:,}\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
 
     elif data == "menu_bank":
-        txt = (
+               txt = (
             f"🏦 <b>БАНК</b>\n\n"
             f"👤 {username}\n"
             f"💎 Баланс: <b>{balance:,}</b>\n"
             f"🏦 В банке: <b>{bank:,}</b>\n\n"
             f"<b>Команды в чате:</b>\n"
             f"<code>банк положить 1000</code>\n"
-            f"<code>банк снять 1000</code>\n\n"
-            f"💰 <b>+5% в день</b> за хранение!".replace(',', ' '),
-            parse_mode="HTML",
-            reply_markup=group_kb()
-        )
+            f"<code>банк снять 1000</code>\n"
+            f"🔥 <b>+5% в день</b> за хранение!"
+        ).replace(',', ' ')
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
 
     elif data == "menu_top":
