@@ -25,6 +25,16 @@ MULT_ZERO = 36
 MULT_NUMBER = 36
 MULT_RANGE = 1.2
 
+# ========== БЕЗОПАСНЫЕ ЧИСЛА ==========
+MAX_BIGINT = 9_000_000_000_000_000_000
+MAX_BET = 9_000_000_000_000_000  # 9 квадриллионов
+
+def clamp(x):
+    try:
+        return max(-MAX_BIGINT, min(int(x), MAX_BIGINT))
+    except:
+        return 0
+
 CARD_DECK = ['2','3','4','5','6','7','8','9','10','J','Q','K','A']
 CARD_VALUES = {
     '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
@@ -191,7 +201,7 @@ def set_unlimited(user_id, unlimited=True):
     conn.close()
 
 def set_balance(user_id, amount):
-    amount = int(amount)
+    amount = clamp(amount)
     if is_unlimited(user_id) and amount < 0:
         conn = get_db()
         c = conn.cursor()
@@ -216,7 +226,7 @@ def get_balance(user_id):
     return user[1] if user else 1000
 
 def set_bank(user_id, amount):
-    amount = int(amount)
+    amount = clamp(amount)
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT INTO users (user_id, bank) VALUES (%s, 0) ON CONFLICT (user_id) DO NOTHING", (user_id,))
@@ -250,7 +260,7 @@ def log_game(user_id, username, game, bet, win, detail):
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT INTO game_log (user_id, username, game, bet, win, detail, time) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-              (user_id, username, game, bet, int(win), detail, datetime.now().strftime("%H:%M:%S")))
+              (user_id, username, game, clamp(bet), clamp(win), detail, datetime.now().strftime("%H:%M:%S")))
     conn.commit()
     c.close()
     conn.close()
@@ -660,6 +670,9 @@ async def callback_handler(call: CallbackQuery):
         if bet < 10:
             await call.answer("❌ Минимум 10!", show_alert=True)
             return
+        if bet > MAX_BET:
+            await call.answer(f"❌ Максимум {MAX_BET:,}".replace(',', ' '), show_alert=True)
+            return
         if balance < bet and not is_unlimited(user_id):
             await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
@@ -683,7 +696,7 @@ async def callback_handler(call: CallbackQuery):
             win = True
             mult = MULT_ZERO
         if win:
-            wa = int(bet * mult)
+            wa = clamp(int(bet * mult))
             nb = set_balance(user_id, wa)
             txt = f"🎰 <b>Выпало: {color} {result}</b>\n\n🎉 <b>{username}</b>\n💰 <b>+{wa:,}</b> (×{mult})\n\n💎 <b>{nb:,}</b>".replace(',', ' ')
             log_game(user_id, username, "рулетка", bet, wa, f"{result} {color}")
@@ -705,6 +718,9 @@ async def callback_handler(call: CallbackQuery):
         if bet < 10:
             await call.answer("❌ Минимум 10!", show_alert=True)
             return
+        if bet > MAX_BET:
+            await call.answer(f"❌ Максимум {MAX_BET:,}".replace(',', ' '), show_alert=True)
+            return
         if balance < bet and not is_unlimited(user_id):
             await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
@@ -728,7 +744,7 @@ async def callback_handler(call: CallbackQuery):
             win = True
             mult = MULT_ZERO
         if win:
-            wa = int(bet * mult)
+            wa = clamp(int(bet * mult))
             nb = set_balance(user_id, wa)
             txt = f"🎰 <b>Выпало: {color} {result}</b>\n\n🎉 <b>{username}</b>\n💰 <b>+{wa:,}</b> (×{mult})\n\n💎 <b>{nb:,}</b>".replace(',', ' ')
             log_game(user_id, username, "рулетка", bet, wa, f"{result} {color}")
@@ -768,7 +784,7 @@ async def callback_handler(call: CallbackQuery):
         p_score = hand_score(game["player"])
         d_score = hand_score(game["dealer"])
         if d_score > 21 or p_score > d_score:
-            wa = game["bet"] * 2
+            wa = clamp(game["bet"] * 2)
             nb = set_balance(user_id, wa)
             result_text = f"🎉 <b>ПОБЕДА!</b>\n💰 +{wa - game['bet']:,}"
             log_game(user_id, username, "блэкджек", game["bet"], wa, f"{p_score} vs {d_score}")
@@ -803,7 +819,7 @@ async def callback_handler(call: CallbackQuery):
             up_mult, down_mult = get_hl_mults(current_card)
             mult = up_mult if direction == "up" else down_mult
             game["mult"] = round(game["mult"] * mult, 2)
-            game["win_amount"] = int(game["bet"] * game["mult"])
+            game["win_amount"] = clamp(int(game["bet"] * game["mult"]))
             game["card"] = next_card
             game["streak"] += 1
             up_mult_new, down_mult_new = get_hl_mults(next_card)
@@ -819,7 +835,7 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Игра не найдена!")
             return
         game = hl_games[user_id]
-        wa = int(game["win_amount"] * 0.9)
+        wa = clamp(int(game["win_amount"] * 0.9))
         nb = set_balance(user_id, wa)
         log_game(user_id, username, "HL", game["bet"], wa, f"забрал ×{game['mult']}")
         await call.message.edit_text(f"💰 <b>Забрал: {wa:,}</b>\n\n📉 Комиссия 10%: −{int(game['win_amount'] * 0.1):,}\n🔥 Серия: {game['streak']}\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML", reply_markup=group_kb())
@@ -883,6 +899,9 @@ async def text_handler(message: Message):
         if bet < 10:
             await message.reply("❌ Минимум 10!")
             return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
@@ -939,7 +958,7 @@ async def text_handler(message: Message):
         set_balance(duel["challenger_id"], -duel["challenger_bet"])
         set_balance(duel["opponent_id"], -duel["opponent_bet"])
         duel["active"] = True
-        total_bank = duel["challenger_bet"] + duel["opponent_bet"]
+        total_bank = clamp(duel["challenger_bet"] + duel["opponent_bet"])
         await message.reply(f"⚔️ <b>ДУЭЛЬ НАЧАЛАСЬ!</b>\n\n👤 {duel['challenger_name']} vs {duel['opponent_name']}\n💰 Банк: <b>{total_bank:,}</b>\n\n🔴 🔵 Шарик крутится...".replace(',', ' '), parse_mode="HTML")
         await asyncio.sleep(2)
         winner_color = random.choice(['red', 'blue'])
@@ -970,7 +989,7 @@ async def text_handler(message: Message):
     if text == 'банк':
         balance = get_balance(user_id)
         bank = get_bank(user_id)
-        total = balance + bank
+        total = clamp(balance + bank)
         await message.reply(f"🏦 <b>БАНК</b>\n\n👤 {username}\n💰 Баланс: <b>{balance:,}</b>\n🏦 В банке: <b>{bank:,}</b>\n💎 Всего: <b>{total:,}</b>\n\n<code>банк положить 1000</code>\n<code>банк снять 1000</code>".replace(',', ' '), parse_mode="HTML")
         return
 
@@ -1105,8 +1124,13 @@ async def text_handler(message: Message):
             await message.reply("❌ Нет активных ставок!")
             return
         bets = active_bets[chat_id]["bets"]
-        total_bank = sum(b["bet_total"] for b in bets)
-        await message.reply(f"🎡 <b>РУЛЕТКА!</b>\n\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 Крутится...".replace(',', ' '), parse_mode="HTML")
+        total_bank = clamp(sum(b["bet_total"] for b in bets))
+        unlimited_in_bets = any(is_unlimited(b["user_id"]) for b in bets)
+        if unlimited_in_bets:
+            bank_line = "♾️"
+        else:
+            bank_line = f"{total_bank:,}".replace(',', ' ')
+        await message.reply(f"🎡 <b>РУЛЕТКА!</b>\n\n💰 Банк: <b>{bank_line}</b>\n\n🕐 Крутится...", parse_mode="HTML")
         await asyncio.sleep(3)
         result = random.randint(0, 36)
         if result == 0:
@@ -1138,9 +1162,13 @@ async def text_handler(message: Message):
             if b["user_id"] == user_id:
                 user_last_bet = b
             if win_amount > 0:
+                win_amount = clamp(win_amount)
                 set_balance(b["user_id"], win_amount)
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color}")
-                winners.append(f"🎉 {b['username']} — <b>+{win_amount:,}</b>".replace(',', ' '))
+                if is_unlimited(b["user_id"]):
+                    winners.append(f"🎉 {b['username']} — ♾️")
+                else:
+                    winners.append(f"🎉 {b['username']} — <b>+{win_amount:,}</b>".replace(',', ' '))
             else:
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color}")
         if winners:
@@ -1168,6 +1196,9 @@ async def text_handler(message: Message):
         if bet < 10:
             await message.reply("❌ Минимум 10!")
             return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
@@ -1186,7 +1217,7 @@ async def text_handler(message: Message):
             win = True
             mult = 2
         if win:
-            wa = bet * mult
+            wa = clamp(bet * mult)
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "слоты", bet, wa, f"{r1}{r2}{r3}")
             await message.reply(f"🎰 <b>СЛОТЫ</b>\n\n┃ {r1} ┃ {r2} ┃ {r3} ┃\n\n🎉 <b>+{wa:,}</b> (×{mult})\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
@@ -1205,6 +1236,9 @@ async def text_handler(message: Message):
         if bet < 10:
             await message.reply("❌ Минимум 10!")
             return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
@@ -1213,7 +1247,7 @@ async def text_handler(message: Message):
         choice = 'heads' if parts[0] in ['орёл', 'орел'] else 'tails'
         result = random.choice(['heads', 'tails'])
         if result == choice:
-            wa = bet * 2
+            wa = clamp(bet * 2)
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "монетка", bet, wa, "🦅" if result == 'heads' else "👑")
             await message.reply(f"🪙 <b>МОНЕТКА</b>\n\n🎯 {'🦅 Орёл' if result == 'heads' else '👑 Решка'}\n\n🎉 <b>+{wa:,}</b>\n\n💎 <b>{nb:,}</b>".replace(',', ' '), parse_mode="HTML")
@@ -1231,6 +1265,9 @@ async def text_handler(message: Message):
             return
         if bet < 10:
             await message.reply("❌ Минимум 10!")
+            return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
             return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
@@ -1262,6 +1299,9 @@ async def text_handler(message: Message):
         if bet < 10:
             await message.reply("❌ Минимум 10!")
             return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
@@ -1287,6 +1327,9 @@ async def text_handler(message: Message):
         if bet < 10:
             await message.reply("❌ Минимум 10!")
             return
+        if bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < bet and not is_unlimited(user_id):
             await message.reply(f"❌ Недостаточно! {balance}")
@@ -1297,7 +1340,7 @@ async def text_handler(message: Message):
             active_bets[chat_id] = {"bets": []}
         active_bets[chat_id]["bets"].append({"user_id": user_id, "username": username, "type": bet_type, "bet": bet, "bet_total": bet})
         bets = active_bets[chat_id]["bets"]
-        total_bank = sum(b["bet_total"] for b in bets)
+        total_bank = clamp(sum(b["bet_total"] for b in bets))
         icon = '🔴' if bet_type == 'red' else ('⚫' if bet_type == 'black' else '🟢')
         await message.reply(f"📊 <b>Ставка принята!</b>\n\n👤 {username}\n{icon} × <b>{bet:,}</b>\n\n⚡ Всего: {len(bets)}\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 <code>го</code> — запуск\n❌ <code>отмена</code>".replace(',', ' '), parse_mode="HTML")
         return
@@ -1309,6 +1352,9 @@ async def text_handler(message: Message):
             await message.reply("❌ Минимум 10!")
             return
         total_bet = bet * len(ranges)
+        if total_bet > MAX_BET:
+            await message.reply(f"❌ Максимум {MAX_BET:,}".replace(',', ' '))
+            return
         balance = get_balance(user_id)
         if balance < total_bet and not is_unlimited(user_id):
             await message.reply(f"❌ Нужно {total_bet:,}, у тебя {balance:,}".replace(',', ' '))
@@ -1318,7 +1364,7 @@ async def text_handler(message: Message):
             active_bets[chat_id] = {"bets": []}
         active_bets[chat_id]["bets"].append({"user_id": user_id, "username": username, "type": "ranges", "bet": bet, "bet_total": total_bet, "ranges": ranges})
         bets = active_bets[chat_id]["bets"]
-        total_bank = sum(b["bet_total"] for b in bets)
+        total_bank = clamp(sum(b["bet_total"] for b in bets))
         ranges_str = " ".join([f"{a}-{z}" if a != z else str(a) for (a, z) in ranges])
         await message.reply(f"📊 <b>Ставка принята!</b>\n\n👤 {username}\n🎯 <b>{ranges_str}</b>\n💰 <b>{bet:,}</b> × {len(ranges)} = <b>{total_bet:,}</b>\n\n⚡ Всего: {len(bets)}\n💰 Банк: <b>{total_bank:,}</b>\n\n🕐 <code>го</code> — запуск\n❌ <code>отмена</code>".replace(',', ' '), parse_mode="HTML")
         return
