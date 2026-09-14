@@ -26,7 +26,7 @@ MULT_NUMBER = 36
 MULT_RANGE = 1.2
 
 MAX_BIGINT = 9_000_000_000_000_000_000
-MAX_BET = 9_000_000_000_000_000
+MAX_BET = 100_000_000_000
 
 def clamp(x):
     try:
@@ -2291,9 +2291,12 @@ async def text_handler(message: Message):
         unlimited_in_bets = any(is_unlimited(b["user_id"]) for b in bets)
         bank_line = "♾️" if unlimited_in_bets else f"{total_bank:,}".replace(',', ' ')
         msg = await message.reply(f"🎡 <b>РУЛЕТКА!</b>\n💰 {bank_line}\n\n🎲 Крутится...", parse_mode="HTML")
-        for frame in ANIM_ROULETTE:
-            await asyncio.sleep(0.5)
-            await msg.edit_text(f"🎡 <b>РУЛЕТКА</b>\n💰 {bank_line}\n\n🎲 {frame}", parse_mode="HTML")
+            for frame in ANIM_ROULETTE:
+        await asyncio.sleep(0.7)
+        try:
+            await msg.edit_text(f"🎡 <b>РУЛЕТКА!</b>\n💰 {bank_line}\n\n🎲 {frame}", parse_mode="HTML")
+        except Exception as e:
+            print(f"Ошибка анимации: {e}")
         result = random.randint(0, 36)
         color = "🟢" if result == 0 else ("🔴" if result in RED_NUMBERS else "⚫")
         result_text = f"🎰 <b>{color} {result}</b>\n"
@@ -2326,13 +2329,19 @@ async def text_handler(message: Message):
                     winners.append(f"🎉 {b['username']} — ♾️")
                 else:
                     winners.append(f"🎉 {b['username']} — <b>+{win_amount:,}</b>".replace(',', ' '))
-            else:
+                        else:
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color}")
-        if winners:
-            result_text += "\n".join(winners)
-        else:
-            result_text += "😢 Нет победителей"
-        del active_bets[chat_id]
+                xp = get_xp(b["user_id"])
+                vip = get_vip_info(xp)
+                cashback = int(b["bet_total"] * vip["cashback"] / 100)
+                if cashback > 0 and not is_unlimited(b["user_id"]):
+                    set_balance(b["user_id"], cashback)
+            if winners:
+        result_text += "\n".join(winners)
+    else:
+        result_text += "😢 <b>Победителей нет</b>"
+    del active_bets[chat_id]
+    try:
         if user_last_bet:
             rkb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"group_bet_{user_last_bet['type']}_{user_last_bet['bet']}"),
@@ -2342,7 +2351,9 @@ async def text_handler(message: Message):
             await msg.edit_text(result_text, parse_mode="HTML", reply_markup=rkb)
         else:
             await msg.edit_text(result_text, parse_mode="HTML")
-        return
+    except Exception as e:
+        print(f"Ошибка финала: {e}")
+        await message.reply(result_text, parse_mode="HTML")
 
     if len(parts) == 2 and parts[0] in ['спин', 'spin']:
         try:
