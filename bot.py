@@ -412,6 +412,26 @@ def mines_field_text(user_id):
         f"💣 Мин: <b>{level['mines']}</b>"
     ).replace(',', ' ')
 
+# ========== АДМИН-ПАНЕЛЬ ==========
+def admin_panel_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"),
+         InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
+         InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")],
+        [InlineKeyboardButton(text="🎁 Бонус", callback_data="admin_bonus"),
+         InlineKeyboardButton(text="💎 Джекпот", callback_data="admin_jackpot")],
+        [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_users"),
+         InlineKeyboardButton(text="🚫 Ban/Unban", callback_data="admin_ban")],
+        [InlineKeyboardButton(text="🎮 Mini App", web_app={"url": MINI_APP_URL})],
+        [InlineKeyboardButton(text="📋 Все команды", callback_data="admin_all_cmds")]
+    ])
+
+def admin_back_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+
 # ========== БОТ ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -426,6 +446,25 @@ async def cmd_start(message: Message):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
     
+    is_private = message.chat.type == 'private'
+    
+    # ========== АДМИН-ПАНЕЛЬ ==========
+    if is_private and user_id == ADMIN_ID:
+        balance = get_balance(user_id)
+        bank = get_bank(user_id)
+        txt = (
+            f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
+            f"💎 Баланс: <b>{balance:,}</b>\n"
+            f"🏦 Банк: <b>{bank:,}</b>\n\n"
+            f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
+            f"Нажми на кнопку — покажу команду 👇"
+        ).replace(',', ' ')
+        await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+        return
+    
+    # ========== ОБЫЧНОЕ ПРИВЕТСТВИЕ ==========
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
@@ -447,7 +486,6 @@ async def cmd_start(message: Message):
     
     balance = get_balance(user_id)
     bank = get_bank(user_id)
-    is_private = message.chat.type == 'private'
     
     if is_unlimited(user_id):
         bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
@@ -491,6 +529,25 @@ async def cmd_start(message: Message):
             f"<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск"
         ).replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=group_kb())
+
+@dp.message(Command("admin"))
+async def cmd_admin(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    balance = get_balance(user_id)
+    bank = get_bank(user_id)
+    txt = (
+        f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
+        f"💎 Баланс: <b>{balance:,}</b>\n"
+        f"🏦 Банк: <b>{bank:,}</b>\n\n"
+        f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
+        f"Нажми на кнопку — покажу команду 👇"
+    ).replace(',', ' ')
+    await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
 
 @dp.message(Command("balance"))
 async def cmd_balance(message: Message):
@@ -681,7 +738,6 @@ async def cmd_unban(message: Message):
     set_banned(target.id, False)
     await message.answer(f"✅ <b>Игрок {target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
 
-# ========== /broadcast ==========
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -717,7 +773,6 @@ async def cmd_broadcast(message: Message):
         parse_mode="HTML"
     )
 
-# ========== /stats ==========
 @dp.message(Command("stats"))
 async def cmd_stats(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -781,7 +836,6 @@ async def cmd_stats(message: Message):
     ).replace(',', ' ')
     await message.answer(txt, parse_mode="HTML")
 
-# ========== /event ==========
 @dp.message(Command("event"))
 async def cmd_event(message: Message):
     global event_double
@@ -837,7 +891,6 @@ async def cmd_event(message: Message):
         return
     await message.answer("❌ Неизвестная команда. <code>/event</code> — справка", parse_mode="HTML")
 
-# ========== /maintenance ==========
 @dp.message(Command("maintenance"))
 async def cmd_maintenance(message: Message):
     global maintenance_on
@@ -886,7 +939,6 @@ async def cmd_maintenance(message: Message):
         return
     await message.answer("❌ Неизвестная команда. <code>/maintenance</code> — справка", parse_mode="HTML")
 
-# ========== /bonus ==========
 @dp.message(Command("bonus"))
 async def cmd_bonus(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -959,7 +1011,6 @@ async def cmd_bonus(message: Message):
         return
     await message.answer("❌ Напиши: <code>/bonus @user 50000</code>", parse_mode="HTML")
 
-# ========== /jackpot ==========
 @dp.message(Command("jackpot"))
 async def cmd_jackpot(message: Message):
     global jackpot_amount
@@ -1029,6 +1080,161 @@ async def callback_handler(call: CallbackQuery):
     if maintenance_on and user_id != ADMIN_ID:
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
+
+    # ========== АДМИН-ПАНЕЛЬ ==========
+    if data.startswith("admin_"):
+        if user_id != ADMIN_ID:
+            await call.answer("❌ Только для админа", show_alert=True)
+            return
+        if data == "admin_back":
+            balance = get_balance(user_id)
+            bank = get_bank(user_id)
+            txt = (
+                f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
+                f"💎 Баланс: <b>{balance:,}</b>\n"
+                f"🏦 Банк: <b>{bank:,}</b>\n\n"
+                f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
+                f"Нажми на кнопку — покажу команду 👇"
+            ).replace(',', ' ')
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+            await call.answer()
+            return
+        if data == "admin_broadcast":
+            txt = (
+                f"📢 <b>РАССЫЛКА</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"Отправь сообщение всем игрокам:\n\n"
+                f"<code>/broadcast Текст сообщения</code>\n\n"
+                f"<b>Пример:</b>\n"
+                f"<code>/broadcast Сегодня ×2 на рулетку!</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_stats":
+            txt = (
+                f"📊 <b>СТАТИСТИКА</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📊 <b>Бота:</b>\n"
+                f"<code>/stats</code>\n\n"
+                f"👤 <b>Игрока:</b>\n"
+                f"<code>/stats @username</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_event":
+            status = "✅ ВКЛ" if event_double else "❌ ВЫКЛ"
+            txt = (
+                f"🎰 <b>EVENT ×2</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"Статус: <b>{status}</b>\n\n"
+                f"<code>/event double on</code> — включить\n"
+                f"<code>/event double off</code> — выключить\n"
+                f"<code>/event status</code> — статус"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_maintenance":
+            status = "🛠️ ВКЛ" if maintenance_on else "✅ ВЫКЛ"
+            txt = (
+                f"🛠️ <b>ТЕХ.РАБОТЫ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"Статус: <b>{status}</b>\n\n"
+                f"<code>/maintenance on</code> — включить\n"
+                f"<code>/maintenance off</code> — выключить\n"
+                f"<code>/maintenance status</code> — статус"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_bonus":
+            txt = (
+                f"🎁 <b>БОНУС</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>Игроку:</b>\n"
+                f"<code>/bonus @username 50000</code>\n\n"
+                f"👥 <b>Всем:</b>\n"
+                f"<code>/bonus all 10000</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_jackpot":
+            txt = (
+                f"💎 <b>ДЖЕКПОТ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 Текущий: <b>{jackpot_amount:,}</b>\n\n"
+                f"<code>/jackpot set 1000000</code> — установить\n"
+                f"<code>/jackpot reset</code> — сбросить\n"
+                f"<code>/jackpot status</code> — статус".replace(',', ' ')
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_users":
+            txt = (
+                f"👥 <b>ИГРОКИ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 <b>Выдать:</b>\n"
+                f"<code>/give @user 1000</code>\n"
+                f"<code>/give unlimited</code>\n"
+                f"<code>/give all</code>\n\n"
+                f"💸 <b>Забрать:</b>\n"
+                f"<code>/take @user 1000</code>\n"
+                f"<code>/take all</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_ban":
+            txt = (
+                f"🚫 <b>BAN / UNBAN</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"<code>/ban @user</code> — забанить\n"
+                f"<code>/unban @user</code> — разбанить\n\n"
+                f"Или ответом на сообщение:\n"
+                f"<code>/ban</code>\n"
+                f"<code>/unban</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_all_cmds":
+            txt = (
+                f"📋 <b>ВСЕ КОМАНДЫ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"<b>📢 Рассылка:</b>\n"
+                f"<code>/broadcast текст</code>\n\n"
+                f"<b>📊 Статистика:</b>\n"
+                f"<code>/stats</code> | <code>/stats @user</code>\n\n"
+                f"<b>🎰 Event ×2:</b>\n"
+                f"<code>/event double on/off</code>\n\n"
+                f"<b>🛠️ Тех.работы:</b>\n"
+                f"<code>/maintenance on/off</code>\n\n"
+                f"<b>🎁 Бонус:</b>\n"
+                f"<code>/bonus @user 50000</code>\n\n"
+                f"<b>💎 Джекпот:</b>\n"
+                f"<code>/jackpot set/reset</code>\n\n"
+                f"<b>💰 Дать:</b>\n"
+                f"<code>/give @user 1000</code>\n\n"
+                f"<b>💸 Забрать:</b>\n"
+                f"<code>/take @user 1000</code>\n\n"
+                f"<b>🚫 Бан:</b>\n"
+                f"<code>/ban @user</code>\n\n"
+                f"<b>✅ Разбан:</b>\n"
+                f"<code>/unban @user</code>"
+            )
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        await call.answer()
+        return
+
+    # ========== ОБЫЧНЫЕ CALLBACK ==========
     balance = get_balance(user_id)
     bank = get_bank(user_id)
 
