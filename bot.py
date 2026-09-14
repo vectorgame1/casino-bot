@@ -2336,11 +2336,10 @@ for frame in ANIM_ROULETTE:
                 cashback = int(b["bet_total"] * vip["cashback"] / 100)
                 if cashback > 0 and not is_unlimited(b["user_id"]):
                     set_balance(b["user_id"], cashback)
-            if winners:
-        result_text += "\n".join(winners)
-    else:
-        result_text += "😢 <b>Победителей нет</b>"
-    del active_bets[chat_id]
+                    if winners:
+            result_text += "\n".join(winners)
+        else:
+            result_text += "😢 <b>Победителей нет</b>"
     try:
         if user_last_bet:
             rkb = InlineKeyboardMarkup(inline_keyboard=[
