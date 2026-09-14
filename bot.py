@@ -59,6 +59,14 @@ bj_games = {}
 duel_games = {}
 mines_games = {}
 
+# ========== ГЛОБАЛЬНЫЕ ФЛАГИ ==========
+event_double = False
+maintenance_on = False
+jackpot_amount = 10000
+
+def get_event_mult():
+    return 2 if event_double else 1
+
 # ========== ВЕБ-СЕРВЕР ==========
 app = Flask(__name__)
 CORS(app)
@@ -673,7 +681,7 @@ async def cmd_unban(message: Message):
     set_banned(target.id, False)
     await message.answer(f"✅ <b>Игрок {target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
 
-# ========== НОВЫЕ АДМИН-КОМАНДЫ ==========
+# ========== /broadcast ==========
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -709,6 +717,7 @@ async def cmd_broadcast(message: Message):
         parse_mode="HTML"
     )
 
+# ========== /stats ==========
 @dp.message(Command("stats"))
 async def cmd_stats(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -771,6 +780,242 @@ async def cmd_stats(message: Message):
         f"♾️ Безлимитов: <b>{unlimited_count}</b>"
     ).replace(',', ' ')
     await message.answer(txt, parse_mode="HTML")
+
+# ========== /event ==========
+@dp.message(Command("event"))
+async def cmd_event(message: Message):
+    global event_double
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        status = "✅ ВКЛ" if event_double else "❌ ВЫКЛ"
+        await message.answer(
+            f"🎰 <b>ИВЕНТ ×2</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Статус: <b>{status}</b>\n\n"
+            f"<code>/event double on</code> — включить\n"
+            f"<code>/event double off</code> — выключить\n"
+            f"<code>/event status</code> — статус",
+            parse_mode="HTML"
+        )
+        return
+    sub = args[1].lower()
+    if sub == "double":
+        if len(args) >= 3:
+            mode = args[2].lower()
+            if mode == "on":
+                event_double = True
+                await message.answer(
+                    f"🎰 <b>ИВЕНТ ×2 ВКЛЮЧЁН!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"💰 Все выигрыши <b>×2</b>!\n"
+                    f"🎮 Рулетка, Слоты, Монетка, Блэкджек, Мины\n\n"
+                    f"<code>/event double off</code> — выключить",
+                    parse_mode="HTML"
+                )
+            elif mode == "off":
+                event_double = False
+                await message.answer(
+                    f"🎰 <b>ИВЕНТ ×2 ВЫКЛЮЧЕН</b>\n\n"
+                    f"💰 Выигрыши <b>×1</b> (обычные)",
+                    parse_mode="HTML"
+                )
+            else:
+                await message.answer("❌ Напиши: <code>/event double on</code>", parse_mode="HTML")
+            return
+        await message.answer("❌ Напиши: <code>/event double on</code>", parse_mode="HTML")
+        return
+    if sub == "status":
+        status = "✅ ВКЛ" if event_double else "❌ ВЫКЛ"
+        await message.answer(
+            f"🎰 <b>СТАТУС ИВЕНТА ×2</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Статус: <b>{status}</b>",
+            parse_mode="HTML"
+        )
+        return
+    await message.answer("❌ Неизвестная команда. <code>/event</code> — справка", parse_mode="HTML")
+
+# ========== /maintenance ==========
+@dp.message(Command("maintenance"))
+async def cmd_maintenance(message: Message):
+    global maintenance_on
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        status = "🛠️ ВКЛ" if maintenance_on else "✅ ВЫКЛ"
+        await message.answer(
+            f"🛠️ <b>ТЕХ.РАБОТЫ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Статус: <b>{status}</b>\n\n"
+            f"<code>/maintenance on</code> — включить\n"
+            f"<code>/maintenance off</code> — выключить\n"
+            f"<code>/maintenance status</code> — статус",
+            parse_mode="HTML"
+        )
+        return
+    sub = args[1].lower()
+    if sub == "on":
+        maintenance_on = True
+        await message.answer(
+            f"🛠️ <b>ТЕХ.РАБОТЫ ВКЛЮЧЕНЫ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"❌ Игроки <b>не могут</b> играть\n"
+            f"✅ Админ-команды работают",
+            parse_mode="HTML"
+        )
+        return
+    if sub == "off":
+        maintenance_on = False
+        await message.answer(
+            f"✅ <b>ТЕХ.РАБОТЫ ВЫКЛЮЧЕНЫ</b>\n\n"
+            f"🎮 Игроки снова могут играть!",
+            parse_mode="HTML"
+        )
+        return
+    if sub == "status":
+        status = "🛠️ ВКЛ" if maintenance_on else "✅ ВЫКЛ"
+        await message.answer(
+            f"🛠️ <b>СТАТУС ТЕХ.РАБОТ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Статус: <b>{status}</b>",
+            parse_mode="HTML"
+        )
+        return
+    await message.answer("❌ Неизвестная команда. <code>/maintenance</code> — справка", parse_mode="HTML")
+
+# ========== /bonus ==========
+@dp.message(Command("bonus"))
+async def cmd_bonus(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer(
+            f"🎁 <b>БОНУС</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<code>/bonus @user 50000</code> — игроку\n"
+            f"<code>/bonus all 10000</code> — всем",
+            parse_mode="HTML"
+        )
+        return
+    target = args[1]
+    try:
+        amount = int(args[2])
+    except:
+        await message.answer("❌ Неверная сумма", parse_mode="HTML")
+        return
+    if amount <= 0:
+        await message.answer("❌ Сумма > 0", parse_mode="HTML")
+        return
+    if target.lower() == 'all':
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT user_id, username FROM users WHERE banned = FALSE")
+        rows = c.fetchall()
+        c.close()
+        conn.close()
+        if not rows:
+            await message.answer("❌ Нет игроков", parse_mode="HTML")
+            return
+        count = 0
+        for (uid, uname) in rows:
+            try:
+                set_balance(uid, amount)
+                count += 1
+            except:
+                pass
+        await message.answer(
+            f"🎁 <b>БОНУС ВСЕМ!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 +{amount:,} каждому\n"
+            f"👥 Получили: <b>{count}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    if target.startswith('@'):
+        username = target[1:]
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT user_id, username FROM users WHERE username = %s", (username,))
+        row = c.fetchone()
+        c.close()
+        conn.close()
+        if not row:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        uid, uname = row
+        nb = set_balance(uid, amount)
+        await message.answer(
+            f"🎁 <b>БОНУС ВЫДАН!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 @{username}\n"
+            f"💰 +{amount:,}\n"
+            f"💎 Новый баланс: <b>{nb:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    await message.answer("❌ Напиши: <code>/bonus @user 50000</code>", parse_mode="HTML")
+
+# ========== /jackpot ==========
+@dp.message(Command("jackpot"))
+async def cmd_jackpot(message: Message):
+    global jackpot_amount
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer(
+            f"💎 <b>ДЖЕКПОТ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Текущий: <b>{jackpot_amount:,}</b>\n\n"
+            f"<code>/jackpot set 1000000</code> — установить\n"
+            f"<code>/jackpot reset</code> — сбросить до 10к\n"
+            f"<code>/jackpot status</code> — показать".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    sub = args[1].lower()
+    if sub == "set":
+        if len(args) < 3:
+            await message.answer("❌ Напиши: <code>/jackpot set 1000000</code>", parse_mode="HTML")
+            return
+        try:
+            amount = int(args[2])
+        except:
+            await message.answer("❌ Неверная сумма", parse_mode="HTML")
+            return
+        if amount < 10000:
+            await message.answer("❌ Минимум 10 000", parse_mode="HTML")
+            return
+        jackpot_amount = clamp(amount)
+        await message.answer(
+            f"💎 <b>ДЖЕКПОТ УСТАНОВЛЕН</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Новый: <b>{jackpot_amount:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    if sub == "reset":
+        jackpot_amount = 10000
+        await message.answer(
+            f"💎 <b>ДЖЕКПОТ СБРОШЕН</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Новый: <b>10 000</b>",
+            parse_mode="HTML"
+        )
+        return
+    if sub == "status":
+        await message.answer(
+            f"💎 <b>СТАТУС ДЖЕКПОТА</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Текущий: <b>{jackpot_amount:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+        return
+    await message.answer("❌ Неизвестная команда. <code>/jackpot</code> — справка", parse_mode="HTML")
     # ========== КНОПКИ ==========
 @dp.callback_query()
 async def callback_handler(call: CallbackQuery):
@@ -780,6 +1025,9 @@ async def callback_handler(call: CallbackQuery):
     ensure_user(user_id, username)
     if is_banned(user_id):
         await call.answer("🚫 ВЫ ЗАБЛОКИРОВАНЫ", show_alert=True)
+        return
+    if maintenance_on and user_id != ADMIN_ID:
+        await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
     balance = get_balance(user_id)
     bank = get_bank(user_id)
@@ -980,7 +1228,7 @@ async def callback_handler(call: CallbackQuery):
         game["mult"] = round(1 + len(game["opened"]) * MINES_LEVELS[game["level"]]["step"], 2)
         safe_total = 25 - MINES_LEVELS[game["level"]]["mines"]
         if len(game["opened"]) == safe_total:
-            wa = clamp(int(game["bet"] * game["mult"]))
+            wa = clamp(int(game["bet"] * game["mult"] * get_event_mult()))
             set_balance(user_id, wa)
             log_game(user_id, username, "мины", game["bet"], wa, f"{game['level']} all")
             nb = get_balance(user_id)
@@ -1009,7 +1257,7 @@ async def callback_handler(call: CallbackQuery):
         if not game["opened"]:
             await call.answer("❌ Открой хотя бы 1 клетку!", show_alert=True)
             return
-        wa = clamp(int(game["bet"] * game["mult"]))
+        wa = clamp(int(game["bet"] * game["mult"] * get_event_mult()))
         set_balance(user_id, wa)
         nb = get_balance(user_id)
         log_game(user_id, username, "мины", game["bet"], wa, f"{game['level']} x{game['mult']}")
@@ -1084,7 +1332,7 @@ async def callback_handler(call: CallbackQuery):
             win = True
             mult = MULT_ZERO
         if win:
-            wa = clamp(int(bet * mult))
+            wa = clamp(int(bet * mult * get_event_mult()))
             nb = set_balance(user_id, wa)
             txt = (
                 f"🎰 <b>Выпало: {color} {result}</b>\n"
@@ -1147,7 +1395,7 @@ async def callback_handler(call: CallbackQuery):
             win = True
             mult = MULT_ZERO
         if win:
-            wa = clamp(int(bet * mult))
+            wa = clamp(int(bet * mult * get_event_mult()))
             nb = set_balance(user_id, wa)
             txt = (
                 f"🎰 <b>Выпало: {color} {result}</b>\n"
@@ -1215,7 +1463,7 @@ async def callback_handler(call: CallbackQuery):
         p_score = hand_score(game["player"])
         d_score = hand_score(game["dealer"])
         if d_score > 21 or p_score > d_score:
-            wa = clamp(game["bet"] * 2)
+            wa = clamp(game["bet"] * 2 * get_event_mult())
             nb = set_balance(user_id, wa)
             result_text = f"🎉 <b>ПОБЕДА!</b>\n💰 +{wa - game['bet']:,}"
             log_game(user_id, username, "блэкджек", game["bet"], wa, f"{p_score} vs {d_score}")
@@ -1284,6 +1532,10 @@ async def text_handler(message: Message):
 
     if is_banned(user_id):
         await message.reply("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
+
+    if maintenance_on and user_id != ADMIN_ID:
+        await message.reply("🛠️ <b>ТЕХ.РАБОТЫ</b>\n\nБот временно недоступен. Попробуй позже!", parse_mode="HTML")
         return
 
     if len(parts) >= 3 and parts[0] == 'дуэль':
@@ -1652,20 +1904,20 @@ async def text_handler(message: Message):
         for b in bets:
             win_amount = 0
             if b["type"] == "red" and result in RED_NUMBERS:
-                win_amount = int(b["bet_total"] * MULT_COLOR)
+                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult())
             elif b["type"] == "black" and result in BLACK_NUMBERS:
-                win_amount = int(b["bet_total"] * MULT_COLOR)
+                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult())
             elif b["type"] == "green" and result == 0:
-                win_amount = int(b["bet_total"] * MULT_ZERO)
+                win_amount = int(b["bet_total"] * MULT_ZERO * get_event_mult())
             elif b["type"] == "number" and result == b["number"]:
-                win_amount = int(b["bet_total"] * MULT_NUMBER)
+                win_amount = int(b["bet_total"] * MULT_NUMBER * get_event_mult())
             elif b["type"] == "ranges":
                 win_mult = 0
                 for (a, z) in b["ranges"]:
                     if a <= result <= z:
                         win_mult += MULT_RANGE
                 if win_mult > 0:
-                    win_amount = int(b["bet_total"] * win_mult)
+                    win_amount = int(b["bet_total"] * win_mult * get_event_mult())
             if b["user_id"] == user_id:
                 user_last_bet = b
             if win_amount > 0:
@@ -1727,7 +1979,7 @@ async def text_handler(message: Message):
             win = True
             mult = 2
         if win:
-            wa = clamp(bet * mult)
+            wa = clamp(bet * mult * get_event_mult())
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "слоты", bet, wa, f"{r1}{r2}{r3}")
             await msg.edit_text(
@@ -1774,7 +2026,7 @@ async def text_handler(message: Message):
         choice = 'heads' if parts[0] in ['орёл', 'орел'] else 'tails'
         result = random.choice(['heads', 'tails'])
         if result == choice:
-            wa = clamp(bet * 2)
+            wa = clamp(bet * 2 * get_event_mult())
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "монетка", bet, wa, "🦅" if result == 'heads' else "👑")
             await msg.edit_text(
