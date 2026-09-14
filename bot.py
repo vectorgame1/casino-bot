@@ -13,7 +13,7 @@ from flask_cors import CORS
 
 # ========== НАСТРОЙКИ ==========
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
-ADMIN_ID = 6403424348  # Твой ID
+ADMIN_ID = 6403424348
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 MINI_APP_URL = "https://vectorgame1.github.io/casino/"
 
@@ -672,6 +672,105 @@ async def cmd_unban(message: Message):
     ensure_user(target.id, target.username or target.first_name)
     set_banned(target.id, False)
     await message.answer(f"✅ <b>Игрок {target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
+
+# ========== НОВЫЕ АДМИН-КОМАНДЫ ==========
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ Напиши: <code>/broadcast Текст сообщения</code>", parse_mode="HTML")
+        return
+    text = args[1]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE banned = FALSE")
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    if not rows:
+        await message.answer("❌ Нет игроков для рассылки.", parse_mode="HTML")
+        return
+    sent = 0
+    failed = 0
+    for (uid,) in rows:
+        try:
+            await bot.send_message(uid, f"📢 <b>РАССЫЛКА</b>\n━━━━━━━━━━━━━━━━━━\n{text}", parse_mode="HTML")
+            sent += 1
+            await asyncio.sleep(0.1)
+        except Exception:
+            failed += 1
+    await message.answer(
+        f"📢 <b>Рассылка завершена</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"✅ Доставлено: <b>{sent}</b>\n"
+        f"❌ Не доставлено: <b>{failed}</b>",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("stats"))
+async def cmd_stats(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    conn = get_db()
+    c = conn.cursor()
+    if len(args) >= 2 and args[1].startswith('@'):
+        username = args[1][1:]
+        c.execute("SELECT user_id, username, balance, bank FROM users WHERE username = %s", (username,))
+        row = c.fetchone()
+        if not row:
+            c.close()
+            conn.close()
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        uid, uname, bal, bank = row
+        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (uid,))
+        total_games = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (uid,))
+        total_wins = c.fetchone()[0]
+        c.execute("SELECT COALESCE(SUM(win), 0) FROM game_log WHERE user_id = %s", (uid,))
+        total_won = c.fetchone()[0]
+        c.close()
+        conn.close()
+        txt = (
+            f"📊 <b>СТАТИСТИКА ИГРОКА</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 {uname} (<code>{uid}</code>)\n"
+            f"💎 Баланс: <b>{bal:,}</b>\n"
+            f"🏦 Банк: <b>{bank:,}</b>\n\n"
+            f"🎮 Игр сыграно: <b>{total_games}</b>\n"
+            f"🏆 Побед: <b>{total_wins}</b>\n"
+            f"💰 Всего выиграно: <b>{total_won:,}</b>"
+        ).replace(',', ' ')
+        await message.answer(txt, parse_mode="HTML")
+        return
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+    banned_count = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE unlimited = TRUE")
+    unlimited_count = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM game_log")
+    total_games = c.fetchone()[0]
+    c.execute("SELECT COALESCE(MAX(win), 0) FROM game_log")
+    max_win = c.fetchone()[0]
+    c.close()
+    conn.close()
+    txt = (
+        f"📊 <b>СТАТИСТИКА БОТА</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👥 Игроков: <b>{total_users}</b>\n"
+        f"💎 Токенов в обороте: <b>{total_balance:,}</b>\n"
+        f"🎮 Игр сыграно: <b>{total_games}</b>\n"
+        f"🏆 Крупнейший выигрыш: <b>{max_win:,}</b>\n\n"
+        f"🚫 Забанено: <b>{banned_count}</b>\n"
+        f"♾️ Безлимитов: <b>{unlimited_count}</b>"
+    ).replace(',', ' ')
+    await message.answer(txt, parse_mode="HTML")
     # ========== КНОПКИ ==========
 @dp.callback_query()
 async def callback_handler(call: CallbackQuery):
