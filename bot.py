@@ -2291,7 +2291,7 @@ async def text_handler(message: Message):
         unlimited_in_bets = any(is_unlimited(b["user_id"]) for b in bets)
         bank_line = "♾️" if unlimited_in_bets else f"{total_bank:,}".replace(',', ' ')
         msg = await message.reply(f"🎡 <b>РУЛЕТКА!</b>\n💰 {bank_line}\n\n🎲 Крутится...", parse_mode="HTML")
-            for frame in ANIM_ROULETTE:
+for frame in ANIM_ROULETTE:
         await asyncio.sleep(0.7)
         try:
             await msg.edit_text(f"🎡 <b>РУЛЕТКА!</b>\n💰 {bank_line}\n\n🎲 {frame}", parse_mode="HTML")
