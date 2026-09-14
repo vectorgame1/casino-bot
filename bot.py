@@ -2329,7 +2329,7 @@ for frame in ANIM_ROULETTE:
                     winners.append(f"🎉 {b['username']} — ♾️")
                 else:
                     winners.append(f"🎉 {b['username']} — <b>+{win_amount:,}</b>".replace(',', ' '))
-                        else:
+        else:
                 log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color}")
                 xp = get_xp(b["user_id"])
                 vip = get_vip_info(xp)
