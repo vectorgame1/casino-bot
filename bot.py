@@ -13,7 +13,7 @@ from flask_cors import CORS
 
 # ========== НАСТРОЙКИ ==========
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
+ADMIN_ID = 6403424348  # Твой ID
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 MINI_APP_URL = "https://vectorgame1.github.io/casino/"
 
@@ -128,7 +128,8 @@ def init_db():
         balance BIGINT DEFAULT 1000,
         bank BIGINT DEFAULT 0,
         banned BOOLEAN DEFAULT FALSE,
-        unlimited BOOLEAN DEFAULT FALSE
+        unlimited BOOLEAN DEFAULT FALSE,
+        got_start_bonus BOOLEAN DEFAULT FALSE
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS game_log (
         id SERIAL PRIMARY KEY,
@@ -298,7 +299,6 @@ def create_deck():
     return deck
 
 def fmt_hand(cards, hide_second=False):
-    """Красиво форматирует карты."""
     if hide_second and len(cards) >= 2:
         return f"{cards[0]} 🂠"
     return " ".join(cards)
@@ -407,40 +407,73 @@ def mines_field_text(user_id):
 # ========== БОТ ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
+# ========== КОМАНДЫ ==========
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
+    
     if is_banned(user_id):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
+    
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    got_bonus = row[0] if row and row[0] else False
+    c.close()
+    conn.close()
+    
+    bonus_text = ""
+    if not got_bonus:
+        set_balance(user_id, 5000)
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("UPDATE users SET got_start_bonus = TRUE WHERE user_id = %s", (user_id,))
+        conn.commit()
+        c.close()
+        conn.close()
+        bonus_text = "\n\n🎁 <b>БОНУС НОВИЧКА: +5 000 токенов!</b>"
+    
     balance = get_balance(user_id)
     bank = get_bank(user_id)
     is_private = message.chat.type == 'private'
+    
     if is_unlimited(user_id):
         bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
     else:
-        bal_line = f"💎 <b>{balance:,}</b> фишек".replace(',', ' ')
+        bal_line = f"💎 <b>{balance:,}</b> токенов".replace(',', ' ')
+    
     if is_private:
         txt = (
-            f"🎰 <b>WORLD CASINO</b>\n"
+            f"🎰 <b>ДОБРО ПОЖАЛОВАТЬ В ТОКЕНЫ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 {username}\n"
+            f"👋 Привет, <b>{username}</b>!\n"
             f"{bal_line}\n"
-            f"🏦 Банк: <b>{bank:,}</b>\n\n"
-            f"🎮 <b>Играй в Mini App!</b>\n"
-            f"Нажми кнопку ниже 👇"
+            f"🏦 Банк: <b>{bank:,}</b>{bonus_text}\n\n"
+            f"🎮 <b>КАК ИГРАТЬ:</b>\n"
+            f"1. Жми <b>«ИГРАТЬ»</b>\n"
+            f"2. Выбирай игру\n"
+            f"3. Делай ставки\n"
+            f"4. Выигрывай токены!\n\n"
+            f"💎 Токены можно тратить в Mini App."
         ).replace(',', ' ')
-        await message.answer(txt, parse_mode="HTML", reply_markup=private_kb())
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎰 ИГРАТЬ", callback_data="menu_games"),
+             InlineKeyboardButton(text="🎁 БОНУС", callback_data="menu_daily")],
+            [InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top"),
+             InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
+        ])
+        await message.answer(txt, parse_mode="HTML", reply_markup=kb)
     else:
         txt = (
-            f"🎰 <b>WORLD CASINO</b>\n"
+            f"🎰 <b>ТОКЕНЫ</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 {username}\n"
+            f"👋 Привет, <b>{username}</b>!\n"
             f"{bal_line}\n"
-            f"🏦 Банк: <b>{bank:,}</b>\n\n"
+            f"🏦 Банк: <b>{bank:,}</b>{bonus_text}\n\n"
             f"🎮 Нажми <b>Игры</b>!\n\n"
             f"<code>б</code> — баланс | <code>топ</code> — топ\n"
             f"<code>банк</code> — банк | <code>дуэль 1000 @user</code>\n"
@@ -462,22 +495,9 @@ async def cmd_balance(message: Message):
     balance = get_balance(user_id)
     bank = get_bank(user_id)
     if is_unlimited(user_id):
-        txt = (
-            f"💰 <b>БАЛАНС</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 {username}\n"
-            f"♾️ <b>БЕЗЛИМИТ</b>\n"
-            f"🏦 В банке: <b>{bank:,}</b>"
-        ).replace(',', ' ')
+        await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n♾️ <b>У тебя БЕЗЛИМИТ</b>\n🏦 В банке: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
     else:
-        txt = (
-            f"💰 <b>БАЛАНС</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 {username}\n"
-            f"💎 Баланс: <b>{balance:,}</b>\n"
-            f"🏦 В банке: <b>{bank:,}</b>"
-        ).replace(',', ' ')
-    await message.answer(txt, parse_mode="HTML")
+        await message.answer(f"💰 <b>Баланс</b>\n\n👤 {username}\n💎 Баланс: <b>{balance:,}</b>\n🏦 В банке: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
 
 @dp.message(Command("top"))
 async def cmd_top(message: Message):
@@ -485,7 +505,7 @@ async def cmd_top(message: Message):
     if not rows:
         await message.answer("📊 <b>Пока нет игроков!</b>", parse_mode="HTML")
         return
-    txt = "🏆 <b>ТОП-10</b>\n━━━━━━━━━━━━━━━━━━\n"
+    txt = "🏆 <b>ТОП-10</b>\n\n"
     medals = ["🥇", "🥈", "🥉"]
     for i, (uid, uname, bal) in enumerate(rows):
         medal = medals[i] if i < 3 else f"{i+1}."
@@ -500,8 +520,7 @@ async def cmd_give(message: Message):
     if len(args) >= 2 and args[1].lower() in ['unlimited', 'безлимит', '∞']:
         set_unlimited(message.from_user.id, True)
         await message.answer(
-            f"♾️ <b>БЕЗЛИМИТ АКТИВИРОВАН!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
+            f"♾️ <b>БЕЗЛИМИТ АКТИВИРОВАН!</b>\n\n"
             f"👤 {message.from_user.username or message.from_user.first_name}\n"
             f"💰 Теперь у тебя бесконечные фишки!\n\n"
             f"❌ Чтобы снять — напиши <code>/give all</code>",
@@ -678,6 +697,9 @@ async def callback_handler(call: CallbackQuery):
         txt = "🎮 <b>ИГРЫ</b>\n━━━━━━━━━━━━━━━━━━\nВыбери игру:"
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=games_kb())
 
+    elif data == "menu_daily":
+        await call.answer("🎁 Ежедневный бонус — скоро! Следи за обновлениями 🚀", show_alert=True)
+
     elif data == "menu_balance":
         if is_unlimited(user_id):
             await call.answer(f"♾️ У тебя БЕЗЛИМИТ\n🏦 Банк: {bank:,}".replace(',', ' '), show_alert=True)
@@ -797,7 +819,6 @@ async def callback_handler(call: CallbackQuery):
         await call.message.edit_reply_markup(reply_markup=roulette_kb(bet))
         await call.answer(f"💎 Ставка: {bet:,}".replace(',', ' '))
 
-    # ===== МИНЫ =====
     elif data.startswith("mines_start_"):
         parts = data.split("_")
         level = parts[2]
@@ -837,12 +858,10 @@ async def callback_handler(call: CallbackQuery):
         if idx in game["opened"]:
             await call.answer("❌ Уже открыто!", show_alert=True)
             return
-        # Анимация
         await call.message.edit_text("⏳ <b>Открываем...</b>", parse_mode="HTML")
         await asyncio.sleep(0.4)
         if idx in game["mines_positions"]:
             game["opened"].add(idx)
-            # Анимация взрыва
             for frame in ["💥", "💥 💥", "💥 💥 💥"]:
                 await call.message.edit_text(f"{frame} <b>БУМ!</b>", parse_mode="HTML")
                 await asyncio.sleep(0.3)
@@ -878,7 +897,6 @@ async def callback_handler(call: CallbackQuery):
             del mines_games[user_id]
             await call.answer("🎉 Победа!")
             return
-        # Анимация открытия
         await call.message.edit_text(f"💎 <b>×{game['mult']:.2f}</b>", parse_mode="HTML")
         await asyncio.sleep(0.3)
         await call.message.edit_text(mines_field_text(user_id), parse_mode="HTML", reply_markup=mines_field_kb(user_id))
@@ -896,7 +914,6 @@ async def callback_handler(call: CallbackQuery):
         set_balance(user_id, wa)
         nb = get_balance(user_id)
         log_game(user_id, username, "мины", game["bet"], wa, f"{game['level']} x{game['mult']}")
-        # Анимация
         for frame in ["💰", "💰 💰", "💰 💰 💰"]:
             await call.message.edit_text(f"{frame}", parse_mode="HTML")
             await asyncio.sleep(0.2)
@@ -932,7 +949,6 @@ async def callback_handler(call: CallbackQuery):
     elif data == "mines_noop":
         await call.answer()
 
-    # ===== РУЛЕТКА (кнопки) =====
     elif data.startswith("bet_"):
         parts = data.split("_")
         bet_type = parts[1]
@@ -947,7 +963,6 @@ async def callback_handler(call: CallbackQuery):
             await call.answer(f"❌ Недостаточно! {balance}", show_alert=True)
             return
         set_balance(user_id, -bet)
-        # Анимация рулетки
         for frame in ANIM_ROULETTE:
             await call.message.edit_text(f"🎡 <b>Крутится...</b>\n\n{frame}", parse_mode="HTML")
             await asyncio.sleep(0.4)
@@ -1096,17 +1111,6 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Игра не найдена!")
             return
         game = bj_games[user_id]
-        # Анимация раскрытия
-        for frame in ["🂠", "🂠 🂠", "🂠 🂠 🂠"]:
-            await call.message.edit_text(
-                f"🃏 <b>БЛЭКДЖЕК</b>\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"👤 Ты: {fmt_hand(game['player'])}\n"
-                f"🤖 Дилер: {frame}\n\n"
-                f"🎲 <b>Раскрываем...</b>",
-                parse_mode="HTML"
-            )
-            await asyncio.sleep(0.3)
         while hand_score(game["dealer"]) < 17:
             game["dealer"].append(game["deck"].pop())
         p_score = hand_score(game["player"])
@@ -1183,7 +1187,6 @@ async def text_handler(message: Message):
         await message.reply("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
 
-    # ДУЭЛЬ
     if len(parts) >= 3 and parts[0] == 'дуэль':
         try:
             bet = int(parts[1])
@@ -1260,16 +1263,14 @@ async def text_handler(message: Message):
         set_balance(duel["opponent_id"], -duel["opponent_bet"])
         duel["active"] = True
         total_bank = clamp(duel["challenger_bet"] + duel["opponent_bet"])
-        # Анимация дуэли
         msg = await message.reply(
             f"⚔️ <b>ДУЭЛЬ НАЧАЛАСЬ!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👤 {duel['challenger_name']} vs {duel['opponent_name']}\n"
             f"💰 Банк: <b>{total_bank:,}</b>\n\n"
-            f"🎲 Шарик крутится...",
+            f"🎲 Шарик крутится...".replace(',', ' '),
             parse_mode="HTML"
         )
-        # 5 кадров анимации
         for i in range(5):
             frame = " ".join(ANIM_DUEL[:i+1])
             await asyncio.sleep(0.5)
@@ -1294,7 +1295,6 @@ async def text_handler(message: Message):
             color_emoji = "🔵"
         new_balance = set_balance(winner_id, total_bank)
         log_game(winner_id, winner_name, "дуэль", total_bank // 2, total_bank, f"vs {loser_name}")
-        # Финальная анимация победы
         for frame in [f"{color_emoji}", f"{color_emoji} {color_emoji}", f"{color_emoji} {color_emoji} {color_emoji} 🏆"]:
             await asyncio.sleep(0.3)
             await msg.edit_text(
@@ -1316,7 +1316,6 @@ async def text_handler(message: Message):
             await message.reply("❌ <b>Дуэль отменена</b>", parse_mode="HTML")
         return
 
-    # БАНК
     if text == 'банк':
         balance = get_balance(user_id)
         bank = get_bank(user_id)
@@ -1386,7 +1385,6 @@ async def text_handler(message: Message):
         )
         return
 
-    # ПЕРЕВОД
     if parts[0] == 'п':
         if len(parts) < 2:
             await message.reply("💸 Ответь на сообщение и напиши: <code>п 1000</code>", parse_mode="HTML")
@@ -1426,7 +1424,6 @@ async def text_handler(message: Message):
         )
         return
 
-    # ОТМЕНА
     if text in ['отмена', 'отменить']:
         if chat_id in active_bets and active_bets[chat_id]["bets"]:
             count = len(active_bets[chat_id]["bets"])
@@ -1436,7 +1433,6 @@ async def text_handler(message: Message):
             await message.reply(f"❌ <b>Ставки отменены!</b>\nВозвращено {count} ставок.", parse_mode="HTML")
         return
 
-    # БАЛАНС
     if text in ['б', 'баланс']:
         balance = get_balance(user_id)
         bank = get_bank(user_id)
@@ -1460,12 +1456,10 @@ async def text_handler(message: Message):
             )
         return
 
-    # ИГРЫ
     if text in ['игры', 'игра']:
         await message.reply("🎮 <b>ИГРЫ</b>\n━━━━━━━━━━━━━━━━━━\nВыбери игру:", parse_mode="HTML", reply_markup=games_kb())
         return
 
-    # ЛОГ
     if text in ['лог', 'log']:
         rows = get_last_roulette_results(10)
         if not rows:
@@ -1481,7 +1475,6 @@ async def text_handler(message: Message):
         await message.reply(out, parse_mode="HTML")
         return
 
-    # ТОП
     if text in ['топ', 'top']:
         rows = get_top(10)
         if not rows:
@@ -1495,7 +1488,6 @@ async def text_handler(message: Message):
         await message.reply(out, parse_mode="HTML")
         return
 
-    # МИНЫ
     if len(parts) == 2 and parts[0] in ['мины', 'мина', 'mines']:
         try:
             bet = int(parts[1])
@@ -1521,7 +1513,6 @@ async def text_handler(message: Message):
         await message.reply(txt, parse_mode="HTML", reply_markup=mines_level_kb(bet))
         return
 
-    # ГО (рулетка группа)
     if text == 'го':
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]:
             await message.reply("❌ Нет активных ставок!")
@@ -1533,7 +1524,6 @@ async def text_handler(message: Message):
             bank_line = "♾️"
         else:
             bank_line = f"{total_bank:,}".replace(',', ' ')
-        # Анимация
         msg = await message.reply(
             f"🎡 <b>РУЛЕТКА!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1605,7 +1595,6 @@ async def text_handler(message: Message):
             await msg.edit_text(result_text, parse_mode="HTML")
         return
 
-    # СПИН
     if len(parts) == 2 and parts[0] in ['спин', 'spin']:
         try:
             bet = int(parts[1])
@@ -1622,7 +1611,6 @@ async def text_handler(message: Message):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
-        # Анимация
         msg = await message.reply("🎰 <b>КРУТИМ...</b>\n━━━━━━━━━━━━━━━━━━", parse_mode="HTML")
         for frame in ANIM_SLOTS:
             await asyncio.sleep(0.5)
@@ -1664,7 +1652,6 @@ async def text_handler(message: Message):
             )
         return
 
-    # ОРЁЛ / РЕШКА
     if len(parts) == 2 and parts[0] in ['орёл', 'орел', 'решка']:
         try:
             bet = int(parts[1])
@@ -1681,7 +1668,6 @@ async def text_handler(message: Message):
             await message.reply(f"❌ Недостаточно! {balance}")
             return
         set_balance(user_id, -bet)
-        # Анимация
         msg = await message.reply("🪙 <b>ПОДБРАСЫВАЕМ...</b>\n━━━━━━━━━━━━━━━━━━", parse_mode="HTML")
         for frame in ANIM_COIN:
             await asyncio.sleep(0.4)
@@ -1713,7 +1699,6 @@ async def text_handler(message: Message):
             )
         return
 
-    # БЛЭКДЖЕК
     if len(parts) == 2 and parts[0] in ['бж', 'блэкджек']:
         try:
             bet = int(parts[1])
@@ -1745,7 +1730,6 @@ async def text_handler(message: Message):
         )
         return
 
-    # К/Ч/З
     if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
         try:
             bet = int(parts[1])
@@ -1782,7 +1766,6 @@ async def text_handler(message: Message):
         )
         return
 
-    # ДИАПАЗОНЫ
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
         if bet < 10:
