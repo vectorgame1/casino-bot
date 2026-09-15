@@ -4,6 +4,10 @@ import os
 import threading
 import random
 import psycopg2
+import hmac
+import hashlib
+import json
+from urllib.parse import parse_qsl
 from datetime import datetime
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -32,6 +36,33 @@ def clamp(x):
         return max(-MAX_BIGINT, min(int(x), MAX_BIGINT))
     except:
         return 0
+
+def verify_init_data(init_data: str):
+    """Проверяет подпись initData от Telegram. Возвращает dict юзера или None."""
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, strict_parsing=True))
+        received_hash = parsed.pop('hash', None)
+        if not received_hash:
+            return None
+
+        data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
+        computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+        if not hmac.compare_digest(computed_hash, received_hash):
+            return None
+
+        auth_date = int(parsed.get('auth_date', 0))
+        if abs(datetime.now().timestamp() - auth_date) > 86400:
+            return None
+
+        user_data = parsed.get('user')
+        return json.loads(user_data) if user_data else None
+    except Exception as e:
+        print(f"❌ verify_init_data error: {e}")
+        return None
 
 MINES_LEVELS = {
     "easy":   {"name": "🟢 Лёгкий",   "mines": 3,  "step": 0.15},
@@ -140,10 +171,30 @@ def api_update():
     data = request.json
     uid = data.get('user_id')
     amt = data.get('amount')
+    init_data = data.get('initData', '')
+
     if uid is None or amt is None:
         return jsonify({"error": "Missing"}), 400
+
+    tg_user = verify_init_data(init_data)
+    if not tg_user:
+        return jsonify({"error": "Invalid init data"}), 403
+
+    if tg_user.get('id') != uid:
+        return jsonify({"error": "User mismatch"}), 403
+
     if is_banned(uid):
         return jsonify({"error": "Banned"}), 403
+
+    try:
+        amt = int(amt)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    MAX_CHANGE = 1_000_000_000
+    if abs(amt) > MAX_CHANGE:
+        return jsonify({"error": "Amount too large"}), 400
+
     return jsonify({"user_id": uid, "balance": set_balance(uid, amt)})
 
 @app.route('/api/transfer', methods=['POST'])
@@ -165,7 +216,7 @@ def run_web():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
 web_thread = threading.Thread(target=run_web)
-web_thread.daemon = False
+web_thread.daemon = True
 web_thread.start()
 
 def get_db():
@@ -197,9 +248,27 @@ def init_db():
         detail TEXT,
         time TEXT
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS quests (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        quest_key TEXT NOT NULL,
+        progress BIGINT DEFAULT 0,
+        target BIGINT DEFAULT 1,
+        completed BOOLEAN DEFAULT FALSE,
+        claimed BOOLEAN DEFAULT FALSE,
+        UNIQUE(user_id, quest_key)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS achievements (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        achievement_key TEXT NOT NULL,
+        unlocked BOOLEAN DEFAULT FALSE,
+        UNIQUE(user_id, achievement_key)
+    )""")
     conn.commit()
     c.close()
     conn.close()
+    print("✅ БД инициализирована")
 
 def get_user(user_id):
     conn = get_db()
@@ -320,7 +389,7 @@ def unlock_achievement(user_id, key):
         c.close()
         conn.close()
         return False
-    c.execute("INSERT INTO achievements (user_id, achievement_key, unlocked) VALUES (%s, %s, TRUE)", (user_id, key))
+    c.execute("INSERT INTO achievements (user_id, achievement_key, unlocked) VALUES (%s, %s, TRUE) ON CONFLICT (user_id, achievement_key) DO UPDATE SET unlocked = TRUE", (user_id, key))
     conn.commit()
     c.close()
     conn.close()
@@ -614,13 +683,13 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     ensure_user(user_id, username)
-    
+
     if is_banned(user_id):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
-    
+
     is_private = message.chat.type == 'private'
-    
+
     if is_private and user_id == ADMIN_ID:
         balance = get_balance(user_id)
         bank = get_bank(user_id)
@@ -635,7 +704,7 @@ async def cmd_start(message: Message):
         ).replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
         return
-    
+
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
@@ -643,7 +712,7 @@ async def cmd_start(message: Message):
     got_bonus = row[0] if row and row[0] else False
     c.close()
     conn.close()
-    
+
     bonus_text = ""
     if not got_bonus:
         set_balance(user_id, 5000)
@@ -654,19 +723,19 @@ async def cmd_start(message: Message):
         c.close()
         conn.close()
         bonus_text = "\n\n🎁 <b>БОНУС НОВИЧКА: +5 000 токенов!</b>"
-    
+
     balance = get_balance(user_id)
     bank = get_bank(user_id)
     xp = get_xp(user_id)
     vip = get_vip_info(xp)
-    
+
     if is_unlimited(user_id):
         bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
     else:
         bal_line = f"💎 <b>{balance:,}</b> токенов".replace(',', ' ')
-    
+
     vip_line = f"{vip['icon']} {vip['name']} | XP: {xp}"
-    
+
     if is_private:
         txt = (
             f"🎰 <b>ДОБРО ПОЖАЛОВАТЬ В ТОКЕНЫ!</b>\n"
