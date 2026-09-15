@@ -531,8 +531,7 @@ def get_recent_users(minutes=5, limit=20):
     c.execute("""SELECT DISTINCT u.user_id, u.username, u.balance
                  FROM users u
                  JOIN game_log g ON u.user_id = g.user_id
-                 WHERE g.created_at > NOW() - INTERVAL '%s minutes'
-                 ORDER BY u.balance DESC LIMIT %s""", (minutes, limit))
+                 ORDER BY g.id DESC LIMIT %s""", (limit,))
     rows = c.fetchall()
     c.close()
     conn.close()
