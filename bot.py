@@ -435,6 +435,16 @@ def get_last_roulette_results(limit=10):
     c.close()
     conn.close()
     return rows
+def get_big_wins(limit=10, min_win=100000):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT username, game, win, time FROM game_log
+                 WHERE win >= %s ORDER BY win DESC LIMIT %s""", (min_win, limit))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
 
 def hand_score(cards):
     score = 0
