@@ -528,10 +528,11 @@ def get_big_wins(limit=10, min_win=100000):
 def get_recent_users(minutes=5, limit=20):
     conn = get_db()
     c = conn.cursor()
-    c.execute("""SELECT DISTINCT u.user_id, u.username, u.balance
+    c.execute("""SELECT u.user_id, u.username, u.balance, MAX(g.id) as last_id
                  FROM users u
                  JOIN game_log g ON u.user_id = g.user_id
-                 ORDER BY g.id DESC LIMIT %s""", (limit,))
+                 GROUP BY u.user_id, u.username, u.balance
+                 ORDER BY last_id DESC LIMIT %s""", (limit,))
     rows = c.fetchall()
     c.close()
     conn.close()
