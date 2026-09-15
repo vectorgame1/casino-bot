@@ -1177,6 +1177,19 @@ async def cmd_jackpot(message: Message):
     elif sub == "status":
         await message.answer(f"💎 <b>Текущий</b>: {jackpot_amount:,}".replace(',', ' '), parse_mode="HTML")
 
+@dp.message(Command("bigwins"))
+async def cmd_bigwins(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    wins = get_big_wins(limit=10, min_win=100000)
+    if not wins:
+        await message.answer("📊 Крупных выигрышей пока нет (мин. 100K)", parse_mode="HTML")
+        return
+    txt = "🏆 <b>ТОП-10 КРУПНЫХ ВЫИГРЫШЕЙ</b>\n━━━━━━━━━━━━━━━━━━\n"
+    for i, (uname, game, win, time) in enumerate(wins, 1):
+        txt += f"{i}. <b>{uname}</b> — {game} +{win:,} ({time})\n".replace(',', ' ')
+    await message.answer(txt, parse_mode="HTML")
+
 @dp.message(Command("set_xp"))
 async def cmd_set_xp(message: Message):
     if message.from_user.id != ADMIN_ID:
