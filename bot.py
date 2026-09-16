@@ -1662,7 +1662,7 @@ async def cmd_giveaway(message: Message):
     if amount == 0:
         return
     minutes = 0
-        time_str = args[2].lower()
+    time_str = args[2].lower()
     if time_str.endswith('h'):
         minutes = int(time_str[:-1]) * 60
     elif time_str.endswith('m'):
