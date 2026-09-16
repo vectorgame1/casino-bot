@@ -1658,10 +1658,9 @@ async def cmd_giveaway(message: Message):
             parse_mode="HTML"
         )
         return
-        if not args[1].isdigit():
-    await message.answer("❌ Неверная сумма", parse_mode="HTML")
-    return
-amount = int(args[1])
+            amount = int(args[1]) if args[1].isdigit() else 0
+    if amount == 0:
+        return
     minutes = 0
         time_str = args[2].lower()
     if time_str.endswith('h'):
@@ -1670,10 +1669,8 @@ amount = int(args[1])
         minutes = int(time_str[:-1])
     else:
         minutes = 0
-    if minutes <= 0:
-        await message.answer("❌ Неверное время", parse_mode="HTML")
+            if minutes == 0:
         return
-    gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
     await message.answer(
         f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
