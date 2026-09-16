@@ -245,6 +245,13 @@ def init_db():
         status TEXT DEFAULT 'active',
         winner_id BIGINT,
         created_at TIMESTAMP DEFAULT NOW()
+    c.execute("""CREATE TABLE IF NOT EXISTS group_members (
+        id SERIAL PRIMARY KEY,
+        chat_id BIGINT,
+        user_id BIGINT,
+        username TEXT,
+        last_seen TIMESTAMP DEFAULT NOW(),
+        UNIQUE(chat_id, user_id)
     )""")
     conn.commit()
     c.close()
@@ -496,6 +503,31 @@ def get_all_user_ids():
     c.close()
     conn.close()
     return [r[0] for r in rows]
+
+    
+    def track_group_member(chat_id, user_id, username):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO group_members (chat_id, user_id, username, last_seen)
+                 VALUES (%s, %s, %s, NOW())
+                 ON CONFLICT (chat_id, user_id) DO UPDATE
+                 SET username = %s, last_seen = NOW()""",
+              (chat_id, user_id, username, username))
+    conn.commit()
+    c.close()
+    conn.close()
+
+def get_group_members(chat_id, limit=100):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT user_id, username FROM group_members
+                 WHERE chat_id = %s ORDER BY last_seen DESC LIMIT %s""",
+              (chat_id, limit))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
 
 def log_game(user_id, username, game, bet, win, detail):
     conn = get_db()
@@ -1649,67 +1681,54 @@ async def cmd_giveaway(message: Message):
         return
     args = message.text.split()
     if len(args) < 3:
-        await message.answer(
-            "🎁 <b>РОЗЫГРЫШ</b>\n━━━━━━━━━━━━━━━━━━\n"
-            "<code>/giveaway 10000 30m</code> — 30 минут\n"
-            "<code>/giveaway 10000 1h</code> — 1 час\n"
-            "<code>/giveaway 10000 24h</code> — 24 часа\n\n"
-            "⏱️ Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>",
-            parse_mode="HTML"
-        )
+        await message.answer("Формат: /giveaway 10000 30m", parse_mode="HTML")
         return
-    try:
-        amount = int(args[1])
-    except:
-        await message.answer("❌ Неверная сумма", parse_mode="HTML")
+    amount = int(args[1]) if args[1].isdigit() else 0
+    if amount == 0:
         return
     time_str = args[2].lower()
     minutes = 0
-    if time_str.endswith('m'):
-        try:
-            minutes = int(time_str[:-1])
-        except:
-            pass
-    elif time_str.endswith('h'):
-        try:
-            minutes = int(time_str[:-1]) * 60
-        except:
-            pass
-    elif time_str.endswith('d'):
-        try:
-            minutes = int(time_str[:-1]) * 1440
-        except:
-            pass
-    if minutes <= 0:
-        await message.answer("❌ Неверное время. Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>", parse_mode="HTML")
+    if time_str.endswith('h'):
+        minutes = int(time_str[:-1]) * 60
+    elif time_str.endswith('m'):
+        minutes = int(time_str[:-1])
+    if minutes == 0:
         return
+
+    is_group = message.chat.id < 0
+    if is_group:
+        members = get_group_members(message.chat.id)
+        if not members:
+            await message.answer("В этой группе ещё никто не играл", parse_mode="HTML")
+            return
+        users = [m[0] for m in members]
+        scope = f"группы ({len(users)} чел.)"
+    else:
+        users = get_all_user_ids()
+        scope = f"всех игроков ({len(users)} чел.)"
+
     gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
     await message.answer(
-        f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"💰 Приз: <b>{amount:,}</b>\n"
-        f"⏱️ До: <b>{ends_at.strftime('%H:%M:%S')}</b>\n"
-        f"👥 Все игроки участвуют\n\n"
-        f"ID: <code>{gid}</code>".replace(',', ' '),
+        f"РОЗЫГРЫШ ЗАПУЩЕН!\n"
+        f"Приз: {amount}\n"
+        f"Участников: {scope}\n"
+        f"До: {(ends_at + timedelta(hours=3)).strftime('%H:%M')}",
         parse_mode="HTML"
     )
-    try:
-        users = get_all_user_ids()
-        count = 0
-        for uid in users:
-            try:
-                await bot.send_message(
-                    uid,
-                    f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{ends_at.strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
-                    parse_mode="HTML"
-                )
-                count += 1
-                await asyncio.sleep(0.05)
-            except:
-                pass
-        await message.answer(f"✅ Уведомлено: {count} игроков", parse_mode="HTML")
-    except Exception as e:
-        print(f"Ошибка рассылки: {e}")
+    count = 0
+    for uid in users:
+        try:
+            await bot.send_message(
+                uid,
+                f"РОЗЫГРЫШ! Приз: {amount}",
+                parse_mode="HTML"
+            )
+            count += 1
+            await asyncio.sleep(0.05)
+        except:
+            pass
+    await message.answer(f"Уведомлено: {count}", parse_mode="HTML")
+    
         
 # ========== КНОПКИ ==========
 @dp.callback_query()
@@ -2345,6 +2364,9 @@ async def text_handler(message: Message):
     username = message.from_user.username or message.from_user.first_name
     chat_id = message.chat.id
     ensure_user(user_id, username)
+    if chat_id < 0:
+        track_group_member(chat_id, user_id, username)
+    
 
     if is_banned(user_id):
         await message.reply("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
