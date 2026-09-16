@@ -1658,11 +1658,10 @@ async def cmd_giveaway(message: Message):
             parse_mode="HTML"
         )
         return
-        try:
-            amount = int(args[1])
-    except:
-        await message.answer("❌ Неверная сумма", parse_mode="HTML")
-        return
+        if not args[1].isdigit():
+    await message.answer("❌ Неверная сумма", parse_mode="HTML")
+    return
+amount = int(args[1])
     minutes = 0
         time_str = args[2].lower()
     if time_str.endswith('h'):
