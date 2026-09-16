@@ -4,7 +4,7 @@ import os
 import threading
 import random
 import psycopg2
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -528,11 +528,11 @@ def get_big_wins(limit=10, min_win=100000):
 def get_recent_users(minutes=5, limit=20):
     conn = get_db()
     c = conn.cursor()
-    c.execute("""SELECT u.user_id, u.username, u.balance, MAX(g.id) as last_id
+    c.execute("""SELECT DISTINCT u.user_id, u.username, u.balance
                  FROM users u
                  JOIN game_log g ON u.user_id = g.user_id
-                 GROUP BY u.user_id, u.username, u.balance
-                 ORDER BY last_id DESC LIMIT %s""", (limit,))
+                 WHERE g.created_at > NOW() - INTERVAL '%s minutes'
+                 ORDER BY u.balance DESC LIMIT %s""", (minutes, limit))
     rows = c.fetchall()
     c.close()
     conn.close()
@@ -631,7 +631,7 @@ def is_game_disabled(game):
 def create_giveaway(amount, minutes, creator_id):
     conn = get_db()
     c = conn.cursor()
-    ends_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    ends_at = datetime.now() + timedelta(minutes=minutes)
     c.execute("""INSERT INTO giveaways (amount, ends_at, created_by, status)
                  VALUES (%s, %s, %s, 'active') RETURNING id""", (amount, ends_at, creator_id))
     gid = c.fetchone()[0]
@@ -1647,10 +1647,10 @@ async def cmd_active(message: Message):
 async def cmd_giveaway(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-        args = message.text.split()       
+    args = message.text.split()
     if len(args) < 3:
         await message.answer(
-            "📋 <b>РОЗЫГРЫШ</b>\n━━━━━━━━━━━━━━━━━━\n"
+            "🎁 <b>РОЗЫГРЫШ</b>\n━━━━━━━━━━━━━━━━━━\n"
             "<code>/giveaway 10000 30m</code> — 30 минут\n"
             "<code>/giveaway 10000 1h</code> — 1 час\n"
             "<code>/giveaway 10000 24h</code> — 24 часа\n\n"
@@ -1658,19 +1658,32 @@ async def cmd_giveaway(message: Message):
             parse_mode="HTML"
         )
         return
-        amount = int(args[1]) if args[1].isdigit() else 0
-    if amount == 0:
+    try:
+        amount = int(args[1])
+    except:
+        await message.answer("❌ Неверная сумма", parse_mode="HTML")
         return
-    minutes = 0
     time_str = args[2].lower()
-    if time_str.endswith('h'):
-        minutes = int(time_str[:-1]) * 60
-    elif time_str.endswith('m'):
-        minutes = int(time_str[:-1])
-    else:
-        minutes = 0
-            if minutes == 0:
+    minutes = 0
+    if time_str.endswith('m'):
+        try:
+            minutes = int(time_str[:-1])
+        except:
+            pass
+    elif time_str.endswith('h'):
+        try:
+            minutes = int(time_str[:-1]) * 60
+        except:
+            pass
+    elif time_str.endswith('d'):
+        try:
+            minutes = int(time_str[:-1]) * 1440
+        except:
+            pass
+    if minutes <= 0:
+        await message.answer("❌ Неверное время. Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>", parse_mode="HTML")
         return
+    gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
     await message.answer(
         f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -1687,7 +1700,8 @@ async def cmd_giveaway(message: Message):
             try:
                 await bot.send_message(
                     uid,
-                    f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
+                    f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{ends_at.strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
+                    parse_mode="HTML"
                 )
                 count += 1
                 await asyncio.sleep(0.05)
