@@ -1709,7 +1709,7 @@ async def cmd_giveaway(message: Message):
         scope = f"всех игроков ({len(users)} чел.)"
 
     gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
-        await message.answer(
+    await message.answer(
         f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💰 Приз: <b>{amount:,}</b>\n"
