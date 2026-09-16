@@ -1658,7 +1658,7 @@ async def cmd_giveaway(message: Message):
             parse_mode="HTML"
         )
         return
-            amount = int(args[1]) if args[1].isdigit() else 0
+        amount = int(args[1]) if args[1].isdigit() else 0
     if amount == 0:
         return
     minutes = 0
