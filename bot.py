@@ -506,17 +506,17 @@ def get_all_user_ids():
     return [r[0] for r in rows]
 
     
-    def track_group_member(chat_id, user_id, username):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""INSERT INTO group_members (chat_id, user_id, username, last_seen)
+def track_group_member(chat_id, user_id, username):
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""INSERT INTO group_members (chat_id, user_id, username, last_seen)
                  VALUES (%s, %s, %s, NOW())
                  ON CONFLICT (chat_id, user_id) DO UPDATE
                  SET username = %s, last_seen = NOW()""",
-              (chat_id, user_id, username, username))
-    conn.commit()
-    c.close()
-    conn.close()
+                  (chat_id, user_id, username, username))
+        conn.commit()
+        c.close()
+        conn.close()
 
 def get_group_members(chat_id, limit=100):
     conn = get_db()
