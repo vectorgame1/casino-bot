@@ -2922,8 +2922,7 @@ async def giveaway_checker_loop():
         try:
             conn = get_db()
             c = conn.cursor()
-            c.execute("""SELECT id, amount FROM giveaways
-                         WHERE status = 'active' AND ends_at <= NOW()""")
+            c.execute("SELECT id, amount FROM giveaways WHERE status = 'active' AND ends_at <= NOW()")
             rows = c.fetchall()
             c.close()
             conn.close()
@@ -2936,12 +2935,12 @@ async def giveaway_checker_loop():
                         wname = winner_data[0] if winner_data else f"user_{winner_id}"
                         await bot.send_message(
                             ADMIN_ID,
-                            f"🎁 <b>РОЗЫГРЫШ ЗАВЕРШЁН!</b>\n🏆 Победитель: <b>{wname}</b>\n💰 +{prize:,}".replace(',', ' '),
+                            f"Розыгрыш завершён! Победитель: {wname}",
                             parse_mode="HTML"
                         )
                         await bot.send_message(
                             winner_id,
-                            f"🎉 <b>ТЫ ВЫИГРАЛ РОЗЫГРЫШ!</b>\n💰 +{prize:,} токенов!".replace(',', ' '),
+                            f"Ты выиграл розыгрыш! +{prize} токенов!",
                             parse_mode="HTML"
                         )
                     except Exception as e:
