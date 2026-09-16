@@ -1648,7 +1648,7 @@ async def cmd_giveaway(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
-        if len(args) < 3:
+           if len(args) < 3:
         await message.answer(
             "📋 <b>РОЗЫГРЫШ</b>\n━━━━━━━━━━━━━━━━━━\n"
             "<code>/giveaway 10000 30m</code> — 30 минут\n"
@@ -1657,7 +1657,7 @@ async def cmd_giveaway(message: Message):
             "⏱️ Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>",
             parse_mode="HTML"
         )
-        return
+        returnn
     try:
         amount = int(args[1])
     except:
