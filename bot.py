@@ -1731,7 +1731,7 @@ async def cmd_giveaway(message: Message):
     )
                 count += 1
                 await asyncio.sleep(0.05)
-            except:
+        except:
             pass
     await message.answer(f"Уведомлено: {count}", parse_mode="HTML")
     
