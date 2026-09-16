@@ -1663,25 +1663,16 @@ async def cmd_giveaway(message: Message):
     except:
         await message.answer("❌ Неверная сумма", parse_mode="HTML")
         return
-    time_str = args[2].lower()
     minutes = 0
-    if time_str.endswith('m'):
-        try:
-            minutes = int(time_str[:-1])
-        except:
-            pass
-    elif time_str.endswith('h'):
-        try:
-            minutes = int(time_str[:-1]) * 60
-        except:
-            pass
-    elif time_str.endswith('d'):
-        try:
-            minutes = int(time_str[:-1]) * 1440
-        except:
-            pass
+        time_str = args[2].lower()
+    if time_str.endswith('h'):
+        minutes = int(time_str[:-1]) * 60
+    elif time_str.endswith('m'):
+        minutes = int(time_str[:-1])
+    else:
+        minutes = 0
     if minutes <= 0:
-        await message.answer("❌ Неверное время. Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>", parse_mode="HTML")
+        await message.answer("❌ Неверное время", parse_mode="HTML")
         return
     gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
     await message.answer(
