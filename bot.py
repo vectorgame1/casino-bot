@@ -4,7 +4,7 @@ import os
 import threading
 import random
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -631,7 +631,7 @@ def is_game_disabled(game):
 def create_giveaway(amount, minutes, creator_id):
     conn = get_db()
     c = conn.cursor()
-    ends_at = datetime.now() + timedelta(minutes=minutes)
+    ends_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     c.execute("""INSERT INTO giveaways (amount, ends_at, created_by, status)
                  VALUES (%s, %s, %s, 'active') RETURNING id""", (amount, ends_at, creator_id))
     gid = c.fetchone()[0]
@@ -1654,7 +1654,7 @@ async def cmd_giveaway(message: Message):
             "<code>/giveaway 10000 30m</code> — 30 минут\n"
             "<code>/giveaway 10000 1h</code> — 1 час\n"
             "<code>/giveaway 10000 24h</code> — 24 часа\n\n"
-            "⏱️ Формат: <code>30m</code> / <code>1h</code> / <code>24h</code>",
+            f"⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M:%S')}</b>\n"
             parse_mode="HTML"
         )
         return
@@ -1700,8 +1700,7 @@ async def cmd_giveaway(message: Message):
             try:
                 await bot.send_message(
                     uid,
-                    f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{ends_at.strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
-                    parse_mode="HTML"
+                                       f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
                 )
                 count += 1
                 await asyncio.sleep(0.05)
