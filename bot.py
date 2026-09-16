@@ -1709,24 +1709,29 @@ async def cmd_giveaway(message: Message):
         scope = f"всех игроков ({len(users)} чел.)"
 
     gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
-    await message.answer(
-        f"РОЗЫГРЫШ ЗАПУЩЕН!\n"
-        f"Приз: {amount}\n"
-        f"Участников: {scope}\n"
-        f"До: {(ends_at + timedelta(hours=3)).strftime('%H:%M')}",
+        await message.answer(
+        f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💰 Приз: <b>{amount:,}</b>\n"
+        f"👥 {scope}\n"
+        f"⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M:%S')}</b>".replace(',', ' '),
         parse_mode="HTML"
     )
     count = 0
     for uid in users:
         try:
-            await bot.send_message(
+                await bot.send_message(
                 uid,
-                f"РОЗЫГРЫШ! Приз: {amount}",
+                f"🎁 <b>РОЗЫГРЫШ!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 Приз: <b>{amount:,}</b>\n"
+                f"⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M')}</b>\n\n"
+                f"🏆 Победитель — случайный игрок!".replace(',', ' '),
                 parse_mode="HTML"
-            )
-            count += 1
-            await asyncio.sleep(0.05)
-        except:
+    )
+                count += 1
+                await asyncio.sleep(0.05)
+            except:
             pass
     await message.answer(f"Уведомлено: {count}", parse_mode="HTML")
     
