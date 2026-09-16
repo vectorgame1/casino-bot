@@ -245,6 +245,7 @@ def init_db():
         status TEXT DEFAULT 'active',
         winner_id BIGINT,
         created_at TIMESTAMP DEFAULT NOW()
+    )""")
     c.execute("""CREATE TABLE IF NOT EXISTS group_members (
         id SERIAL PRIMARY KEY,
         chat_id BIGINT,
