@@ -1647,8 +1647,8 @@ async def cmd_active(message: Message):
 async def cmd_giveaway(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-        args = message.text.split()
-if len(args) < 3:
+        args = message.text.split()       
+    if len(args) < 3:
         await message.answer(
             "📋 <b>РОЗЫГРЫШ</b>\n━━━━━━━━━━━━━━━━━━\n"
             "<code>/giveaway 10000 30m</code> — 30 минут\n"
@@ -1658,8 +1658,8 @@ if len(args) < 3:
             parse_mode="HTML"
         )
         return
-    try:
-        amount = int(args[1])
+        try:
+            amount = int(args[1])
     except:
         await message.answer("❌ Неверная сумма", parse_mode="HTML")
         return
@@ -1700,7 +1700,7 @@ if len(args) < 3:
             try:
                 await bot.send_message(
                     uid,
-                                       f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
+                    f"🎁 <b>РОЗЫГРЫШ!</b>\n💰 Приз: <b>{amount:,}</b>\n⏱️ До: <b>{(ends_at + timedelta(hours=3)).strftime('%H:%M')}</b>\n\n🏆 Победитель — случайный игрок!".replace(',', ' '),
                 )
                 count += 1
                 await asyncio.sleep(0.05)
