@@ -2329,10 +2329,10 @@ async def callback_handler(call: CallbackQuery):
         if win:
                 wa = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
                 nb = set_balance(user_id, wa)
-        update_quest(user_id, "win_100k", wa)
+            update_quest(user_id, "win_100k", wa)
         if result == 36:
                 unlock_achievement(user_id, "lucky_36")
-            txt = f"Win +{wa} (x{mult}) Balance: {nb}"
+    txt = f"Win +{wa} (x{mult}) Balance: {nb}"
         else:
             nb = get_balance(user_id)
             xp = get_xp(user_id)
