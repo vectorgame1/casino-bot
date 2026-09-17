@@ -1461,7 +1461,7 @@ async def cmd_jackpot(message: Message):
 @dp.message(Command("set_xp"))
 async def cmd_set_xp(message: Message):
         if message.from_user.id != ADMIN_ID:
-        return
+            return
     args = message.text.split()
     if len(args) < 3:
         await message.answer("❌ <code>/set_xp @user 1000</code>", parse_mode="HTML")
