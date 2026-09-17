@@ -542,7 +542,7 @@ def track_group_member(chat_id, user_id, username):
         conn.commit()
         c.close()
         conn.close()
-    def get_user_mult(user_id):
+def get_user_mult(user_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""SELECT mult FROM boosts 
