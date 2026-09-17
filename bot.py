@@ -5,9 +5,9 @@ import threading
 import random
 import psycopg2
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, LabeledPrice, PreCheckoutQuery
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -146,6 +146,24 @@ def api_balance(user_id):
         "cashback": vip["cashback"],
     })
 
+    @app.route('/api/boost/<int:user_id>')
+def api_boost(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT mult, until FROM boosts 
+                 WHERE user_id = %s AND until > NOW() 
+                 ORDER BY mult DESC LIMIT 1""", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    if row:
+        return jsonify({
+            "active": True,
+            "mult": row[0],
+            "until": row[1].isoformat() if row[1] else None
+        })
+    return jsonify({"active": False, "mult": 1})
+
 @app.route('/api/update', methods=['POST'])
 def api_update():
     data = request.json
@@ -253,6 +271,13 @@ def init_db():
         username TEXT,
         last_seen TIMESTAMP DEFAULT NOW(),
         UNIQUE(chat_id, user_id)
+    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS boosts (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        mult INT,
+        until TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
     )""")
     conn.commit()
     c.close()
@@ -517,6 +542,17 @@ def track_group_member(chat_id, user_id, username):
         conn.commit()
         c.close()
         conn.close()
+    def get_user_mult(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT mult FROM boosts 
+                 WHERE user_id = %s AND until > NOW() 
+                 ORDER BY mult DESC LIMIT 1""", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row else 1
+
 
 def get_group_members(chat_id, limit=100):
     conn = get_db()
@@ -1424,6 +1460,40 @@ async def cmd_jackpot(message: Message):
 
 @dp.message(Command("set_xp"))
 async def cmd_set_xp(message: Message):
+    @dp.pre_checkout_query()
+async def pre_checkout(pre_checkout_q: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def successful_payment(message: Message):
+    payload = message.successful_payment.invoice_payload
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    ensure_user(user_id, username)
+    
+    if payload.startswith("boost_"):
+        parts = payload.split("_")
+        mult = int(parts[1])
+        minutes = int(parts[2])
+        until = datetime.now() + timedelta(minutes=minutes)
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("INSERT INTO boosts (user_id, mult, until) VALUES (%s, %s, %s)",
+                  (user_id, mult, until))
+        conn.commit()
+        c.close()
+        conn.close()
+        await message.answer(
+            f"✅ <b>БУСТ АКТИВИРОВАН!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"⚡ Множитель: <b>×{mult}</b>\n"
+            f"⏱️ До: <b>{(until + timedelta(hours=3)).strftime('%H:%M:%S')}</b>\n\n"
+            f"🎰 Заходи в игры — выигрыши ×{mult}!",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer("✅ Оплата получена!")
+
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
@@ -1676,6 +1746,23 @@ async def cmd_active(message: Message):
         txt += f"{i}. <b>{uname}</b> — 💎 {bal:,}\n".replace(',', ' ')
     await message.answer(txt, parse_mode="HTML")
 
+@dp.message(Command("shop"))
+async def cmd_shop(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚡ ×2 на 30 мин — 5 ⭐", callback_data="buy_boost_2_30_5")],
+        [InlineKeyboardButton(text="🔥 ×2 на 2 часа — 15 ⭐", callback_data="buy_boost_2_120_15")],
+        [InlineKeyboardButton(text="💎 ×3 на 30 мин — 20 ⭐", callback_data="buy_boost_3_30_20")],
+        [InlineKeyboardButton(text="👑 ×5 на 15 мин — 30 ⭐", callback_data="buy_boost_5_15_30")],
+    ])
+    await message.answer(
+        "🛒 <b>МАГАЗИН БУСТОВ</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "💎 Покупай за <b>Telegram Stars</b>\n"
+        "⚡ Буст работает <b>только для тебя</b>\n\n"
+        "👇 Выбери:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 @dp.message(Command("giveaway"))
 async def cmd_giveaway(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -1749,6 +1836,26 @@ async def callback_handler(call: CallbackQuery):
     if maintenance_on and user_id != ADMIN_ID:
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
+            if data.startswith("buy_boost_"):
+        parts = data.split("_")
+        mult = int(parts[2])
+        minutes = int(parts[3])
+        stars = int(parts[4])
+        await call.answer()
+        try:
+            await bot.send_invoice(
+                chat_id=user_id,
+                title=f"Буст ×{mult} на {minutes} мин",
+                description=f"Личный множитель ×{mult} на {minutes} минут",
+                payload=f"boost_{mult}_{minutes}",
+                currency="XTR",
+                prices=[LabeledPrice(label=f"×{mult} на {minutes} мин", amount=stars)],
+            )
+        except Exception as e:
+            print(f"Ошибка инвойса: {e}")
+            await call.message.answer(f"❌ Ошибка: {e}")
+        return
+
 
     if data.startswith("admin_"):
         if user_id != ADMIN_ID:
@@ -2100,7 +2207,7 @@ async def callback_handler(call: CallbackQuery):
         game["mult"] = round(1 + len(game["opened"]) * MINES_LEVELS[game["level"]]["step"], 2)
         safe_total = 25 - MINES_LEVELS[game["level"]]["mines"]
         if len(game["opened"]) == safe_total:
-            wa = clamp(int(game["bet"] * game["mult"] * get_event_mult()))
+            wa = clamp(int(game["bet"] * game["mult"] * get_event_mult() * get_user_mult(user_id)))
             set_balance(user_id, wa)
             log_game(user_id, username, "мины", game["bet"], wa, f"{game['level']} all")
             unlock_achievement(user_id, "mines_all")
@@ -2129,7 +2236,7 @@ async def callback_handler(call: CallbackQuery):
         if not game["opened"]:
             await call.answer("❌ Открой хотя бы 1 клетку!", show_alert=True)
             return
-        wa = clamp(int(game["bet"] * game["mult"] * get_event_mult()))
+        wa = clamp(int(game["bet"] * game["mult"] * get_event_mult() * get_user_mult(user_id)))
         set_balance(user_id, wa)
         nb = get_balance(user_id)
         log_game(user_id, username, "мины", game["bet"], wa, f"{game['level']} x{game['mult']}")
@@ -2198,7 +2305,7 @@ async def callback_handler(call: CallbackQuery):
         update_quest(user_id, "roulette_10")
         update_quest(user_id, "bets_20")
         if win:
-            wa = clamp(int(bet * mult * get_event_mult()))
+    wa = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
             nb = set_balance(user_id, wa)
             update_quest(user_id, "win_100k", wa)
             if result == 36:
@@ -2257,7 +2364,7 @@ async def callback_handler(call: CallbackQuery):
             win = True
             mult = MULT_ZERO
         if win:
-            wa = clamp(int(bet * mult * get_event_mult()))
+    wa = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
             nb = set_balance(user_id, wa)
             txt = f"🎰 <b>Выпало: {color} {result}</b>\n━━━━━━━━━━━━━━━━━━\n🎉 <b>ПОБЕДА!</b>\n💰 +{wa:,}\n💎 {nb:,}".replace(',', ' ')
             log_game(user_id, username, "рулетка", bet, wa, f"{result} {color}")
@@ -2311,7 +2418,7 @@ async def callback_handler(call: CallbackQuery):
         update_quest(user_id, "bj_5")
         update_quest(user_id, "bets_20")
         if d_score > 21 or p_score > d_score:
-            wa = clamp(game["bet"] * 2 * get_event_mult())
+            wa = clamp(game["bet"] * 2 * get_event_mult() * get_user_mult(user_id))
             nb = set_balance(user_id, wa)
             result_text = f"🎉 <b>ПОБЕДА!</b>\n💰 +{wa - game['bet']:,}"
             log_game(user_id, username, "блэкджек", game["bet"], wa, f"{p_score} vs {d_score}")
@@ -2507,6 +2614,7 @@ async def text_handler(message: Message):
             winner_name = duel["opponent_name"]
             loser_name = duel["challenger_name"]
             color_emoji = "🔵"
+                total_bank = clamp(int(total_bank * get_user_mult(winner_id)))
         new_balance = set_balance(winner_id, total_bank)
         add_xp(duel["challenger_id"], 3)
         add_xp(duel["opponent_id"], 3)
@@ -2700,21 +2808,21 @@ async def text_handler(message: Message):
         for b in bets:
             win_amount = 0
             if b["type"] == "red" and result in RED_NUMBERS:
-                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult())
+                            if b["type"] == "red" and result in RED_NUMBERS:
+                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult() * get_user_mult(b["user_id"]))
             elif b["type"] == "black" and result in BLACK_NUMBERS:
-                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult())
+                win_amount = int(b["bet_total"] * MULT_COLOR * get_event_mult() * get_user_mult(b["user_id"]))
             elif b["type"] == "green" and result == 0:
-                win_amount = int(b["bet_total"] * MULT_ZERO * get_event_mult())
+                win_amount = int(b["bet_total"] * MULT_ZERO * get_event_mult() * get_user_mult(b["user_id"]))
             elif b["type"] == "number" and result == b["number"]:
-                win_amount = int(b["bet_total"] * MULT_NUMBER * get_event_mult())
+                win_amount = int(b["bet_total"] * MULT_NUMBER * get_event_mult() * get_user_mult(b["user_id"]))
             elif b["type"] == "ranges":
                 win_mult = 0
                 for (a, z) in b["ranges"]:
                     if a <= result <= z:
                         win_mult += MULT_RANGE
                 if win_mult > 0:
-                    win_amount = int(b["bet_total"] * win_mult * get_event_mult())
-            if b["user_id"] == user_id:
+                    win_amount = int(b["bet_total"] * win_mult * get_event_mult() * get_user_mult(b["user_id"]))
                 user_last_bet = b
             if win_amount > 0:
                 win_amount = clamp(win_amount)
@@ -2781,7 +2889,7 @@ async def text_handler(message: Message):
         add_xp(user_id, 1)
         update_quest(user_id, "bets_20")
         if win:
-            wa = clamp(bet * mult * get_event_mult())
+            wa = clamp(bet * mult * get_event_mult() * get_user_mult(user_id))
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "слоты", bet, wa, f"{r1}{r2}{r3}")
             await msg.edit_text(f"🎰 <b>СЛОТЫ</b>\n┃ {r1} ┃ {r2} ┃ {r3} ┃\n\n🎉 <b>+{wa:,}</b> (×{mult})\n💎 {nb:,}".replace(',', ' '), parse_mode="HTML")
@@ -2816,7 +2924,7 @@ async def text_handler(message: Message):
         add_xp(user_id, 1)
         update_quest(user_id, "bets_20")
         if result == choice:
-            wa = clamp(bet * 2 * get_event_mult())
+            wa = clamp(bet * 2 * get_event_mult() * get_user_mult(user_id))
             nb = set_balance(user_id, wa)
             log_game(user_id, username, "монетка", bet, wa, "🦅" if result == 'heads' else "👑")
             await msg.edit_text(f"🪙 <b>МОНЕТКА</b>\n🎯 {'🦅' if result == 'heads' else '👑'}\n🎉 <b>+{wa:,}</b>\n💎 {nb:,}".replace(',', ' '), parse_mode="HTML")
