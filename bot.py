@@ -272,7 +272,7 @@ def init_db():
         last_seen TIMESTAMP DEFAULT NOW(),
         UNIQUE(chat_id, user_id)
     )""")
-        c.execute("""CREATE TABLE IF NOT EXISTS boosts (
+    c.execute("""CREATE TABLE IF NOT EXISTS boosts (
         id SERIAL PRIMARY KEY,
         user_id BIGINT,
         mult INT,
