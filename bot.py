@@ -1859,7 +1859,7 @@ async def callback_handler(call: CallbackQuery):
     if maintenance_on and user_id != ADMIN_ID:
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
-            if data.startswith("buy_boost_"):
+    if data.startswith("buy_boost_"):
         parts = data.split("_")
         mult = int(parts[2])
         minutes = int(parts[3])
