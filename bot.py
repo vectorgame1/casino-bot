@@ -1460,11 +1460,11 @@ async def cmd_jackpot(message: Message):
 
 @dp.message(Command("set_xp"))
 async def cmd_set_xp(message: Message):
-        if message.from_user.id != ADMIN_ID:
-            return
+    if message.from_user.id != ADMIN_ID:
+        return
     args = message.text.split()
     if len(args) < 3:
-        await message.answer("❌ <code>/set_xp @user 1000</code>", parse_mode="HTML")
+        await message.answer("Format", parse_mode="HTML")
         return
     username = args[1][1:] if args[1].startswith('@') else args[1]
     try:
@@ -1473,15 +1473,15 @@ async def cmd_set_xp(message: Message):
         return
     uid = get_user_id_by_username(username)
     if not uid:
-        await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+        await message.answer("Not found", parse_mode="HTML")
         return
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE users SET xp = %s, vip_level = %s WHERE user_id = %s", (amount, get_vip_level(amount), uid))
+    c.execute("UPDATE users SET xp = %s WHERE user_id = %s", (amount, uid))
     conn.commit()
     c.close()
     conn.close()
-    await message.answer(f"✅ @{username} XP = <b>{amount}</b>".replace(',', ' '), parse_mode="HTML")
+    await message.answer("OK", parse_mode="HTML")
 
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_q: PreCheckoutQuery):
