@@ -2332,8 +2332,7 @@ async def callback_handler(call: CallbackQuery):
         update_quest(user_id, "win_100k", wa)
         if result == 36:
                 unlock_achievement(user_id, "lucky_36")
-        txt = f"🎰 <b>Выпало: {color} {result}</b>\n━━━━━━━━━━━━━━━━━━\n🎉 <b>ПОБЕДА!</b>\n💰 <b>+{wa:,}</b> (×{mult})\n\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' ')
-            log_game(user_id, username, "рулетка", bet, wa, f"{result} {color}")
+            txt = f"Win +{wa} (x{mult}) Balance: {nb}"
         else:
             nb = get_balance(user_id)
             xp = get_xp(user_id)
@@ -2341,8 +2340,7 @@ async def callback_handler(call: CallbackQuery):
             cashback = int(bet * vip["cashback"] / 100)
             if cashback > 0 and not is_unlimited(user_id):
                 nb = set_balance(user_id, cashback)
-            txt = f"🎰 <b>Выпало: {color} {result}</b>\n━━━━━━━━━━━━━━━━━━\n😢 <b>Проигрыш</b>\n💸 -{bet:,}\n💰 Кешбэк: +{cashback:,}\n\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' ')
-            log_game(user_id, username, "рулетка", bet, 0, f"{result} {color}")
+            txt = f"Lose -{bet} Cashback: {cashback} Balance: {nb}"
         rkb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"bet_{bet_type}_{bet}"),
              InlineKeyboardButton(text="⬆️ Удвоить", callback_data=f"bet_{bet_type}_{bet*2}")],
