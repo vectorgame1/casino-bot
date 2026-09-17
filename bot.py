@@ -2326,9 +2326,9 @@ async def callback_handler(call: CallbackQuery):
             mult = MULT_ZERO
         add_xp(user_id, 1)
         update_quest(user_id, "roulette_10")
-        update_quest(user_id, "bets_20")
-        if win:
-    wa = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
+            if win:
+                wa = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
+                nb = set_balance(user_id, wa)
             nb = set_balance(user_id, wa)
             update_quest(user_id, "win_100k", wa)
             if result == 36:
