@@ -2332,8 +2332,8 @@ async def callback_handler(call: CallbackQuery):
                 update_quest(user_id, "win_100k", wa)
                 if result == 36:
                 unlock_achievement(user_id, "lucky_36")
-    txt = f"Win +{wa} (x{mult}) Balance: {nb}"
-                else:
+        txt = f"Win +{wa} (x{mult}) Balance: {nb}"
+        else:
             nb = get_balance(user_id)
             xp = get_xp(user_id)
             vip = get_vip_info(xp)
