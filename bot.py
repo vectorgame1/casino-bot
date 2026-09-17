@@ -146,9 +146,9 @@ def api_balance(user_id):
         "cashback": vip["cashback"],
     })
 
-    @app.route('/api/boost/<int:user_id>')
+@app.route('/api/boost/<int:user_id>')
 def api_boost(user_id):
-conn = get_db()
+    conn = get_db()
     c = conn.cursor()
     c.execute("""SELECT mult, until FROM boosts 
                  WHERE user_id = %s AND until > NOW() 
