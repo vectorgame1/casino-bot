@@ -2332,7 +2332,7 @@ async def callback_handler(call: CallbackQuery):
         update_quest(user_id, "win_100k", wa)
         if result == 36:
                 unlock_achievement(user_id, "lucky_36")
-            txt = f"🎰 <b>Выпало: {color} {result}</b>\n━━━━━━━━━━━━━━━━━━\n🎉 <b>ПОБЕДА!</b>\n💰 <b>+{wa:,}</b> (×{mult})\n\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' ')
+        txt = f"🎰 <b>Выпало: {color} {result}</b>\n━━━━━━━━━━━━━━━━━━\n🎉 <b>ПОБЕДА!</b>\n💰 <b>+{wa:,}</b> (×{mult})\n\n💎 Баланс: <b>{nb:,}</b>".replace(',', ' ')
             log_game(user_id, username, "рулетка", bet, wa, f"{result} {color}")
         else:
             nb = get_balance(user_id)
