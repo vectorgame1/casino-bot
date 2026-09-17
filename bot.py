@@ -2228,7 +2228,7 @@ async def callback_handler(call: CallbackQuery):
             return
         game["opened"].add(idx)
         game["mult"] = round(1 + len(game["opened"]) * MINES_LEVELS[game["level"]]["step"], 2)
-        safe_total = 25 - MINES_LEVELS[game["level"]]["mines"]
+            safe_total = 25 - MINES_LEVELS[game["level"]]["mines"]
         if len(game["opened"]) == safe_total:
             wa = clamp(int(game["bet"] * game["mult"] * get_event_mult() * get_user_mult(user_id)))
             set_balance(user_id, wa)
