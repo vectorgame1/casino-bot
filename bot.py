@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import random
+import json
 import psycopg2
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
@@ -689,6 +690,54 @@ def save_disabled_games():
     c.close()
     conn.close()
 
+DEFAULT_SHOP_ITEMS = [
+    {"id": "boost_2_30",   "name": "⚡ ×2 на 30 мин",    "desc": "Личный множитель ×2 на 30 минут",  "mult": 2, "minutes": 30,  "stars": 5},
+    {"id": "boost_2_120",  "name": "🔥 ×2 на 2 часа",    "desc": "Личный множитель ×2 на 120 минут", "mult": 2, "minutes": 120, "stars": 15},
+    {"id": "boost_3_30",   "name": "💎 ×3 на 30 мин",    "desc": "Личный множитель ×3 на 30 минут",  "mult": 3, "minutes": 30,  "stars": 20},
+    {"id": "boost_5_15",   "name": "👑 ×5 на 15 мин",    "desc": "Личный множитель ×5 на 15 минут",  "mult": 5, "minutes": 15,  "stars": 30},
+]
+
+def get_shop_items():
+    """Возвращает список товаров магазина. Хранится в settings (JSON)."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = 'shop_items'")
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    if row and row[0]:
+        try:
+            items = json.loads(row[0])
+            if isinstance(items, list) and items:
+                return items
+        except Exception:
+            pass
+    return list(DEFAULT_SHOP_ITEMS)
+
+def save_shop_items(items):
+    conn = get_db()
+    c = conn.cursor()
+    value = json.dumps(items, ensure_ascii=False)
+    c.execute("""INSERT INTO settings (key, value) VALUES ('shop_items', %s)
+                 ON CONFLICT (key) DO UPDATE SET value = %s""", (value, value))
+    conn.commit()
+    c.close()
+    conn.close()
+
+def add_shop_item(name, desc, mult, minutes, stars):
+    items = get_shop_items()
+    item_id = f"boost_{mult}_{minutes}_{int(datetime.now().timestamp())}"
+    items.append({
+        "id": item_id,
+        "name": name,
+        "desc": desc,
+        "mult": int(mult),
+        "minutes": int(minutes),
+        "stars": int(stars),
+    })
+    save_shop_items(items)
+    return item_id
+
 def load_settings():
     global disabled_games
     disabled_games = get_disabled_games()
@@ -785,7 +834,8 @@ def group_kb():
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
         [InlineKeyboardButton(text="🏦 Банк", callback_data="menu_bank"),
          InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top")],
-        [InlineKeyboardButton(text="📜 Лог", callback_data="menu_log")]
+        [InlineKeyboardButton(text="🛒 Магазин", callback_data="menu_shop"),
+         InlineKeyboardButton(text="📜 Лог", callback_data="menu_log")]
     ])
 
 def games_kb():
@@ -1003,8 +1053,9 @@ async def cmd_start(message: Message):
              InlineKeyboardButton(text="🎁 БОНУС", callback_data="menu_daily")],
             [InlineKeyboardButton(text="👤 ПРОФИЛЬ", callback_data="menu_profile"),
              InlineKeyboardButton(text="🎯 КВЕСТЫ", callback_data="menu_quests")],
-            [InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top"),
-             InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
+            [InlineKeyboardButton(text="🛒 МАГАЗИН", callback_data="menu_shop"),
+             InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top")],
+            [InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
         ])
         await message.answer(txt, parse_mode="HTML", reply_markup=kb)
     else:
@@ -1778,12 +1829,28 @@ async def cmd_active(message: Message):
 
 @dp.message(Command("shop"))
 async def cmd_shop(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ ×2 на 30 мин — 5 ⭐", callback_data="buy_boost_2_30_5")],
-        [InlineKeyboardButton(text="🔥 ×2 на 2 часа — 15 ⭐", callback_data="buy_boost_2_120_15")],
-        [InlineKeyboardButton(text="💎 ×3 на 30 мин — 20 ⭐", callback_data="buy_boost_3_30_20")],
-        [InlineKeyboardButton(text="👑 ×5 на 15 мин — 30 ⭐", callback_data="buy_boost_5_15_30")],
-    ])
+    if not message.from_user or message.from_user.is_bot:
+        return
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    ensure_user(user_id, username)
+    if is_banned(user_id):
+        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
+
+    items = get_shop_items()
+    if not items:
+        await message.answer("🛒 Магазин пока пуст.", parse_mode="HTML")
+        return
+
+    rows = []
+    for it in items:
+        rows.append([InlineKeyboardButton(
+            text=f"{it['name']} — {it['stars']} ⭐",
+            callback_data=f"buy_boost_{it['mult']}_{it['minutes']}_{it['stars']}"
+        )])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
     await message.answer(
         "🛒 <b>МАГАЗИН БУСТОВ</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -1793,6 +1860,96 @@ async def cmd_shop(message: Message):
         parse_mode="HTML",
         reply_markup=kb
     )
+
+@dp.message(Command("addboost"))
+async def cmd_addboost(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer(
+            "❌ <b>Формат:</b>\n"
+            "<code>/addboost Название | Описание | Множитель | Минуты | Цена⭐</code>\n\n"
+            "Пример:\n"
+            "<code>/addboost ×2 на 1 час | Личный множитель ×2 на 60 минут | 2 | 60 | 25</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    raw = args[1]
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) != 5:
+        await message.answer("❌ Нужно ровно 5 полей, разделённых <code>|</code>", parse_mode="HTML")
+        return
+
+    name, desc, mult_s, minutes_s, stars_s = parts
+    try:
+        mult = int(mult_s)
+        minutes = int(minutes_s)
+        stars = int(stars_s)
+    except ValueError:
+        await message.answer("❌ Множитель, минуты и цена должны быть числами", parse_mode="HTML")
+        return
+
+    if mult < 1 or minutes < 1 or stars < 1:
+        await message.answer("❌ Значения должны быть > 0", parse_mode="HTML")
+        return
+
+    add_shop_item(name, desc, mult, minutes, stars)
+    await message.answer(
+        f"✅ <b>Товар добавлен!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ {name}\n"
+        f"📝 {desc}\n"
+        f"⚡ ×{mult} на {minutes} мин\n"
+        f"⭐ Цена: {stars}\n\n"
+        f"Проверь: <code>/shop</code>",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("delboost"))
+async def cmd_delboost(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    items = get_shop_items()
+    if len(args) < 2:
+        if not items:
+            await message.answer("🛒 Магазин пуст.", parse_mode="HTML")
+            return
+        txt = "🗑️ <b>УДАЛЕНИЕ ТОВАРА</b>\n━━━━━━━━━━━━━━━━━━\n"
+        for i, it in enumerate(items, 1):
+            txt += f"{i}. {it['name']} — ×{it['mult']} / {it['minutes']}м / {it['stars']}⭐\n"
+        txt += "\n📋 <code>/delboost 2</code> — удалить товар №2\n"
+        txt += "📋 <code>/delboost all</code> — очистить магазин"
+        await message.answer(txt, parse_mode="HTML")
+        return
+
+    arg = args[1].lower()
+    if arg == "all":
+        save_shop_items([])
+        await message.answer("🗑️ <b>Магазин полностью очищен!</b>", parse_mode="HTML")
+        return
+
+    try:
+        idx = int(arg) - 1
+    except ValueError:
+        await message.answer("❌ Укажи номер товара или <code>all</code>", parse_mode="HTML")
+        return
+
+    if idx < 0 or idx >= len(items):
+        await message.answer(f"❌ Нет товара с номером {arg}. Всего: {len(items)}", parse_mode="HTML")
+        return
+
+    removed = items.pop(idx)
+    save_shop_items(items)
+    await message.answer(
+        f"🗑️ <b>Удалён товар:</b>\n"
+        f"🏷️ {removed['name']}\n"
+        f"⚡ ×{removed['mult']} / {removed['minutes']}м / {removed['stars']}⭐",
+        parse_mode="HTML"
+    )
+
 @dp.message(Command("giveaway"))
 async def cmd_giveaway(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -2006,7 +2163,9 @@ async def callback_handler(call: CallbackQuery):
                 f"<b>🎁 Фан:</b>\n"
                 f"<code>/giveaway 10000 1h</code>\n"
                 f"<code>/jackpot set/reset</code>\n"
-                f"<code>/broadcast Текст</code>"
+                f"<code>/broadcast Текст</code>\n"
+                f"<code>/addboost Название | Описание | ×2 | 60 | 25</code>\n"
+                f"<code>/delboost 2</code> | <code>/delboost all</code>\n"
             )
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
@@ -2050,6 +2209,29 @@ async def callback_handler(call: CallbackQuery):
     elif data == "menu_games":
         txt = "🎮 <b>ИГРЫ</b>\n━━━━━━━━━━━━━━━━━━\nВыбери игру:"
         await call.message.edit_text(txt, parse_mode="HTML", reply_markup=games_kb())
+
+    elif data == "menu_shop":
+        items = get_shop_items()
+        if not items:
+            await call.answer("🛒 Магазин пуст", show_alert=True)
+            return
+        rows = []
+        for it in items:
+            rows.append([InlineKeyboardButton(
+                text=f"{it['name']} — {it['stars']} ⭐",
+                callback_data=f"buy_boost_{it['mult']}_{it['minutes']}_{it['stars']}"
+            )])
+        rows.append([InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")])
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
+        await call.message.edit_text(
+            "🛒 <b>МАГАЗИН БУСТОВ</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "💎 Покупай за <b>Telegram Stars</b>\n"
+            "⚡ Буст работает <b>только для тебя</b>\n\n"
+            "👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
 
     elif data == "menu_profile":
         xp = get_xp(user_id)
