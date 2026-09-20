@@ -28,6 +28,7 @@ MULT_RANGE = 1.2
 
 MAX_BIGINT = 9_000_000_000_000_000_000
 MAX_BET = 100_000_000_000
+DAILY_BONUS = 10000
 
 def clamp(x):
     try:
@@ -91,16 +92,13 @@ duel_games = {}
 mines_games = {}
 disabled_games = set()
 giveaway_timers = {}
-
-# Состояния редакторов
-edit_state = {}          # /editboost
-edit_case_state = {}     # /editcases
+edit_state = {}
+edit_case_state = {}
+bank_input_state = {}
 
 event_double = False
 maintenance_on = False
 jackpot_amount = 10000
-
-DAILY_BONUS = 10000
 
 
 def get_event_mult():
@@ -303,10 +301,7 @@ def init_db():
         until TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
     )""")
-
-    # ALTER для ежедневного бонуса
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_last_claim TIMESTAMP")
-
     conn.commit()
     c.close()
     conn.close()
@@ -571,6 +566,94 @@ def get_top(limit=10):
     return rows
 
 
+def get_top_xp(limit=10):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT user_id, username, balance, xp FROM users ORDER BY xp DESC LIMIT %s", (limit,))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
+
+def get_top_games(limit=10):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT u.user_id, u.username, u.balance, u.xp, COUNT(g.id) as games
+        FROM users u
+        LEFT JOIN game_log g ON u.user_id = g.user_id
+        GROUP BY u.user_id, u.username, u.balance, u.xp
+        ORDER BY games DESC LIMIT %s
+    """, (limit,))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
+
+def get_top_wins(limit=10):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT u.user_id, u.username, u.balance, u.xp, COUNT(g.id) as wins
+        FROM users u
+        LEFT JOIN game_log g ON u.user_id = g.user_id AND g.win > 0
+        GROUP BY u.user_id, u.username, u.balance, u.xp
+        ORDER BY wins DESC LIMIT %s
+    """, (limit,))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
+
+def get_user_stats(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (user_id,))
+    total_games = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (user_id,))
+    total_wins = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(bet), 0) FROM game_log WHERE user_id = %s", (user_id,))
+    total_bet = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(win), 0) FROM game_log WHERE user_id = %s", (user_id,))
+    total_win = c.fetchone()[0]
+    c.execute("SELECT COALESCE(MAX(win), 0) FROM game_log WHERE user_id = %s", (user_id,))
+    best_win = c.fetchone()[0]
+    c.execute("""SELECT game, COUNT(*) as cnt FROM game_log 
+                 WHERE user_id = %s GROUP BY game ORDER BY cnt DESC LIMIT 1""", (user_id,))
+    fav = c.fetchone()
+    fav_game = fav[0] if fav else "—"
+    c.close()
+    conn.close()
+    return {
+        "total_games": total_games,
+        "total_wins": total_wins,
+        "total_bet": total_bet,
+        "total_win": total_win,
+        "profit": total_win - total_bet,
+        "best_win": best_win,
+        "fav_game": fav_game,
+        "winrate": round(total_wins / total_games * 100) if total_games > 0 else 0,
+    }
+
+
+def get_user_history(user_id, game=None, limit=15):
+    conn = get_db()
+    c = conn.cursor()
+    if game:
+        c.execute("""SELECT game, bet, win, detail, time FROM game_log 
+                     WHERE user_id = %s AND game = %s ORDER BY id DESC LIMIT %s""", (user_id, game, limit))
+    else:
+        c.execute("""SELECT game, bet, win, detail, time FROM game_log 
+                     WHERE user_id = %s ORDER BY id DESC LIMIT %s""", (user_id, limit))
+    rows = c.fetchall()
+    c.close()
+    conn.close()
+    return rows
+
+
 def get_all_user_ids():
     conn = get_db()
     c = conn.cursor()
@@ -606,6 +689,18 @@ def get_user_mult(user_id):
     return row[0] if row else 1
 
 
+def get_active_boost(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT mult, until FROM boosts 
+                 WHERE user_id = %s AND until > NOW() 
+                 ORDER BY mult DESC LIMIT 1""", (user_id,))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row
+
+
 def get_group_members(chat_id, limit=100):
     conn = get_db()
     c = conn.cursor()
@@ -629,13 +724,11 @@ def log_game(user_id, username, game, bet, win, detail):
 
 
 def get_last_roulette_results(limit=10, chat_id=None):
-    """Возвращает последние результаты рулетки. Если chat_id передан — только по участникам этого чата."""
     conn = get_db()
     c = conn.cursor()
     if chat_id is not None:
         c.execute("""
-            SELECT g.detail
-            FROM game_log g
+            SELECT g.detail FROM game_log g
             JOIN group_members gm ON gm.user_id = g.user_id
             WHERE g.game='рулетка' AND gm.chat_id = %s
             ORDER BY g.id DESC LIMIT %s
@@ -906,7 +999,6 @@ def roll_case_reward(case):
 
 
 def apply_case_reward(user_id, reward):
-    """Применяет награду кейса. Возвращает текст для игрока."""
     if reward["type"] == "boost":
         mult = int(reward["mult"])
         minutes = int(reward["minutes"])
@@ -931,7 +1023,6 @@ def apply_case_reward(user_id, reward):
 
 # ═══════════════ ЕЖЕДНЕВНЫЙ БОНУС ═══════════════
 def get_daily_status(user_id):
-    """Возвращает (can_claim: bool, time_left_seconds: int)."""
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT daily_last_claim FROM users WHERE user_id = %s", (user_id,))
@@ -969,7 +1060,6 @@ def fmt_time_left(seconds):
     return f"{h}ч {m}мин"
 
 
-# ═══════════════ НАСТРОЙКИ ═══════════════
 def load_settings():
     global disabled_games
     disabled_games = get_disabled_games()
@@ -1018,7 +1108,7 @@ def finish_giveaway(gid):
     return uid, amount
 
 
-# ═══════════════ БЛЭКДЖЕК УТИЛИТЫ ═══════════════
+# ═══════════════ БЛЭКДЖЕК ═══════════════
 def hand_score(cards):
     score = 0
     aces = 0
@@ -1070,16 +1160,9 @@ def group_url_kb(text="🎮 ИГРАТЬ В ГРУППЕ"):
     ])
 
 
-def private_kb():
+def back_to_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 ИГРАТЬ В ГРУППЕ", url=GROUP_URL)],
-        [InlineKeyboardButton(text="🎁 БОНУС", callback_data="menu_daily"),
-         InlineKeyboardButton(text="🎰 КЕЙСЫ", callback_data="menu_cases")],
-        [InlineKeyboardButton(text="🛒 МАГАЗИН", callback_data="menu_shop"),
-         InlineKeyboardButton(text="👤 ПРОФИЛЬ", callback_data="menu_profile")],
-        [InlineKeyboardButton(text="🎯 КВЕСТЫ", callback_data="menu_quests"),
-         InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top")],
-        [InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
     ])
 
 
@@ -1089,10 +1172,25 @@ def group_kb():
          InlineKeyboardButton(text="💰 Баланс", callback_data="menu_balance")],
         [InlineKeyboardButton(text="🏦 Банк", callback_data="menu_bank"),
          InlineKeyboardButton(text="🏆 Топ", callback_data="menu_top")],
-        [InlineKeyboardButton(text="🛒 Магазин", callback_data="menu_shop"),
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="menu_profile"),
          InlineKeyboardButton(text="🎁 Бонус", callback_data="menu_daily")],
         [InlineKeyboardButton(text="🎰 Кейсы", callback_data="menu_cases"),
          InlineKeyboardButton(text="🎯 Квесты", callback_data="menu_quests")],
+        [InlineKeyboardButton(text="🛒 Магазин", callback_data="menu_shop")],
+    ])
+
+
+def private_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎮 ИГРАТЬ В ГРУППЕ", url=GROUP_URL)],
+        [InlineKeyboardButton(text="🎁 БОНУС", callback_data="menu_daily"),
+         InlineKeyboardButton(text="🎰 КЕЙСЫ", callback_data="menu_cases")],
+        [InlineKeyboardButton(text="🛒 МАГАЗИН", callback_data="menu_shop"),
+         InlineKeyboardButton(text="👤 ПРОФИЛЬ", callback_data="menu_profile")],
+        [InlineKeyboardButton(text="🎯 КВЕСТЫ", callback_data="menu_quests"),
+         InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top")],
+        [InlineKeyboardButton(text="📊 СТАТИСТИКА", callback_data="menu_stats")],
+        [InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
     ])
 
 
@@ -1112,6 +1210,106 @@ def back_to_games_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 К играм", callback_data="menu_games")]
     ])
+
+
+def profile_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📜 История игр", callback_data="menu_history"),
+         InlineKeyboardButton(text="📊 Статистика", callback_data="menu_stats")],
+        [InlineKeyboardButton(text="🏆 Мои титулы", callback_data="menu_mytitles"),
+         InlineKeyboardButton(text="🎯 Квесты", callback_data="menu_quests")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
+    ])
+
+
+def history_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎡 Рулетка", callback_data="hist_roulette"),
+         InlineKeyboardButton(text="🎰 Слоты", callback_data="hist_slots")],
+        [InlineKeyboardButton(text="💣 Мины", callback_data="hist_mines"),
+         InlineKeyboardButton(text="🃏 Блэкджек", callback_data="hist_bj")],
+        [InlineKeyboardButton(text="🪙 Монетка", callback_data="hist_coin"),
+         InlineKeyboardButton(text="⚔️ Дуэль", callback_data="hist_duel")],
+        [InlineKeyboardButton(text="📋 Все игры", callback_data="hist_all")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_profile")]
+    ])
+
+
+def mytitles_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_profile")]
+    ])
+
+
+def top_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 По балансу", callback_data="top_balance"),
+         InlineKeyboardButton(text="⭐ По XP", callback_data="top_xp")],
+        [InlineKeyboardButton(text="🎮 По играм", callback_data="top_games"),
+         InlineKeyboardButton(text="🏆 По победам", callback_data="top_wins")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
+    ])
+
+
+def bank_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Положить", callback_data="bank_deposit"),
+         InlineKeyboardButton(text="➖ Снять", callback_data="bank_withdraw")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
+    ])
+
+
+def bank_cancel_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu_bank")]
+    ])
+
+
+def cases_kb():
+    cases = get_cases()
+    rows = []
+    for c in cases:
+        rows.append([InlineKeyboardButton(
+            text=f"{c['name']} — {c['stars']} ⭐",
+            callback_data=f"case_buy_{c['id']}_{c['stars']}"
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def shop_kb():
+    items = get_shop_items()
+    rows = []
+    for it in items:
+        rows.append([InlineKeyboardButton(
+            text=f"{it['name']} — {it['stars']} ⭐",
+            callback_data=f"buy_boost_{it['mult']}_{it['minutes']}_{it['stars']}"
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quests_kb(user_id):
+    quests = get_user_quests(user_id)
+    rows = []
+    for q in quests:
+        if q["completed"] and not q["claimed"]:
+            rows.append([InlineKeyboardButton(
+                text=f"✅ {q['name']} (+{q['reward']:,})".replace(',', ' '),
+                callback_data=f"quest_claim_{q['key']}"
+            )])
+        elif q["claimed"]:
+            rows.append([InlineKeyboardButton(
+                text=f"✔️ {q['name']}",
+                callback_data="quest_noop"
+            )])
+        else:
+            rows.append([InlineKeyboardButton(
+                text=f"{q['name']} [{q['progress']}/{q['target']}]",
+                callback_data="quest_noop"
+            )])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def roulette_kb(bet=100):
@@ -1188,24 +1386,81 @@ def mines_field_text(user_id):
     ).replace(',', ' ')
 
 
+# ═══════════════ АДМИН КЛАВИАТУРЫ (НОВЫЕ — КАТЕГОРИИ) ═══════════════
 def admin_panel_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"),
-         InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
-         InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")],
-        [InlineKeyboardButton(text="🎁 Бонус", callback_data="admin_bonus"),
-         InlineKeyboardButton(text="💎 Джекпот", callback_data="admin_jackpot")],
-        [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_users"),
-         InlineKeyboardButton(text="🚫 Ban/Unban", callback_data="admin_ban")],
-        [InlineKeyboardButton(text="🎮 Управление играми", callback_data="admin_games"),
-         InlineKeyboardButton(text="🎁 Розыгрыш", callback_data="admin_giveaway")],
-        [InlineKeyboardButton(text="👑 VIP", callback_data="admin_vip"),
-         InlineKeyboardButton(text="📊 Active", callback_data="admin_active")],
-        [InlineKeyboardButton(text="🛒 Редактор магазина", callback_data="editboost_start")],
-        [InlineKeyboardButton(text="🎰 Редактор кейсов", callback_data="editcases_start")],
+        [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_cat_players"),
+         InlineKeyboardButton(text="🎮 Игры", callback_data="admin_cat_games")],
+        [InlineKeyboardButton(text="🎰 Контент", callback_data="admin_cat_content"),
+         InlineKeyboardButton(text="💰 Экономика", callback_data="admin_cat_economy")],
+        [InlineKeyboardButton(text="📢 Связь", callback_data="admin_cat_comm"),
+         InlineKeyboardButton(text="📊 Мониторинг", callback_data="admin_cat_monitor")],
         [InlineKeyboardButton(text="🎮 Mini App", web_app={"url": MINI_APP_URL})],
         [InlineKeyboardButton(text="📋 Все команды", callback_data="admin_all_cmds")]
+    ])
+
+
+def admin_players_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Профиль игрока", callback_data="admin_pi_info")],
+        [InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban")],
+        [InlineKeyboardButton(text="👑 VIP", callback_data="admin_vip"),
+         InlineKeyboardButton(text="🏷 Титул", callback_data="admin_title_info")],
+        [InlineKeyboardButton(text="💰 Баланс", callback_data="admin_users"),
+         InlineKeyboardButton(text="📊 XP", callback_data="admin_xp_info")],
+        [InlineKeyboardButton(text="🔄 Сбросить игрока", callback_data="admin_reset_info")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+
+
+def admin_games_kb():
+    rows = []
+    for key, name in GAME_NAMES.items():
+        status = "❌" if key in disabled_games else "✅"
+        rows.append([InlineKeyboardButton(
+            text=f"{status} {name}",
+            callback_data=f"admin_toggle_{key}"
+        )])
+    rows.append([InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
+                 InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_content_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Редактор магазина", callback_data="editboost_start")],
+        [InlineKeyboardButton(text="🎰 Редактор кейсов", callback_data="editcases_start")],
+        [InlineKeyboardButton(text="➕ Добавить буст", callback_data="admin_addboost_info")],
+        [InlineKeyboardButton(text="🗑 Удалить буст", callback_data="admin_delboost_info")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+
+
+def admin_economy_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Бонус игроку", callback_data="admin_bonus")],
+        [InlineKeyboardButton(text="💎 Джекпот", callback_data="admin_jackpot")],
+        [InlineKeyboardButton(text="🎁 Розыгрыш", callback_data="admin_giveaway")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+
+
+def admin_comm_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+
+
+def admin_monitor_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Active за 5 мин", callback_data="admin_active")],
+        [InlineKeyboardButton(text="🏆 Big Wins", callback_data="admin_bigwins_info")],
+        [InlineKeyboardButton(text="📜 Логи игрока", callback_data="admin_logs_info")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
     ])
 
 
@@ -1213,45 +1468,145 @@ def admin_back_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
     ])
-
-
-def quests_kb(user_id):
-    quests = get_user_quests(user_id)
-    rows = []
-    for q in quests:
-        if q["completed"] and not q["claimed"]:
-            rows.append([InlineKeyboardButton(
-                text=f"✅ {q['name']} (+{q['reward']:,})".replace(',', ' '),
-                callback_data=f"quest_claim_{q['key']}"
-            )])
-        elif q["claimed"]:
-            rows.append([InlineKeyboardButton(
-                text=f"✔️ {q['name']}",
-                callback_data="quest_noop"
-            )])
-        else:
-            rows.append([InlineKeyboardButton(
-                text=f"{q['name']} [{q['progress']}/{q['target']}]",
-                callback_data="quest_noop"
-            )])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def cases_kb():
-    cases = get_cases()
-    rows = []
-    for c in cases:
-        rows.append([InlineKeyboardButton(
-            text=f"{c['name']} — {c['stars']} ⭐",
-            callback_data=f"case_buy_{c['id']}_{c['stars']}"
-        )])
-    rows.append([InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+
+# ═══════════════ ФУНКЦИИ РЕНДЕРА ТЕКСТА ═══════════════
+def profile_text(user_id, username):
+    balance = get_balance(user_id)
+    bank = get_bank(user_id)
+    xp = get_xp(user_id)
+    vip = get_vip_info(xp)
+    stats = get_user_stats(user_id)
+    title = get_main_title(user_id)
+    title_line = f"\n🏷️ <b>{title}</b>" if title else ""
+    boost = get_active_boost(user_id)
+    boost_line = ""
+    if boost:
+        from datetime import datetime as dt
+        mins_left = int((boost[1] - dt.now()).total_seconds() // 60)
+        boost_line = f"\n⚡ Активный буст: <b>×{boost[0]}</b> ({mins_left} мин)"
+    if is_unlimited(user_id):
+        bal_line = "💎 Баланс: ♾️ <b>БЕЗЛИМИТ</b>"
+    else:
+        bal_line = f"💎 Баланс: <b>{balance:,}</b>".replace(',', ' ')
+    if vip["next_xp"] > vip["xp"]:
+        progress = vip["xp"] - VIP_LEVELS[vip["level"]]["xp"]
+        total = vip["next_xp"] - VIP_LEVELS[vip["level"]]["xp"]
+        bar_fill = int(progress / total * 10) if total > 0 else 0
+        bar = "▓" * bar_fill + "░" * (10 - bar_fill)
+        xp_line = f"📊 XP: <b>{progress}/{total}</b>\n{bar}"
+    else:
+        xp_line = "🏆 <b>МАКСИМАЛЬНЫЙ УРОВЕНЬ</b>"
+    return (
+        f"👤 <b>ПРОФИЛЬ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎭 <b>{username}</b>{title_line}\n"
+        f"{vip['icon']} <b>{vip['name']}</b>\n"
+        f"{xp_line}{boost_line}\n\n"
+        f"{bal_line}\n"
+        f"🏦 Банк: <b>{bank:,}</b>\n"
+        f"💰 Кешбэк: <b>{vip['cashback']}%</b>\n\n"
+        f"🎮 Игр: <b>{stats['total_games']}</b>\n"
+        f"🏆 Побед: <b>{stats['total_wins']}</b>\n"
+        f"📈 Винрейт: <b>{stats['winrate']}%</b>"
+    ).replace(',', ' ')
+
+
+def stats_text(user_id, username):
+    stats = get_user_stats(user_id)
+    profit = stats["profit"]
+    profit_emoji = "🟢" if profit > 0 else ("🔴" if profit < 0 else "⚪")
+    return (
+        f"📊 <b>СТАТИСТИКА</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎭 <b>{username}</b>\n\n"
+        f"🎮 Всего игр: <b>{stats['total_games']}</b>\n"
+        f"🏆 Побед: <b>{stats['total_wins']}</b>\n"
+        f"📈 Винрейт: <b>{stats['winrate']}%</b>\n\n"
+        f"💰 Всего ставок: <b>{stats['total_bet']:,}</b>\n"
+        f"💵 Всего выигрышей: <b>{stats['total_win']:,}</b>\n"
+        f"{profit_emoji} Профит: <b>{profit:+,}</b>\n"
+        f"🔥 Лучший выигрыш: <b>{stats['best_win']:,}</b>\n\n"
+        f"🎯 Любимая игра: <b>{stats['fav_game']}</b>"
+    ).replace(',', ' ')
+
+
+def history_text(user_id, username, game=None):
+    logs = get_user_history(user_id, game=game, limit=15)
+    if not logs:
+        title = f"📜 <b>История: {game}</b>" if game else "📜 <b>История игр</b>"
+        return f"{title}\n━━━━━━━━━━━━━━━━━━\n\nПока пусто..."
+    title = f"📜 <b>История: {game}</b>" if game else "📜 <b>История игр</b>"
+    txt = f"{title}\n━━━━━━━━━━━━━━━━━━\n\n"
+    for i, (g, bet, win, detail, time) in enumerate(logs, 1):
+        profit = win - bet
+        emoji = "🟢" if profit > 0 else ("🔴" if profit < 0 else "⚪")
+        txt += f"{i}. {emoji} <b>{g}</b> | 💰 {bet:,} → {win:,} | {detail} | {time}\n".replace(',', ' ')
+    return txt
+
+
+def top_text(mode="balance"):
+    if mode == "balance":
+        rows = get_top(10)
+        title = "💎 ТОП по БАЛАНСУ"
+    elif mode == "xp":
+        rows = get_top_xp(10)
+        title = "⭐ ТОП по XP"
+    elif mode == "games":
+        rows = get_top_games(10)
+        title = "🎮 ТОП по ИГРАМ"
+    elif mode == "wins":
+        rows = get_top_wins(10)
+        title = "🏆 ТОП по ПОБЕДАМ"
+    else:
+        rows = get_top(10)
+        title = "🏆 ТОП-10"
+    if not rows:
+        return f"{title}\n━━━━━━━━━━━━━━━━━━\n\nПока нет игроков!"
+    txt = f"{title}\n━━━━━━━━━━━━━━━━━━\n"
+    medals = ["🥇", "🥈", "🥉"]
+    for i, row in enumerate(rows):
+        uid = row[0]
+        uname = row[1]
+        bal = row[2]
+        xp = row[3] or 0
+        medal = medals[i] if i < 3 else f"{i+1}."
+        vip = get_vip_info(xp)
+        icon = vip["icon"] if xp else ""
+        t = get_main_title(uid)
+        t_str = f" 🏷️{t}" if t else ""
+        if mode == "games":
+            extra = f" ({row[4]} игр)"
+        elif mode == "wins":
+            extra = f" ({row[4]} побед)"
+        else:
+            extra = f" — <b>{bal:,}</b>".replace(',', ' ')
+        txt += f"{medal} {icon} {uname}{t_str}{extra}\n"
+    return txt
+
+
+def bank_text(user_id, username):
+    balance = get_balance(user_id)
+    bank = get_bank(user_id)
+    total = clamp(balance + bank)
+    if is_unlimited(user_id):
+        bal_line = "💎 Баланс: ♾️ <b>БЕЗЛИМИТ</b>"
+    else:
+        bal_line = f"💎 Баланс: <b>{balance:,}</b>".replace(',', ' ')
+    return (
+        f"🏦 <b>БАНК</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>{username}</b>\n\n"
+        f"{bal_line}\n"
+        f"🏦 В банке: <b>{bank:,}</b>\n"
+        f"💰 Всего: <b>{total:,}</b>\n\n"
+        f"📈 Процент: <b>5% в день</b>\n\n"
+        f"👇 Выбери действие:"
+    ).replace(',', ' ')
+
+
 # ═══════════════ КОМАНДЫ ═══════════════
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
@@ -1267,7 +1622,6 @@ async def cmd_start(message: Message):
 
     is_private = message.chat.type == 'private'
 
-    # Админ в личке — панель
     if is_private and user_id == ADMIN_ID:
         balance = get_balance(user_id)
         bank = get_bank(user_id)
@@ -1277,13 +1631,11 @@ async def cmd_start(message: Message):
             f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
             f"💎 Баланс: <b>{balance:,}</b>\n"
             f"🏦 Банк: <b>{bank:,}</b>\n\n"
-            f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
-            f"Нажми на кнопку — покажу команду 👇"
+            f"📋 <b>Выбери раздел:</b>"
         ).replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
         return
 
-    # Бонус новичка
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
@@ -1326,7 +1678,7 @@ async def cmd_start(message: Message):
             f"{bal_line}\n"
             f"🏦 Банк: <b>{bank:,}</b>{bonus_text}\n\n"
             f"🎮 <b>ЧТО УМЕЕТ БОТ:</b>\n"
-            f"🎮 <b>Игры</b> — рулетка, слоты, мины, блэкджек, монетка, дуэль (в группе)\n"
+            f"🎮 <b>Игры</b> — рулетка, слоты, мины, блэкджек, монетка, дуэль\n"
             f"🎁 <b>Бонус</b> — +10 000 💎 раз в 24 часа\n"
             f"🎰 <b>Кейсы</b> — за ⭐ Stars: бусты и титулы\n"
             f"🛒 <b>Магазин</b> — личные бусты за ⭐ Stars\n"
@@ -1351,8 +1703,7 @@ async def cmd_start(message: Message):
             f"<code>банк</code> — банк | <code>дуэль 1000 @user</code>\n"
             f"<code>мины 100</code> — Мины 💣 | <code>бж 100</code> — блэкджек\n"
             f"<code>спин 100</code> — слоты | <code>орёл 100</code> — монетка\n"
-            f"<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск\n"
-            f"<code>лог</code> — история | <code>бонус</code> — ежедневка"
+            f"<code>к/ч/з 100</code> — рулетка | <code>го</code> — запуск"
         ).replace(',', ' ')
         await message.answer(txt, parse_mode="HTML", reply_markup=group_kb())
 
@@ -1371,8 +1722,7 @@ async def cmd_admin(message: Message):
         f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
         f"💎 Баланс: <b>{balance:,}</b>\n"
         f"🏦 Банк: <b>{bank:,}</b>\n\n"
-        f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
-        f"Нажми на кнопку — покажу команду 👇"
+        f"📋 <b>Выбери раздел:</b>"
     ).replace(',', ' ')
     await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
 
@@ -1387,42 +1737,7 @@ async def cmd_profile(message: Message):
     if is_banned(user_id):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
-    balance = get_balance(user_id)
-    bank = get_bank(user_id)
-    xp = get_xp(user_id)
-    vip = get_vip_info(xp)
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (user_id,))
-    total_games = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (user_id,))
-    total_wins = c.fetchone()[0]
-    c.close()
-    conn.close()
-    winrate = round(total_wins / total_games * 100) if total_games > 0 else 0
-    if vip["next_xp"] > vip["xp"]:
-        progress = vip["xp"] - VIP_LEVELS[vip["level"]]["xp"]
-        total = vip["next_xp"] - VIP_LEVELS[vip["level"]]["xp"]
-        bar = "▓" * int(progress / total * 10) + "░" * (10 - int(progress / total * 10))
-        xp_line = f"📊 <b>{progress}/{total}</b> XP\n{bar}"
-    else:
-        xp_line = "🏆 <b>МАКСИМАЛЬНЫЙ УРОВЕНЬ</b>"
-    title = get_main_title(user_id)
-    title_line = f"\n🏷️ <b>{title}</b>" if title else ""
-    txt = (
-        f"👤 <b>ПРОФИЛЬ</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🎭 <b>{username}</b>{title_line}\n"
-        f"{vip['icon']} <b>{vip['name']}</b>\n"
-        f"{xp_line}\n\n"
-        f"💎 Баланс: <b>{balance:,}</b>\n"
-        f"🏦 Банк: <b>{bank:,}</b>\n"
-        f"💰 Кешбэк: <b>{vip['cashback']}%</b>\n\n"
-        f"🎮 Игр: <b>{total_games}</b>\n"
-        f"🏆 Побед: <b>{total_wins}</b>\n"
-        f"📈 Винрейт: <b>{winrate}%</b>"
-    ).replace(',', ' ')
-    await message.answer(txt, parse_mode="HTML")
+    await message.answer(profile_text(user_id, username), parse_mode="HTML", reply_markup=profile_kb())
 
 
 @dp.message(Command("quests"))
@@ -1468,21 +1783,7 @@ async def cmd_balance(message: Message):
 
 @dp.message(Command("top"))
 async def cmd_top(message: Message):
-    rows = get_top(10)
-    if not rows:
-        await message.answer("📊 <b>Пока нет игроков!</b>", parse_mode="HTML")
-        return
-    txt = "🏆 <b>ТОП-10</b>\n━━━━━━━━━━━━━━━━━━\n"
-    medals = ["🥇", "🥈", "🥉"]
-    for i, row in enumerate(rows):
-        uid, uname, bal, xp = row
-        medal = medals[i] if i < 3 else f"{i+1}."
-        vip = get_vip_info(xp or 0)
-        icon = vip["icon"] if xp else ""
-        title = get_main_title(uid)
-        t = f" 🏷️{title}" if title else ""
-        txt += f"{medal} {icon} {uname}{t} — <b>{bal:,}</b>\n".replace(',', ' ')
-    await message.answer(txt, parse_mode="HTML")
+    await message.answer(top_text("balance"), parse_mode="HTML", reply_markup=top_kb())
 
 
 @dp.message(Command("give"))
@@ -2085,20 +2386,10 @@ async def cmd_shop(message: Message):
     if is_banned(user_id):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
-
     items = get_shop_items()
     if not items:
         await message.answer("🛒 Магазин пока пуст.", parse_mode="HTML")
         return
-
-    rows = []
-    for it in items:
-        rows.append([InlineKeyboardButton(
-            text=f"{it['name']} — {it['stars']} ⭐",
-            callback_data=f"buy_boost_{it['mult']}_{it['minutes']}_{it['stars']}"
-        )])
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-
     await message.answer(
         "🛒 <b>МАГАЗИН БУСТОВ</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -2106,8 +2397,29 @@ async def cmd_shop(message: Message):
         "⚡ Буст работает <b>только для тебя</b>\n\n"
         "👇 Выбери:",
         parse_mode="HTML",
-        reply_markup=kb
+        reply_markup=shop_kb()
     )
+
+
+@dp.message(Command("cases"))
+async def cmd_cases(message: Message):
+    if not message.from_user or message.from_user.is_bot:
+        return
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    ensure_user(user_id, username)
+    if is_banned(user_id):
+        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
+        return
+    cases = get_cases()
+    if not cases:
+        await message.answer("🎰 Кейсы не настроены.", parse_mode="HTML")
+        return
+    txt = "🎰 <b>КЕЙСЫ</b>\n━━━━━━━━━━━━━━━━━━\n"
+    for c in cases:
+        txt += f"{c['name']} — ⭐ {c['stars']}\n"
+    txt += "\n💎 Покупай за <b>Telegram Stars</b>\n🎁 Внутри — бусты и титулы\n\n👇 Выбери:"
+    await message.answer(txt, parse_mode="HTML", reply_markup=cases_kb())
 
 
 @dp.message(Command("addboost"))
@@ -2124,13 +2436,11 @@ async def cmd_addboost(message: Message):
             parse_mode="HTML"
         )
         return
-
     raw = args[1]
     parts = [p.strip() for p in raw.split("|")]
     if len(parts) != 5:
         await message.answer("❌ Нужно ровно 5 полей, разделённых <code>|</code>", parse_mode="HTML")
         return
-
     name, desc, mult_s, minutes_s, stars_s = parts
     try:
         mult = int(mult_s)
@@ -2139,11 +2449,9 @@ async def cmd_addboost(message: Message):
     except ValueError:
         await message.answer("❌ Множитель, минуты и цена должны быть числами", parse_mode="HTML")
         return
-
     if mult < 1 or minutes < 1 or stars < 1:
         await message.answer("❌ Значения должны быть > 0", parse_mode="HTML")
         return
-
     add_shop_item(name, desc, mult, minutes, stars)
     await message.answer(
         f"✅ <b>Товар добавлен!</b>\n"
@@ -2174,23 +2482,19 @@ async def cmd_delboost(message: Message):
         txt += "📋 <code>/delboost all</code> — очистить магазин"
         await message.answer(txt, parse_mode="HTML")
         return
-
     arg = args[1].lower()
     if arg == "all":
         save_shop_items([])
         await message.answer("🗑️ <b>Магазин полностью очищен!</b>", parse_mode="HTML")
         return
-
     try:
         idx = int(arg) - 1
     except ValueError:
         await message.answer("❌ Укажи номер товара или <code>all</code>", parse_mode="HTML")
         return
-
     if idx < 0 or idx >= len(items):
         await message.answer(f"❌ Нет товара с номером {arg}. Всего: {len(items)}", parse_mode="HTML")
         return
-
     removed = items.pop(idx)
     save_shop_items(items)
     await message.answer(
@@ -2220,7 +2524,6 @@ async def cmd_giveaway(message: Message):
         minutes = int(time_str[:-1])
     if minutes == 0:
         return
-
     is_group = message.chat.id < 0
     if is_group:
         members = get_group_members(message.chat.id)
@@ -2232,7 +2535,6 @@ async def cmd_giveaway(message: Message):
     else:
         users = get_all_user_ids()
         scope = f"всех игроков ({len(users)} чел.)"
-
     gid, ends_at = create_giveaway(amount, minutes, message.from_user.id)
     await message.answer(
         f"🎁 <b>РОЗЫГРЫШ ЗАПУЩЕН!</b>\n"
@@ -2259,6 +2561,28 @@ async def cmd_giveaway(message: Message):
         except:
             pass
     await message.answer(f"Уведомлено: {count}", parse_mode="HTML")
+
+
+@dp.message(Command("editboost"))
+async def cmd_editboost(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if message.chat.type != 'private':
+        await message.answer("⚠️ Редактор работает только в личке с ботом!", parse_mode="HTML")
+        return
+    edit_state.pop(message.from_user.id, None)
+    await message.answer(editboost_list_text(), parse_mode="HTML", reply_markup=editboost_list_kb())
+
+
+@dp.message(Command("editcases"))
+async def cmd_editcases(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if message.chat.type != 'private':
+        await message.answer("⚠️ Редактор работает только в личке с ботом!", parse_mode="HTML")
+        return
+    edit_case_state.pop(message.from_user.id, None)
+    await message.answer(editcases_list_text(), parse_mode="HTML", reply_markup=editcases_list_kb())
     # ═══════════════ РЕДАКТОР МАГАЗИНА /editboost ═══════════════
 def editboost_list_kb():
     items = get_shop_items()
@@ -2268,7 +2592,7 @@ def editboost_list_kb():
             text=f"{i+1}. {it['name']} — ×{it['mult']} / {it['minutes']}м / {it['stars']}⭐",
             callback_data=f"editboost_item_{i}"
         )])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cat_content")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -2312,17 +2636,6 @@ def editboost_item_text(idx):
     )
 
 
-@dp.message(Command("editboost"))
-async def cmd_editboost(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    if message.chat.type != 'private':
-        await message.answer("⚠️ Редактор работает только в личке с ботом!", parse_mode="HTML")
-        return
-    edit_state.pop(message.from_user.id, None)
-    await message.answer(editboost_list_text(), parse_mode="HTML", reply_markup=editboost_list_kb())
-
-
 # ═══════════════ РЕДАКТОР КЕЙСОВ /editcases ═══════════════
 def editcases_list_kb():
     cases = get_cases()
@@ -2332,7 +2645,7 @@ def editcases_list_kb():
             text=f"{i+1}. {c['name']} — {c['stars']}⭐ ({len(c['rewards'])} призов)",
             callback_data=f"editcases_item_{i}"
         )])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cat_content")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -2446,17 +2759,6 @@ def editcases_reward_edit_text(case_idx, reward_idx):
     return txt
 
 
-@dp.message(Command("editcases"))
-async def cmd_editcases(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    if message.chat.type != 'private':
-        await message.answer("⚠️ Редактор работает только в личке с ботом!", parse_mode="HTML")
-        return
-    edit_case_state.pop(message.from_user.id, None)
-    await message.answer(editcases_list_text(), parse_mode="HTML", reply_markup=editcases_list_kb())
-
-
 # ═══════════════ ОПЛАТА ═══════════════
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_q: PreCheckoutQuery):
@@ -2499,7 +2801,6 @@ async def successful_payment(message: Message):
             await message.answer("❌ Кейс не найден. Обратись к админу.", parse_mode="HTML")
             return
 
-        # Анимация
         msg = await message.answer("🎰 <b>ОТКРЫВАЕМ КЕЙС...</b>\n\n[ ▓▓▓▓▓ ]", parse_mode="HTML")
         for frame in ["[ ▓▓▓░░ ]", "[ ▓▓░░░ ]", "[ ▓░░░░ ]", "[ ░░░░░ ]"]:
             await asyncio.sleep(0.5)
@@ -2523,10 +2824,9 @@ async def successful_payment(message: Message):
         )
         return
 
+    print(f"⚠️ Неизвестный payload: {payload}")
     await message.answer("✅ Оплата получена!")
-
-
-# ═══════════════ CALLBACK HANDLER ═══════════════
+    # ═══════════════ CALLBACK HANDLER ═══════════════
 @dp.callback_query()
 async def callback_handler(call: CallbackQuery):
     data = call.data
@@ -2534,7 +2834,6 @@ async def callback_handler(call: CallbackQuery):
     username = call.from_user.username or call.from_user.first_name
     ensure_user(user_id, username)
 
-    # Трекаем участников группы (даже если только кнопки жмут)
     if call.message and call.message.chat and call.message.chat.id < 0:
         track_group_member(call.message.chat.id, user_id, username)
 
@@ -2546,7 +2845,7 @@ async def callback_handler(call: CallbackQuery):
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
 
-    # ── Запрет игр в личке ──────────────────────────────────
+    # ─── ЗАПРЕТ ИГР В ЛИЧКЕ ────────────────────────────
     game_prefixes = ("bet_", "group_bet_", "mines_", "bj_", "setbet_")
     if data.startswith(game_prefixes):
         chat_type = call.message.chat.type if call.message and call.message.chat else "private"
@@ -2562,9 +2861,8 @@ async def callback_handler(call: CallbackQuery):
                 pass
             await call.answer("🎮 Только в группе!", show_alert=True)
             return
-    # ────────────────────────────────────────────────────────
 
-    # ── Покупка буста ───────────────────────────────────────
+    # ─── ПОКУПКА БУСТА ─────────────────────────────────
     if data.startswith("buy_boost_"):
         parts = data.split("_")
         try:
@@ -2574,7 +2872,6 @@ async def callback_handler(call: CallbackQuery):
         except Exception:
             await call.answer("❌ Ошибка товара", show_alert=True)
             return
-        # Проверка актуальности
         items = get_shop_items()
         actual = next((it for it in items if it["mult"] == mult and it["minutes"] == minutes), None)
         if not actual or actual["stars"] != stars:
@@ -2595,7 +2892,7 @@ async def callback_handler(call: CallbackQuery):
             await call.message.answer(f"❌ Ошибка: {e}")
         return
 
-    # ── Покупка кейса ───────────────────────────────────────
+    # ─── ПОКУПКА КЕЙСА ─────────────────────────────────
     if data.startswith("case_buy_"):
         parts = data.split("_")
         case_id = parts[2]
@@ -2972,11 +3269,12 @@ async def callback_handler(call: CallbackQuery):
         await call.answer("✅ Удалено")
         return
 
-    # ═══════════════ АДМИН-ПАНЕЛЬ ═══════════════
+    # ═══════════════ АДМИН-ПАНЕЛЬ (КАТЕГОРИИ) ═══════════════
     if data.startswith("admin_"):
         if user_id != ADMIN_ID:
             await call.answer("❌ Только для админа", show_alert=True)
             return
+
         if data == "admin_back":
             balance = get_balance(user_id)
             bank = get_bank(user_id)
@@ -2986,12 +3284,70 @@ async def callback_handler(call: CallbackQuery):
                 f"👤 <b>{username}</b> (ID: <code>{user_id}</code>)\n"
                 f"💎 Баланс: <b>{balance:,}</b>\n"
                 f"🏦 Банк: <b>{bank:,}</b>\n\n"
-                f"📋 <b>УПРАВЛЕНИЕ БОТОМ</b>\n\n"
-                f"Нажми на кнопку — покажу команду 👇"
+                f"📋 <b>Выбери раздел:</b>"
             ).replace(',', ' ')
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
             await call.answer()
             return
+
+        if data == "admin_cat_players":
+            txt = "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n━━━━━━━━━━━━━━━━━━\nРабота с профилями, банами, VIP и титулами.\n\n👇 Выбери действие:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_players_kb())
+            await call.answer()
+            return
+
+        if data == "admin_cat_games":
+            txt = "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n━━━━━━━━━━━━━━━━━━\nВключай/выключай игры, управляй ивентами.\n\n👇 Нажми на игру для переключения:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_games_kb())
+            await call.answer()
+            return
+
+        if data == "admin_cat_content":
+            txt = "🎰 <b>УПРАВЛЕНИЕ КОНТЕНТОМ</b>\n━━━━━━━━━━━━━━━━━━\nМагазин, кейсы, товары.\n\n👇 Выбери:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_content_kb())
+            await call.answer()
+            return
+
+        if data == "admin_cat_economy":
+            txt = "💰 <b>ЭКОНОМИКА</b>\n━━━━━━━━━━━━━━━━━━\nБонусы, джекпот, розыгрыши.\n\n👇 Выбери:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_economy_kb())
+            await call.answer()
+            return
+
+        if data == "admin_cat_comm":
+            txt = "📢 <b>СВЯЗЬ</b>\n━━━━━━━━━━━━━━━━━━\nРассылки, статистика, активность.\n\n👇 Выбери:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_comm_kb())
+            await call.answer()
+            return
+
+        if data == "admin_cat_monitor":
+            txt = "📊 <b>МОНИТОРИНГ</b>\n━━━━━━━━━━━━━━━━━━\nАктивность, крупные выигрыши, логи.\n\n👇 Выбери:"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_monitor_kb())
+            await call.answer()
+            return
+
+        # ─── Игры: переключение ВКЛ/ВЫКЛ ───────────────
+        if data.startswith("admin_toggle_"):
+            game = data.replace("admin_toggle_", "")
+            if game not in GAME_NAMES:
+                await call.answer("❌ Игра не найдена", show_alert=True)
+                return
+            if game in disabled_games:
+                disabled_games.discard(game)
+                save_disabled_games()
+                await call.answer(f"✅ {GAME_NAMES[game]} включена")
+            else:
+                disabled_games.add(game)
+                save_disabled_games()
+                await call.answer(f"❌ {GAME_NAMES[game]} выключена")
+            await call.message.edit_text(
+                "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n━━━━━━━━━━━━━━━━━━\nВключай/выключай игры, управляй ивентами.\n\n👇 Нажми на игру для переключения:",
+                parse_mode="HTML",
+                reply_markup=admin_games_kb()
+            )
+            return
+
+        # ─── Информационные экраны ─────────────────────
         if data == "admin_broadcast":
             txt = f"📢 <b>РАССЫЛКА</b>\n━━━━━━━━━━━━━━━━━━\n<code>/broadcast Текст</code>\n\nОтправит сообщение всем игрокам."
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
@@ -3026,14 +3382,11 @@ async def callback_handler(call: CallbackQuery):
             return
         if data == "admin_users":
             txt = (
-                f"👥 <b>ИГРОКИ</b>\n"
+                f"👥 <b>УПРАВЛЕНИЕ БАЛАНСОМ</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"<code>/setbal @user 1000</code> — установить баланс\n"
-                f"<code>/resetuser @user</code> — сбросить профиль\n"
-                f"<code>/logs @user</code> — история игр\n"
-                f"<code>/vip @user 3</code> — установить VIP\n"
-                f"<code>/title @user Легенда</code> — выдать титул\n"
-                f"<code>/set_xp @user 1000</code> — установить XP"
+                f"<code>/give @user 1000</code> — выдать\n"
+                f"<code>/take @user 1000</code> — забрать"
             )
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
@@ -3073,44 +3426,86 @@ async def callback_handler(call: CallbackQuery):
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
             return
+        if data == "admin_pi_info":
+            txt = f"👤 <b>ПРОФИЛЬ ИГРОКА</b>\n━━━━━━━━━━━━━━━━━━\nОткрой профиль через команду:\n\n<code>/pi @user</code>\nили реплаем на сообщение игрока."
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_title_info":
+            txt = f"🏷 <b>ВЫДАТЬ ТИТУЛ</b>\n━━━━━━━━━━━━━━━━━━\n<code>/title @user Легенда</code>\n<code>/title @user clear</code>"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_xp_info":
+            txt = f"📊 <b>XP</b>\n━━━━━━━━━━━━━━━━━━\n<code>/set_xp @user 1000</code>"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_reset_info":
+            txt = f"🔄 <b>СБРОСИТЬ ИГРОКА</b>\n━━━━━━━━━━━━━━━━━━\n<code>/resetuser @user</code>\n\n⚠️ Полностью удаляет баланс, XP, титулы, логи."
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_bigwins_info":
+            txt = f"🏆 <b>BIG WINS</b>\n━━━━━━━━━━━━━━━━━━\n<code>/bigwins</code> — топ-10 крупных выигрышей (мин. 100K)"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_logs_info":
+            txt = f"📜 <b>ЛОГИ ИГРОКА</b>\n━━━━━━━━━━━━━━━━━━\n<code>/logs @user</code>\n\nПоследние 10 игр игрока."
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_addboost_info":
+            txt = f"➕ <b>ДОБАВИТЬ БУСТ</b>\n━━━━━━━━━━━━━━━━━━\n<code>/addboost Название | Описание | ×2 | 60 | 25</code>\n\nИли через редактор: <code>/editboost</code>"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+        if data == "admin_delboost_info":
+            txt = f"🗑 <b>УДАЛИТЬ БУСТ</b>\n━━━━━━━━━━━━━━━━━━\n<code>/delboost 2</code> — удалить товар №2\n<code>/delboost all</code> — очистить магазин\n\nИли через редактор: <code>/editboost</code>"
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
         if data == "admin_all_cmds":
             txt = (
                 f"📋 <b>ВСЕ КОМАНДЫ</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"<b>💰 Экономика:</b>\n"
-                f"<code>/setbal @user 1000</code> — установить баланс\n"
-                f"<code>/resetuser @user</code> — сбросить игрока\n"
-                f"<code>/give @user 1000</code> — выдать токены\n"
-                f"<code>/take @user 1000</code> — забрать токены\n"
-                f"<code>/bonus @user 50000</code> — бонус всем/одному\n\n"
+                f"<code>/setbal @user 1000</code>\n"
+                f"<code>/resetuser @user</code>\n"
+                f"<code>/give @user 1000</code>\n"
+                f"<code>/take @user 1000</code>\n"
+                f"<code>/bonus @user 50000</code>\n\n"
                 f"<b>👥 Игроки:</b>\n"
-                f"<code>/vip @user 3</code> — VIP уровень\n"
-                f"<code>/title @user Легенда</code> — титул\n"
-                f"<code>/set_xp @user 1000</code> — XP\n"
-                f"<code>/ban @user</code> / <code>/unban @user</code>\n\n"
+                f"<code>/pi @user</code> — профиль игрока\n"
+                f"<code>/vip @user 3</code>\n"
+                f"<code>/title @user Легенда</code>\n"
+                f"<code>/ban @user</code> / <code>/unban @user</code>\n"
+                f"<code>/set_xp @user 1000</code>\n\n"
                 f"<b>📊 Мониторинг:</b>\n"
-                f"<code>/logs @user</code> — история игр\n"
-                f"<code>/active</code> — активные за 5 мин\n"
-                f"<code>/bigwins</code> — крупные выигрыши\n"
-                f"<code>/stats [@user]</code> — статистика\n\n"
+                f"<code>/logs @user</code>\n"
+                f"<code>/active</code>\n"
+                f"<code>/bigwins</code>\n"
+                f"<code>/stats [@user]</code>\n\n"
                 f"<b>🎮 Игры:</b>\n"
                 f"<code>/games on/off slots</code>\n"
                 f"<code>/event double on/off</code>\n"
                 f"<code>/maintenance on/off</code>\n\n"
                 f"<b>🛒 Магазин / Кейсы:</b>\n"
-                f"<code>/editboost</code> — редактор магазина (кнопки)\n"
-                f"<code>/editcases</code> — редактор кейсов (кнопки)\n"
-                f"<code>/addboost Название | Описание | ×2 | 60 | 25</code>\n"
+                f"<code>/editboost</code> — редактор магазина\n"
+                f"<code>/editcases</code> — редактор кейсов\n"
+                f"<code>/addboost ...</code>\n"
                 f"<code>/delboost 2</code> | <code>/delboost all</code>\n"
-                f"<code>/shop</code> — открыть магазин\n\n"
+                f"<code>/shop</code> / <code>/cases</code>\n\n"
                 f"<b>🎁 Фан:</b>\n"
-                f"<code>/giveaway 10000 1h</code> — розыгрыш\n"
-                f"<code>/jackpot set/reset</code> — джекпот\n"
-                f"<code>/broadcast Текст</code> — рассылка"
+                f"<code>/giveaway 10000 1h</code>\n"
+                f"<code>/jackpot set/reset</code>\n"
+                f"<code>/broadcast Текст</code>"
             )
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
             return
+
         await call.answer()
         return
 
@@ -3137,6 +3532,7 @@ async def callback_handler(call: CallbackQuery):
         await call.answer()
         return
 
+    # ═══════════════ ГЛАВНОЕ МЕНЮ ═══════════════
     balance = get_balance(user_id)
     bank = get_bank(user_id)
 
@@ -3157,14 +3553,6 @@ async def callback_handler(call: CallbackQuery):
         if not items:
             await call.answer("🛒 Магазин пуст", show_alert=True)
             return
-        rows = []
-        for it in items:
-            rows.append([InlineKeyboardButton(
-                text=f"{it['name']} — {it['stars']} ⭐",
-                callback_data=f"buy_boost_{it['mult']}_{it['minutes']}_{it['stars']}"
-            )])
-        rows.append([InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")])
-        kb = InlineKeyboardMarkup(inline_keyboard=rows)
         await call.message.edit_text(
             "🛒 <b>МАГАЗИН БУСТОВ</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
@@ -3172,7 +3560,7 @@ async def callback_handler(call: CallbackQuery):
             "⚡ Буст работает <b>только для тебя</b>\n\n"
             "👇 Выбери:",
             parse_mode="HTML",
-            reply_markup=kb
+            reply_markup=shop_kb()
         )
 
     elif data == "menu_cases":
@@ -3208,35 +3596,46 @@ async def callback_handler(call: CallbackQuery):
             await call.answer(f"⏳ Приходи через {fmt_time_left(left)}", show_alert=True)
 
     elif data == "menu_profile":
-        xp = get_xp(user_id)
-        vip = get_vip_info(xp)
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (user_id,))
-        total_games = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (user_id,))
-        total_wins = c.fetchone()[0]
-        c.close()
-        conn.close()
-        winrate = round(total_wins / total_games * 100) if total_games > 0 else 0
-        title = get_main_title(user_id)
-        title_line = f"\n🏷️ <b>{title}</b>" if title else ""
-        txt = (
-            f"👤 <b>ПРОФИЛЬ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🎭 <b>{username}</b>{title_line}\n"
-            f"{vip['icon']} <b>{vip['name']}</b>\n\n"
-            f"💎 Баланс: <b>{balance:,}</b>\n"
-            f"🏦 Банк: <b>{bank:,}</b>\n"
-            f"💰 Кешбэк: <b>{vip['cashback']}%</b>\n\n"
-            f"🎮 Игр: <b>{total_games}</b>\n"
-            f"🏆 Побед: <b>{total_wins}</b>\n"
-            f"📈 Винрейт: <b>{winrate}%</b>"
-        ).replace(',', ' ')
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Меню", callback_data="menu_main")]
-        ])
-        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=kb)
+        await call.message.edit_text(
+            profile_text(user_id, username),
+            parse_mode="HTML",
+            reply_markup=profile_kb()
+        )
+
+    elif data == "menu_stats":
+        await call.message.edit_text(
+            stats_text(user_id, username),
+            parse_mode="HTML",
+            reply_markup=back_to_main_kb()
+        )
+
+    elif data == "menu_history":
+        txt = history_text(user_id, username, game=None)
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=history_kb())
+
+    elif data.startswith("hist_"):
+        game_map = {
+            "hist_roulette": "рулетка",
+            "hist_slots": "слоты",
+            "hist_mines": "мины",
+            "hist_bj": "блэкджек",
+            "hist_coin": "монетка",
+            "hist_duel": "дуэль",
+            "hist_all": None,
+        }
+        game = game_map.get(data)
+        txt = history_text(user_id, username, game=game)
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=history_kb())
+
+    elif data == "menu_mytitles":
+        titles = get_user_titles(user_id)
+        if not titles:
+            txt = "🏷️ <b>МОИ ТИТУЛЫ</b>\n━━━━━━━━━━━━━━━━━━\n\nУ тебя пока нет титулов.\n\n💡 Титулы выпадают из 🎰 Золотого кейса!"
+        else:
+            txt = "🏷️ <b>МОИ ТИТУЛЫ</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+            for i, t in enumerate(titles, 1):
+                txt += f"{i}. {t}\n"
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=mytitles_kb())
 
     elif data == "menu_quests":
         quests = get_user_quests(user_id)
@@ -3257,33 +3656,43 @@ async def callback_handler(call: CallbackQuery):
             await call.answer(f"💎 {balance:,}\n🏦 {bank:,}".replace(',', ' '), show_alert=True)
 
     elif data == "menu_bank":
-        txt = (
-            f"🏦 <b>БАНК</b>\n"
+        txt = bank_text(user_id, username)
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=bank_kb())
+
+    elif data == "bank_deposit":
+        bank_input_state[user_id] = {"mode": "deposit"}
+        await call.message.edit_text(
+            f"🏦 <b>ПОЛОЖИТЬ В БАНК</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 {username}\n"
-            f"💎 Баланс: <b>{balance:,}</b>\n"
-            f"🏦 В банке: <b>{bank:,}</b>\n\n"
-            f"<code>банк положить 1000</code>\n"
-            f"<code>банк снять 1000</code>".replace(',', ' ')
+            f"💎 Баланс: <b>{balance:,}</b>\n\n"
+            f"Напиши сумму для внесения:\n"
+            f"<i>(только число, например: 5000)</i>".replace(',', ' '),
+            parse_mode="HTML",
+            reply_markup=bank_cancel_kb()
         )
-        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
+
+    elif data == "bank_withdraw":
+        bank_input_state[user_id] = {"mode": "withdraw"}
+        await call.message.edit_text(
+            f"🏦 <b>СНЯТЬ ИЗ БАНКА</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 В банке: <b>{bank:,}</b>\n\n"
+            f"Напиши сумму для снятия:\n"
+            f"<i>(только число, например: 5000)</i>".replace(',', ' '),
+            parse_mode="HTML",
+            reply_markup=bank_cancel_kb()
+        )
 
     elif data == "menu_top":
-        rows = get_top(10)
-        txt = "🏆 <b>ТОП-10</b>\n━━━━━━━━━━━━━━━━━━\n"
-        medals = ["🥇", "🥈", "🥉"]
-        for i, row in enumerate(rows):
-            uid, uname, bal, xp = row
-            medal = medals[i] if i < 3 else f"{i+1}."
-            vip = get_vip_info(xp or 0)
-            icon = vip["icon"] if xp else ""
-            title = get_main_title(uid)
-            t = f" 🏷️{title}" if title else ""
-            txt += f"{medal} {icon} {uname}{t} — <b>{bal:,}</b>\n".replace(',', ' ')
-        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=group_kb())
+        txt = top_text("balance")
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=top_kb())
+
+    elif data.startswith("top_"):
+        mode = data.replace("top_", "")
+        txt = top_text(mode)
+        await call.message.edit_text(txt, parse_mode="HTML", reply_markup=top_kb())
 
     elif data == "menu_log":
-        # Лог только по этому чату
         chat_id = call.message.chat.id if call.message and call.message.chat else None
         rows = get_last_roulette_results(10, chat_id=chat_id)
         if not rows:
@@ -3537,7 +3946,7 @@ async def callback_handler(call: CallbackQuery):
         win = False
         mult = 0
         if bet_type == "red" and result in RED_NUMBERS:
-            win = True            
+            win = True
             mult = MULT_COLOR
         elif bet_type == "black" and result in BLACK_NUMBERS:
             win = True
@@ -3620,7 +4029,7 @@ async def callback_handler(call: CallbackQuery):
         del bj_games[user_id]
 
     await call.answer()
-# ═══════════════ РЕДАКТОРЫ — ПЕРЕХВАТ ТЕКСТА ═══════════════
+    # ═══════════════ РЕДАКТОРЫ — ПЕРЕХВАТ ТЕКСТА (личка админа) ═══════════════
 @dp.message(F.text, F.chat.type == 'private')
 async def editor_text_handler(message: Message):
     """Перехват текста от админа во время редактирования (только в личке)."""
@@ -3684,204 +4093,249 @@ async def editor_text_handler(message: Message):
 
     # === Редактор кейсов ===
     st = edit_case_state.get(user_id)
-    if not st:
-        return
+    if st:
+        mode = st.get("mode")
 
-    mode = st.get("mode")
-
-    # --- Редактирование названия/описания/цены кейса ---
-    if mode == "editcase":
-        cases = get_cases()
-        idx = st["idx"]
-        field = st["field"]
-        if idx < 0 or idx >= len(cases):
-            edit_case_state.pop(user_id, None)
-            await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
-            return
-        val = message.text.strip()
-
-        if field == "name":
-            cases[idx]["name"] = val
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
-            await message.answer(f"✅ Название кейса: <b>{val}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
-            return
-        if field == "desc":
-            cases[idx]["desc"] = val
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
-            await message.answer(f"✅ Описание обновлено.\n\nОткрой /editcases заново.", parse_mode="HTML")
-            return
-        if field == "stars":
-            try:
-                num = int(val)
-            except ValueError:
-                await message.answer("❌ Введи число:", parse_mode="HTML")
+        if mode == "editcase":
+            cases = get_cases()
+            idx = st["idx"]
+            field = st["field"]
+            if idx < 0 or idx >= len(cases):
+                edit_case_state.pop(user_id, None)
+                await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
                 return
-            if num < 1:
-                await message.answer("❌ Цена ≥ 1", parse_mode="HTML")
+            val = message.text.strip()
+            if field == "name":
+                cases[idx]["name"] = val
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(f"✅ Название кейса: <b>{val}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
                 return
-            cases[idx]["stars"] = num
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
-            await message.answer(f"✅ Цена кейса: <b>{num}⭐</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
-            return
-        edit_case_state.pop(user_id, None)
-        await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
-        return
-
-    # --- Редактирование приза ---
-    if mode == "editreward":
-        cases = get_cases()
-        ci = st["ci"]
-        ri = st["ri"]
-        field = st["field"]
-        if ci < 0 or ci >= len(cases):
-            edit_case_state.pop(user_id, None)
-            await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
-            return
-        rewards = cases[ci]["rewards"]
-        if ri < 0 or ri >= len(rewards):
-            edit_case_state.pop(user_id, None)
-            await message.answer("❌ Приз не найден. Открой /editcases заново.", parse_mode="HTML")
-            return
-        val = message.text.strip()
-
-        if field == "title":
-            rewards[ri]["title"] = val
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
-            await message.answer(f"✅ Титул: <b>{val}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
-            return
-
-        if field in ("mult", "minutes", "chance"):
-            try:
-                num = int(val)
-            except ValueError:
-                await message.answer("❌ Введи число:", parse_mode="HTML")
+            if field == "desc":
+                cases[idx]["desc"] = val
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(f"✅ Описание обновлено.\n\nОткрой /editcases заново.", parse_mode="HTML")
                 return
-            if field == "chance":
-                if num < 0 or num > 100:
-                    await message.answer("❌ Шанс от 0 до 100", parse_mode="HTML")
+            if field == "stars":
+                try:
+                    num = int(val)
+                except ValueError:
+                    await message.answer("❌ Введи число:", parse_mode="HTML")
                     return
-            else:
                 if num < 1:
-                    await message.answer("❌ Значение ≥ 1", parse_mode="HTML")
+                    await message.answer("❌ Цена ≥ 1", parse_mode="HTML")
                     return
-            rewards[ri][field] = num
-            save_cases(cases)
+                cases[idx]["stars"] = num
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(f"✅ Цена кейса: <b>{num}⭐</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
+                return
             edit_case_state.pop(user_id, None)
-            await message.answer(f"✅ Обновлено: {field} = <b>{num}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
+            await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
             return
-        edit_case_state.pop(user_id, None)
-        await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
-        return
 
-    # --- Добавление нового буста (пошагово) ---
-    if mode == "newboost":
-        ci = st["ci"]
-        step = st["step"]
-        cases = get_cases()
-        if ci < 0 or ci >= len(cases):
+        if mode == "editreward":
+            cases = get_cases()
+            ci = st["ci"]
+            ri = st["ri"]
+            field = st["field"]
+            if ci < 0 or ci >= len(cases):
+                edit_case_state.pop(user_id, None)
+                await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
+                return
+            rewards = cases[ci]["rewards"]
+            if ri < 0 or ri >= len(rewards):
+                edit_case_state.pop(user_id, None)
+                await message.answer("❌ Приз не найден. Открой /editcases заново.", parse_mode="HTML")
+                return
+            val = message.text.strip()
+            if field == "title":
+                rewards[ri]["title"] = val
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(f"✅ Титул: <b>{val}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
+                return
+            if field in ("mult", "minutes", "chance"):
+                try:
+                    num = int(val)
+                except ValueError:
+                    await message.answer("❌ Введи число:", parse_mode="HTML")
+                    return
+                if field == "chance":
+                    if num < 0 or num > 100:
+                        await message.answer("❌ Шанс от 0 до 100", parse_mode="HTML")
+                        return
+                else:
+                    if num < 1:
+                        await message.answer("❌ Значение ≥ 1", parse_mode="HTML")
+                        return
+                rewards[ri][field] = num
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(f"✅ Обновлено: {field} = <b>{num}</b>\n\nОткрой /editcases заново.", parse_mode="HTML")
+                return
             edit_case_state.pop(user_id, None)
-            await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
+            await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
             return
+
+        if mode == "newboost":
+            ci = st["ci"]
+            step = st["step"]
+            cases = get_cases()
+            if ci < 0 or ci >= len(cases):
+                edit_case_state.pop(user_id, None)
+                await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
+                return
+            val = message.text.strip()
+            if step == "mult":
+                try:
+                    num = int(val)
+                    if num < 1:
+                        raise ValueError
+                except ValueError:
+                    await message.answer("❌ Введи множитель (≥ 1):", parse_mode="HTML")
+                    return
+                st["mult"] = num
+                st["step"] = "minutes"
+                edit_case_state[user_id] = st
+                await message.answer("⏱ Теперь введи <b>число минут</b> (≥ 1):", parse_mode="HTML")
+                return
+            if step == "minutes":
+                try:
+                    num = int(val)
+                    if num < 1:
+                        raise ValueError
+                except ValueError:
+                    await message.answer("❌ Введи минуты (≥ 1):", parse_mode="HTML")
+                    return
+                st["minutes"] = num
+                st["step"] = "chance"
+                edit_case_state[user_id] = st
+                await message.answer("🎲 Теперь введи <b>шанс в %</b> (0-100):", parse_mode="HTML")
+                return
+            if step == "chance":
+                try:
+                    num = int(val)
+                    if num < 0 or num > 100:
+                        raise ValueError
+                except ValueError:
+                    await message.answer("❌ Введи шанс (0-100):", parse_mode="HTML")
+                    return
+                cases[ci]["rewards"].append({
+                    "type": "boost",
+                    "mult": st["mult"],
+                    "minutes": st["minutes"],
+                    "chance": num,
+                })
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(
+                    f"✅ Буст добавлен!\n⚡ ×{st['mult']} / {st['minutes']}м / {num}%\n\nОткрой /editcases заново.",
+                    parse_mode="HTML"
+                )
+                return
+            edit_case_state.pop(user_id, None)
+            await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
+            return
+
+        if mode == "newtitle":
+            ci = st["ci"]
+            step = st["step"]
+            cases = get_cases()
+            if ci < 0 or ci >= len(cases):
+                edit_case_state.pop(user_id, None)
+                await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
+                return
+            val = message.text.strip()
+            if step == "title":
+                st["title"] = val
+                st["step"] = "chance"
+                edit_case_state[user_id] = st
+                await message.answer("🎲 Теперь введи <b>шанс в %</b> (0-100):", parse_mode="HTML")
+                return
+            if step == "chance":
+                try:
+                    num = int(val)
+                    if num < 0 or num > 100:
+                        raise ValueError
+                except ValueError:
+                    await message.answer("❌ Введи шанс (0-100):", parse_mode="HTML")
+                    return
+                cases[ci]["rewards"].append({
+                    "type": "title",
+                    "title": st["title"],
+                    "chance": num,
+                })
+                save_cases(cases)
+                edit_case_state.pop(user_id, None)
+                await message.answer(
+                    f"✅ Титул добавлен!\n🏷 {st['title']} / {num}%\n\nОткрой /editcases заново.",
+                    parse_mode="HTML"
+                )
+                return
+            edit_case_state.pop(user_id, None)
+            await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
+            return
+
+    # === Ввод суммы банка ===
+    bst = bank_input_state.get(user_id)
+    if bst:
+        mode = bst.get("mode")
         val = message.text.strip()
-
-        if step == "mult":
-            try:
-                num = int(val)
-                if num < 1:
-                    raise ValueError
-            except ValueError:
-                await message.answer("❌ Введи множитель (≥ 1):", parse_mode="HTML")
-                return
-            st["mult"] = num
-            st["step"] = "minutes"
-            edit_case_state[user_id] = st
-            await message.answer("⏱ Теперь введи <b>число минут</b> (≥ 1):", parse_mode="HTML")
+        try:
+            amount = int(val)
+        except ValueError:
+            await message.answer("❌ Введи число:", parse_mode="HTML")
             return
-
-        if step == "minutes":
-            try:
-                num = int(val)
-                if num < 1:
-                    raise ValueError
-            except ValueError:
-                await message.answer("❌ Введи минуты (≥ 1):", parse_mode="HTML")
-                return
-            st["minutes"] = num
-            st["step"] = "chance"
-            edit_case_state[user_id] = st
-            await message.answer("🎲 Теперь введи <b>шанс в %</b> (0-100):", parse_mode="HTML")
+        if amount < 1:
+            await message.answer("❌ Минимум 1", parse_mode="HTML")
             return
-
-        if step == "chance":
-            try:
-                num = int(val)
-                if num < 0 or num > 100:
-                    raise ValueError
-            except ValueError:
-                await message.answer("❌ Введи шанс (0-100):", parse_mode="HTML")
+        if mode == "deposit":
+            bal = get_balance(user_id)
+            if bal < amount and not is_unlimited(user_id):
+                bank_input_state.pop(user_id, None)
+                await message.answer(f"❌ Недостаточно! Баланс: <b>{bal:,}</b>".replace(',', ' '), parse_mode="HTML")
                 return
-            cases[ci]["rewards"].append({
-                "type": "boost",
-                "mult": st["mult"],
-                "minutes": st["minutes"],
-                "chance": num,
-            })
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
+            set_balance(user_id, -amount)
+            new_bank = set_bank(user_id, amount)
+            new_bal = get_balance(user_id)
+            bank_input_state.pop(user_id, None)
             await message.answer(
-                f"✅ Буст добавлен!\n⚡ ×{st['mult']} / {st['minutes']}м / {num}%\n\nОткрой /editcases заново.",
-                parse_mode="HTML"
+                f"🏦 <b>ПОЛОЖЕНО В БАНК</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 Внесено: <b>+{amount:,}</b>\n"
+                f"💎 Баланс: <b>{new_bal:,}</b>\n"
+                f"🏦 В банке: <b>{new_bank:,}</b>".replace(',', ' '),
+                parse_mode="HTML",
+                reply_markup=bank_kb()
             )
             return
-        edit_case_state.pop(user_id, None)
-        await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
-        return
-
-    # --- Добавление нового титула ---
-    if mode == "newtitle":
-        ci = st["ci"]
-        step = st["step"]
-        cases = get_cases()
-        if ci < 0 or ci >= len(cases):
-            edit_case_state.pop(user_id, None)
-            await message.answer("❌ Кейс не найден. Открой /editcases заново.", parse_mode="HTML")
-            return
-        val = message.text.strip()
-
-        if step == "title":
-            st["title"] = val
-            st["step"] = "chance"
-            edit_case_state[user_id] = st
-            await message.answer("🎲 Теперь введи <b>шанс в %</b> (0-100):", parse_mode="HTML")
-            return
-
-        if step == "chance":
-            try:
-                num = int(val)
-                if num < 0 or num > 100:
-                    raise ValueError
-            except ValueError:
-                await message.answer("❌ Введи шанс (0-100):", parse_mode="HTML")
+        if mode == "withdraw":
+            bank = get_bank(user_id)
+            if bank < amount:
+                bank_input_state.pop(user_id, None)
+                await message.answer(f"❌ В банке только <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
                 return
-            cases[ci]["rewards"].append({
-                "type": "title",
-                "title": st["title"],
-                "chance": num,
-            })
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
+            set_bank(user_id, -amount)
+            new_bal = set_balance(user_id, amount)
+            new_bank = get_bank(user_id)
+            bank_input_state.pop(user_id, None)
             await message.answer(
-                f"✅ Титул добавлен!\n🏷 {st['title']} / {num}%\n\nОткрой /editcases заново.",
-                parse_mode="HTML"
+                f"🏦 <b>СНЯТО ИЗ БАНКА</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 Снято: <b>+{amount:,}</b>\n"
+                f"💎 Баланс: <b>{new_bal:,}</b>\n"
+                f"🏦 В банке: <b>{new_bank:,}</b>".replace(',', ' '),
+                parse_mode="HTML",
+                reply_markup=bank_kb()
             )
             return
-        edit_case_state.pop(user_id, None)
-        await message.answer("❌ Ошибка. Открой /editcases заново.", parse_mode="HTML")
+        bank_input_state.pop(user_id, None)
         return
+
+    # Если ничего из выше — игнорируем в личке
+    return
 
 
 # ═══════════════ TEXT HANDLER (ГРУППА) ═══════════════
@@ -3930,7 +4384,7 @@ async def text_handler(message: Message):
         await message.reply("🛠️ <b>ТЕХ.РАБОТЫ</b>\n\nПопробуй позже!", parse_mode="HTML")
         return
 
-    # ── БОНУС ────────────────────────────────────────────────
+    # ── БОНУС ──
     if text in ['бонус', 'bonus', 'ежедневка', 'дейли']:
         can, left = get_daily_status(user_id)
         if can:
@@ -3953,40 +4407,12 @@ async def text_handler(message: Message):
             )
         return
 
-    # ── ПРОФИЛЬ ─────────────────────────────────────────────
+    # ── ПРОФИЛЬ ──
     if text in ['профиль', 'я']:
-        xp = get_xp(user_id)
-        vip = get_vip_info(xp)
-        balance = get_balance(user_id)
-        bank = get_bank(user_id)
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (user_id,))
-        total_games = c.fetchone()[0]
-        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (user_id,))
-        total_wins = c.fetchone()[0]
-        c.close()
-        conn.close()
-        winrate = round(total_wins / total_games * 100) if total_games > 0 else 0
-        title = get_main_title(user_id)
-        title_line = f"\n🏷️ <b>{title}</b>" if title else ""
-        txt = (
-            f"👤 <b>ПРОФИЛЬ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🎭 <b>{username}</b>{title_line}\n"
-            f"{vip['icon']} <b>{vip['name']}</b>\n"
-            f"📊 XP: <b>{xp}</b>\n\n"
-            f"💎 Баланс: <b>{balance:,}</b>\n"
-            f"🏦 Банк: <b>{bank:,}</b>\n"
-            f"💰 Кешбэк: <b>{vip['cashback']}%</b>\n\n"
-            f"🎮 Игр: <b>{total_games}</b>\n"
-            f"🏆 Побед: <b>{total_wins}</b>\n"
-            f"📈 Винрейт: <b>{winrate}%</b>"
-        ).replace(',', ' ')
-        await message.reply(txt, parse_mode="HTML")
+        await message.reply(profile_text(user_id, username), parse_mode="HTML", reply_markup=profile_kb())
         return
 
-    # ── КВЕСТЫ ──────────────────────────────────────────────
+    # ── КВЕСТЫ ──
     if text in ['квесты', 'quests']:
         quests = get_user_quests(user_id)
         txt = "🎯 <b>КВЕСТЫ</b>\n━━━━━━━━━━━━━━━━━━\n"
@@ -4000,7 +4426,7 @@ async def text_handler(message: Message):
         await message.reply(txt, parse_mode="HTML", reply_markup=quests_kb(user_id))
         return
 
-    # ── ДУЭЛЬ ───────────────────────────────────────────────
+    # ── ДУЭЛЬ ──
     if len(parts) >= 3 and parts[0] == 'дуэль':
         try:
             bet = int(parts[1])
@@ -4100,15 +4526,9 @@ async def text_handler(message: Message):
             await message.reply("❌ <b>Дуэль отменена</b>", parse_mode="HTML")
         return
 
-    # ── БАНК ────────────────────────────────────────────────
+    # ── БАНК ──
     if text == 'банк':
-        balance = get_balance(user_id)
-        bank = get_bank(user_id)
-        total = clamp(balance + bank)
-        await message.reply(
-            f"🏦 <b>БАНК</b>\n👤 {username}\n💰 <b>{balance:,}</b>\n🏦 <b>{bank:,}</b>\n💎 Всего: <b>{total:,}</b>\n\n<code>банк положить 1000</code>\n<code>банк снять 1000</code>".replace(',', ' '),
-            parse_mode="HTML"
-        )
+        await message.reply(bank_text(user_id, username), parse_mode="HTML", reply_markup=bank_kb())
         return
 
     if len(parts) == 3 and parts[0] == 'банк' and parts[1] == 'положить':
@@ -4149,7 +4569,7 @@ async def text_handler(message: Message):
         await message.reply(f"🏦 <b>ИЗ БАНКА</b>\n💰 +{amount:,}\n💎 {new_balance:,}\n🏦 {new_bank:,}".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ── ПЕРЕВОД ─────────────────────────────────────────────
+    # ── ПЕРЕВОД ──
     if parts[0] == 'п':
         if len(parts) < 2:
             await message.reply("💸 Ответь и напиши: <code>п 1000</code>", parse_mode="HTML")
@@ -4181,7 +4601,7 @@ async def text_handler(message: Message):
         await message.reply(f"💸 <b>ПЕРЕВОД!</b>\n👤 {username} → {target.username or target.first_name}\n💰 <b>{amount:,}</b>\n💎 {nb:,} | {nt:,}".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ── ОТМЕНА СТАВОК ───────────────────────────────────────
+    # ── ОТМЕНА СТАВОК ──
     if text in ['отмена', 'отменить']:
         if chat_id in active_bets and active_bets[chat_id]["bets"]:
             count = len(active_bets[chat_id]["bets"])
@@ -4191,7 +4611,7 @@ async def text_handler(message: Message):
             await message.reply(f"❌ <b>Ставки отменены!</b> Возвращено: {count}", parse_mode="HTML")
         return
 
-    # ── БАЛАНС ──────────────────────────────────────────────
+    # ── БАЛАНС ──
     if text in ['б', 'баланс']:
         balance = get_balance(user_id)
         bank = get_bank(user_id)
@@ -4203,12 +4623,12 @@ async def text_handler(message: Message):
             await message.reply(f"💰 <b>БАЛАНС</b>\n👤 {username}\n{vip['icon']} {vip['name']}\n💎 <b>{balance:,}</b>\n🏦 Банк: <b>{bank:,}</b>".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ── ИГРЫ ────────────────────────────────────────────────
+    # ── ИГРЫ ──
     if text in ['игры', 'игра']:
         await message.reply("🎮 <b>ИГРЫ</b>", parse_mode="HTML", reply_markup=games_kb())
         return
 
-    # ── ЛОГ (только по этому чату) ──────────────────────────
+    # ── ЛОГ ──
     if text in ['лог', 'log']:
         rows = get_last_roulette_results(10, chat_id=chat_id)
         if not rows:
@@ -4224,26 +4644,12 @@ async def text_handler(message: Message):
         await message.reply(out, parse_mode="HTML")
         return
 
-    # ── ТОП ─────────────────────────────────────────────────
+    # ── ТОП ──
     if text in ['топ', 'top']:
-        rows = get_top(10)
-        if not rows:
-            await message.reply("📊 Пока нет игроков!", parse_mode="HTML")
-            return
-        out = "🏆 <b>ТОП-10</b>\n"
-        medals = ["🥇", "🥈", "🥉"]
-        for i, row in enumerate(rows):
-            uid, uname, bal, xp = row
-            medal = medals[i] if i < 3 else f"{i+1}."
-            vip = get_vip_info(xp or 0)
-            icon = vip["icon"] if xp else ""
-            title = get_main_title(uid)
-            t = f" 🏷️{title}" if title else ""
-            out += f"{medal} {icon} {uname}{t} — <b>{bal:,}</b>\n".replace(',', ' ')
-        await message.reply(out, parse_mode="HTML")
+        await message.reply(top_text("balance"), parse_mode="HTML", reply_markup=top_kb())
         return
 
-    # ── МИНЫ ────────────────────────────────────────────────
+    # ── МИНЫ ──
     if len(parts) == 2 and parts[0] in ['мины', 'мина', 'mines']:
         try:
             bet = int(parts[1])
@@ -4260,7 +4666,7 @@ async def text_handler(message: Message):
         await message.reply(f"💣 <b>МИНЫ</b>\n💰 Ставка: <b>{bet:,}</b>".replace(',', ' '), parse_mode="HTML", reply_markup=mines_level_kb(bet))
         return
 
-    # ── РУЛЕТКА ЗАПУСК ──────────────────────────────────────
+    # ── РУЛЕТКА ЗАПУСК ──
     if text == 'го':
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]:
             await message.reply("❌ Нет активных ставок!")
@@ -4329,7 +4735,7 @@ async def text_handler(message: Message):
             await message.reply(result_text, parse_mode="HTML")
         return
 
-    # ── СЛОТЫ ───────────────────────────────────────────────
+    # ── СЛОТЫ ──
     if len(parts) == 2 and parts[0] in ['спин', 'spin']:
         if is_game_disabled('slots') and user_id != ADMIN_ID:
             await message.reply("❌ <b>Слоты временно отключены</b>", parse_mode="HTML")
@@ -4375,7 +4781,7 @@ async def text_handler(message: Message):
             await msg.edit_text(f"🎰 <b>СЛОТЫ</b>\n┃ {r1} ┃ {r2} ┃ {r3} ┃\n\n😢 <b>-{bet:,}</b>\n💎 {nb:,}".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ── МОНЕТКА ─────────────────────────────────────────────
+    # ── МОНЕТКА ──
     if len(parts) == 2 and parts[0] in ['орёл', 'орел', 'решка']:
         if is_game_disabled('coin') and user_id != ADMIN_ID:
             await message.reply("❌ <b>Монетка временно отключена</b>", parse_mode="HTML")
@@ -4411,7 +4817,7 @@ async def text_handler(message: Message):
             await msg.edit_text(f"🪙 <b>МОНЕТКА</b>\n🎯 {'🦅' if result == 'heads' else '👑'}\n😢 <b>-{bet:,}</b>\n💎 {nb:,}".replace(',', ' '), parse_mode="HTML")
         return
 
-    # ── БЛЭКДЖЕК ────────────────────────────────────────────
+    # ── БЛЭКДЖЕК ──
     if len(parts) == 2 and parts[0] in ['бж', 'блэкджек']:
         if is_game_disabled('bj') and user_id != ADMIN_ID:
             await message.reply("❌ <b>Блэкджек временно отключён</b>", parse_mode="HTML")
@@ -4439,7 +4845,7 @@ async def text_handler(message: Message):
         )
         return
 
-    # ── РУЛЕТКА (ставки) ────────────────────────────────────
+    # ── РУЛЕТКА СТАВКИ ──
     if len(parts) == 2 and parts[0] in ['к', 'ч', 'з']:
         if is_game_disabled('roulette') and user_id != ADMIN_ID:
             await message.reply("❌ <b>Рулетка временно отключена</b>", parse_mode="HTML")
@@ -4469,7 +4875,7 @@ async def text_handler(message: Message):
         )
         return
 
-    # ── МУЛЬТИ-СТАВКА (диапазоны) ───────────────────────────
+    # ── МУЛЬТИ-СТАВКА ──
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
         if bet < 10:
@@ -4550,7 +4956,10 @@ async def giveaway_checker_loop():
 async def main():
     init_db()
     load_settings()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+    )
     print("🎰 Бот запущен!")
     asyncio.create_task(bank_interest_loop())
     asyncio.create_task(giveaway_checker_loop())
