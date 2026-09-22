@@ -4164,9 +4164,9 @@ async def callback_handler(call: CallbackQuery):
             txt = f"👥 <b>ВСЕ ИГРОКИ</b>\n━━━━━━━━━━━━━━━━━━\n\n"
 
             for i, row in enumerate(rows):
-                uid, uname, bal, is_banned = row
+                uid, uname, bal, user_is_banned = row
                 medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
-                ban_icon = " 🚫" if is_banned else ""
+                ban_icon = " 🚫" if user_is_banned else ""
                 uname = uname or f"user_{uid}"
                 bal_str = f"{bal:,}".replace(',', ' ')
                 txt += f"{medal} {uname} — <b>{bal_str}</b> 💎{ban_icon}\n"
@@ -7115,9 +7115,9 @@ async def cmd_players(message: Message):
     txt += f"━━━━━━━━━━━━━━━━━━\n\n"
 
     for i, row in enumerate(rows):
-        uid, uname, bal, is_banned = row
+        uid, uname, bal, user_is_banned = row
         medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
-        ban_icon = " 🚫" if is_banned else ""
+        ban_icon = " 🚫" if user_is_banned else ""
         uname = uname or f"user_{uid}"
         bal_str = f"{bal:,}".replace(',', ' ')
         txt += f"{medal} {uname} — <b>{bal_str}</b> 💎{ban_icon}\n"
