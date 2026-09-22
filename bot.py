@@ -1903,6 +1903,7 @@ def admin_comm_kb():
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast_start")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats_show")],
         [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active_show")],
+        [InlineKeyboardButton(text="📋 Все игроки", callback_data="admin_all_players")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
     ])
 
@@ -4132,6 +4133,53 @@ async def callback_handler(call: CallbackQuery):
                 txt = "📊 <b>Активные за 5 минут</b>\n\n"
                 for i, (uid, uname, bal) in enumerate(users, 1):
                     txt += f"{i}. <b>{uname}</b> — 💎 {bal:,}\n".replace(',', ' ')
+            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
+            await call.answer()
+            return
+                    if data == "admin_all_players":
+            conn = get_conn()
+            c = conn.cursor()
+            c.execute("""
+                SELECT user_id, username, balance, banned
+                FROM users
+                ORDER BY balance DESC
+                LIMIT 30
+            """)
+            rows = c.fetchall()
+            c.execute("SELECT COUNT(*) FROM users")
+            total = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+            banned = c.fetchone()[0]
+            c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+            total_balance = c.fetchone()[0]
+            c.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM game_log
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+            """)
+            active_24h = c.fetchone()[0]
+            c.close()
+            release_conn(conn)
+
+            medals = ["🥇", "🥈", "🥉"]
+            txt = f"👥 <b>ВСЕ ИГРОКИ</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+
+            for i, row in enumerate(rows):
+                uid, uname, bal, is_banned = row
+                medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
+                ban_icon = " 🚫" if is_banned else ""
+                uname = uname or f"user_{uid}"
+                bal_str = f"{bal:,}".replace(',', ' ')
+                txt += f"{medal} {uname} — <b>{bal_str}</b> 💎{ban_icon}\n"
+
+            if total > 30:
+                txt += f"\n<i>...и ещё {total - 30}</i>\n"
+
+            txt += f"\n━━━━━━━━━━━━━━━━━━\n"
+            txt += f"📊 Всего: <b>{total}</b>\n"
+            txt += f"🟢 Активных за 24ч: <b>{active_24h}</b>\n"
+            txt += f"🚫 Забанено: <b>{banned}</b>\n"
+            txt += f"💎 Общий баланс: <b>{total_balance:,}</b>".replace(',', ' ')
+
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
             return
@@ -6988,6 +7036,102 @@ def api_mines_cashout():
         "mult": mult,
         "balance": get_balance(user_id),
     })
+    # ═══════════════ API: ВСЕ ИГРОКИ ═══════════════
+@app.route('/api/players')
+def api_players():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT user_id, username, balance, xp, banned, unlimited
+        FROM users
+        ORDER BY balance DESC
+    """)
+    rows = c.fetchall()
+    c.execute("SELECT COUNT(*) FROM users")
+    total = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+    banned = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.execute("""
+        SELECT COUNT(DISTINCT user_id) FROM game_log
+        WHERE created_at > NOW() - INTERVAL '24 hours'
+    """)
+    active_24h = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+
+    players = []
+    for r in rows:
+        players.append({
+            "user_id": r[0],
+            "username": r[1] or f"user_{r[0]}",
+            "balance": r[2] or 0,
+            "xp": r[3] or 0,
+            "banned": bool(r[4]),
+            "unlimited": bool(r[5]),
+        })
+
+    return jsonify({
+        "total": total,
+        "banned": banned,
+        "active_24h": active_24h,
+        "total_balance": total_balance,
+        "players": players,
+    })
+
+
+# ═══════════════ КОМАНДА /players ═══════════════
+@dp.message(Command("players", "игроки"))
+async def cmd_players(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT user_id, username, balance, banned
+        FROM users
+        ORDER BY balance DESC
+        LIMIT 30
+    """)
+    rows = c.fetchall()
+    c.execute("SELECT COUNT(*) FROM users")
+    total = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+    banned = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.execute("""
+        SELECT COUNT(DISTINCT user_id) FROM game_log
+        WHERE created_at > NOW() - INTERVAL '24 hours'
+    """)
+    active_24h = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+
+    medals = ["🥇", "🥈", "🥉"]
+    txt = f"👥 <b>ВСЕ ИГРОКИ</b>\n"
+    txt += f"━━━━━━━━━━━━━━━━━━\n\n"
+
+    for i, row in enumerate(rows):
+        uid, uname, bal, is_banned = row
+        medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
+        ban_icon = " 🚫" if is_banned else ""
+        uname = uname or f"user_{uid}"
+        bal_str = f"{bal:,}".replace(',', ' ')
+        txt += f"{medal} {uname} — <b>{bal_str}</b> 💎{ban_icon}\n"
+
+    if total > 30:
+        txt += f"\n<i>...и ещё {total - 30}</i>\n"
+
+    txt += f"\n━━━━━━━━━━━━━━━━━━\n"
+    txt += f"📊 Всего: <b>{total}</b>\n"
+    txt += f"🟢 Активных за 24ч: <b>{active_24h}</b>\n"
+    txt += f"🚫 Забанено: <b>{banned}</b>\n"
+    txt += f"💎 Общий баланс: <b>{total_balance:,}</b>".replace(',', ' ')
+
+    await message.answer(txt, parse_mode="HTML")
 
 
 
