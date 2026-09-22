@@ -1487,13 +1487,13 @@ def group_kb():
 
 
 def private_kb():
-    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="👑 Профиль")],
             [KeyboardButton(text="🎁 Бонус"), KeyboardButton(text="🏆 Топ")],
             [KeyboardButton(text="💰 Донат")],
-            [KeyboardButton(text="🌐 WebApp")],
+            [KeyboardButton(text="🌐 WebApp", web_app=WebAppInfo(url=MINI_APP_URL))],
             [KeyboardButton(text="🔗 Рефералка"), KeyboardButton(text="🎯 Квесты")],
             [KeyboardButton(text="🎮 Как играть?"), KeyboardButton(text="🛒 Магазин")],
         ],
@@ -2414,13 +2414,7 @@ async def btn_donate(message: Message):
     )
 
 
-@dp.message(F.text == "🌐 WebApp")
-async def btn_webapp(message: Message):
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌐 Открыть Mini App", web_app=WebAppInfo(url=MINI_APP_URL))]
-    ])
-    await message.answer("🌐 <b>MINI APP</b>\n\nНажми кнопку 👇", parse_mode="HTML", reply_markup=kb)
+
 
 
 @dp.message(F.text == "🔗 Рефералка")
