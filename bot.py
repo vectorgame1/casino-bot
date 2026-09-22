@@ -6332,15 +6332,15 @@ async def successful_payment(message: Message):
 
         # Кладём в инвентарь
         reward_text = apply_case_reward_to_inventory(user_id, reward)
-                        # Сохраняем reward для анимации в Mini App
-                save_last_reward(user_id, {
-                    "type": reward.get("type"),
-                    "mult": reward.get("mult"),
-                    "minutes": reward.get("minutes"),
-                    "title": reward.get("title"),
-                    "vip_level": reward.get("vip_level"),
-                    "case_name": case.get("name", ""),
-                })
+        # Сохраняем reward для анимации в Mini App
+        save_last_reward(user_id, {
+            "type": reward.get("type"),
+            "mult": reward.get("mult"),
+            "minutes": reward.get("minutes"),
+            "title": reward.get("title"),
+            "vip_level": reward.get("vip_level"),
+            "case_name": case.get("name", ""),
+        })
 
         # Достаём inv_id последнего предмета
         inv = get_inventory(user_id)
