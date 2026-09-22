@@ -7081,57 +7081,7 @@ def api_players():
     })
 
 
-# ═══════════════ КОМАНДА /players ═══════════════
-@dp.message(Command("players", "игроки"))
-async def cmd_players(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
 
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT user_id, username, balance, banned
-        FROM users
-        ORDER BY balance DESC
-        LIMIT 30
-    """)
-    rows = c.fetchall()
-    c.execute("SELECT COUNT(*) FROM users")
-    total = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
-    banned = c.fetchone()[0]
-    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
-    total_balance = c.fetchone()[0]
-    c.execute("""
-        SELECT COUNT(DISTINCT user_id) FROM game_log
-        WHERE created_at > NOW() - INTERVAL '24 hours'
-    """)
-    active_24h = c.fetchone()[0]
-    c.close()
-    release_conn(conn)
-
-    medals = ["🥇", "🥈", "🥉"]
-    txt = f"👥 <b>ВСЕ ИГРОКИ</b>\n"
-    txt += f"━━━━━━━━━━━━━━━━━━\n\n"
-
-    for i, row in enumerate(rows):
-        uid, uname, bal, user_is_banned = row
-        medal = medals[i] if i < 3 else f"<b>{i+1}.</b>"
-        ban_icon = " 🚫" if user_is_banned else ""
-        uname = uname or f"user_{uid}"
-        bal_str = f"{bal:,}".replace(',', ' ')
-        txt += f"{medal} {uname} — <b>{bal_str}</b> 💎{ban_icon}\n"
-
-    if total > 30:
-        txt += f"\n<i>...и ещё {total - 30}</i>\n"
-
-    txt += f"\n━━━━━━━━━━━━━━━━━━\n"
-    txt += f"📊 Всего: <b>{total}</b>\n"
-    txt += f"🟢 Активных за 24ч: <b>{active_24h}</b>\n"
-    txt += f"🚫 Забанено: <b>{banned}</b>\n"
-    txt += f"💎 Общий баланс: <b>{total_balance:,}</b>".replace(',', ' ')
-
-    await message.answer(txt, parse_mode="HTML")
 
 
 
