@@ -1835,14 +1835,14 @@ def mines_field_kb(user_id):
 
 # ─── АДМИН-ПАНЕЛЬ (6 КАТЕГОРИЙ) ───
 def admin_panel_kb():
-    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="👥 Игроки")],
             [KeyboardButton(text="🎮 Игры"), KeyboardButton(text="🛒 Контент")],
             [KeyboardButton(text="💰 Экономика")],
             [KeyboardButton(text="📢 Связь"), KeyboardButton(text="📊 Мониторинг")],
-            [KeyboardButton(text="🌐 WebApp")],
+            [KeyboardButton(text="🌐 WebApp", web_app=WebAppInfo(url=MINI_APP_URL))],
             [KeyboardButton(text="🛒 Редактор магазина")],
             [KeyboardButton(text="🎰 Редактор кейсов")],
         ],
