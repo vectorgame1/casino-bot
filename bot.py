@@ -4136,7 +4136,7 @@ async def callback_handler(call: CallbackQuery):
             await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_back_kb())
             await call.answer()
             return
-                    if data == "admin_all_players":
+        if data == "admin_all_players":
             conn = get_conn()
             c = conn.cursor()
             c.execute("""
