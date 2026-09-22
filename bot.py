@@ -6464,7 +6464,7 @@ async def admin_jackpot_set_handler(call: CallbackQuery):
     # ═══════════════ API: ПОКУПКА КЕЙСОВ ═══════════════
 @app.route('/api/cases/buy', methods=['POST'])
 def api_cases_buy():
-    import asyncio as _asyncio
+    import requests as _requests
     data = request.json
     user_id = data.get('user_id')
     case_id = data.get('case_id')
@@ -6473,6 +6473,29 @@ def api_cases_buy():
     case = get_case_by_id(case_id)
     if not case:
         return jsonify({"error": "Case not found"}), 404
+
+    try:
+        # Используем прямой Telegram Bot API через requests (синхронно)
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"Кейс «{case['name']}»",
+            "description": case.get("desc", "Кейс с наградами"),
+            "payload": f"case_{case_id}",
+            "currency": "XTR",
+            "prices": json.dumps([
+                {"label": case["name"], "amount": int(case["stars"])}
+            ]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        else:
+            print(f"Telegram API error: {result}")
+            return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        print(f"Ошибка создания invoice кейса: {e}")
+        return jsonify({"error": str(e)}), 500
 
     async def create_invoice():
         try:
@@ -6507,7 +6530,7 @@ def api_cases_buy():
 # ═══════════════ API: ПОКУПКА ТОВАРА МАГАЗИНА ═══════════════
 @app.route('/api/shop/buy', methods=['POST'])
 def api_shop_buy():
-    import asyncio as _asyncio
+    import requests as _requests
     data = request.json
     user_id = data.get('user_id')
     item_id = data.get('item_id')
@@ -6522,6 +6545,28 @@ def api_shop_buy():
     stars = item.get("stars", 0)
     if not stars or int(stars) < 1:
         return jsonify({"error": "Item not available for Stars"}), 400
+
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": item["name"],
+            "description": item.get("desc", ""),
+            "payload": f"shop_stars_{items.index(item)}",
+            "currency": "XTR",
+            "prices": json.dumps([
+                {"label": item["name"], "amount": int(stars)}
+            ]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        else:
+            print(f"Telegram API error: {result}")
+            return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        print(f"Ошибка создания invoice товара: {e}")
+        return jsonify({"error": str(e)}), 500
 
     async def create_invoice():
         try:
