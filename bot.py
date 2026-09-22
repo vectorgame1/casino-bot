@@ -21,7 +21,7 @@ from flask_cors import CORS
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
 ADMIN_ID = 6403424348
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-MINI_APP_URL = "https://vectorgame1.github.io/casino/"
+MINI_APP_URL = "https://thriving-lokum-1f7004.netlify.app"
 GROUP_URL = "https://t.me/+xrmEcGndccs5ZGFi"
 
 RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
