@@ -6461,6 +6461,96 @@ async def admin_jackpot_set_handler(call: CallbackQuery):
         parse_mode="HTML"
     )
     await call.answer()
+    # ═══════════════ API: ПОКУПКА КЕЙСОВ ═══════════════
+@app.route('/api/cases/buy', methods=['POST'])
+def api_cases_buy():
+    import asyncio as _asyncio
+    data = request.json
+    user_id = data.get('user_id')
+    case_id = data.get('case_id')
+    if not user_id or not case_id:
+        return jsonify({"error": "Missing"}), 400
+    case = get_case_by_id(case_id)
+    if not case:
+        return jsonify({"error": "Case not found"}), 404
+
+    async def create_invoice():
+        try:
+            from aiogram.types import LabeledPrice
+            invoice_link = await bot.create_invoice_link(
+                title=f"Кейс «{case['name']}»",
+                description=case.get("desc", "Кейс с наградами"),
+                payload=f"case_{case_id}",
+                currency="XTR",
+                prices=[LabeledPrice(label=case["name"], amount=int(case["stars"]))],
+            )
+            return invoice_link
+        except Exception as e:
+            print(f"Ошибка создания invoice кейса: {e}")
+            return None
+
+    try:
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        invoice_link = loop.run_until_complete(create_invoice())
+        loop.close()
+    except Exception as e:
+        print(f"Loop error: {e}")
+        return jsonify({"error": "Loop error"}), 500
+
+    if not invoice_link:
+        return jsonify({"error": "Failed to create invoice"}), 500
+
+    return jsonify({"invoice_url": invoice_link})
+
+
+# ═══════════════ API: ПОКУПКА ТОВАРА МАГАЗИНА ═══════════════
+@app.route('/api/shop/buy', methods=['POST'])
+def api_shop_buy():
+    import asyncio as _asyncio
+    data = request.json
+    user_id = data.get('user_id')
+    item_id = data.get('item_id')
+    if not user_id or not item_id:
+        return jsonify({"error": "Missing"}), 400
+
+    items = get_shop_items()
+    item = next((it for it in items if it.get("id") == item_id), None)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    stars = item.get("stars", 0)
+    if not stars or int(stars) < 1:
+        return jsonify({"error": "Item not available for Stars"}), 400
+
+    async def create_invoice():
+        try:
+            from aiogram.types import LabeledPrice
+            invoice_link = await bot.create_invoice_link(
+                title=item["name"],
+                description=item.get("desc", ""),
+                payload=f"shop_stars_{items.index(item)}",
+                currency="XTR",
+                prices=[LabeledPrice(label=item["name"], amount=int(stars))],
+            )
+            return invoice_link
+        except Exception as e:
+            print(f"Ошибка создания invoice товара: {e}")
+            return None
+
+    try:
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        invoice_link = loop.run_until_complete(create_invoice())
+        loop.close()
+    except Exception as e:
+        print(f"Loop error: {e}")
+        return jsonify({"error": "Loop error"}), 500
+
+    if not invoice_link:
+        return jsonify({"error": "Failed to create invoice"}), 500
+
+    return jsonify({"invoice_url": invoice_link})
 
 
 # ═══════════════ MAIN ═══════════════
