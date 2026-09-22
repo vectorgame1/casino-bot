@@ -1487,20 +1487,19 @@ def group_kb():
 
 
 def private_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 ИГРАТЬ В ГРУППЕ", url=GROUP_URL)],
-        [InlineKeyboardButton(text="🎁 БОНУС", callback_data="menu_daily"),
-         InlineKeyboardButton(text="🎰 КЕЙСЫ", callback_data="menu_cases")],
-        [InlineKeyboardButton(text="🛒 МАГАЗИН", callback_data="menu_shop"),
-         InlineKeyboardButton(text="👤 ПРОФИЛЬ", callback_data="menu_profile")],
-        [InlineKeyboardButton(text="🎒 ИНВЕНТАРЬ", callback_data="menu_inventory"),
-         InlineKeyboardButton(text="🏪 РЫНОК", callback_data="menu_market")],
-        [InlineKeyboardButton(text="🎯 КВЕСТЫ", callback_data="menu_quests"),
-         InlineKeyboardButton(text="🏆 ТОП", callback_data="menu_top")],
-        [InlineKeyboardButton(text="🔗 ПРИГЛАСИТЬ ДРУГА", callback_data="menu_ref"),
-         InlineKeyboardButton(text="📊 СТАТИСТИКА", callback_data="menu_stats")],
-        [InlineKeyboardButton(text="💎 MINI APP", web_app={"url": MINI_APP_URL})]
-    ])
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👑 Профиль")],
+            [KeyboardButton(text="🎁 Бонус"), KeyboardButton(text="🏆 Топ")],
+            [KeyboardButton(text="💰 Донат")],
+            [KeyboardButton(text="🌐 WebApp")],
+            [KeyboardButton(text="🔗 Рефералка"), KeyboardButton(text="🎯 Квесты")],
+            [KeyboardButton(text="🎮 Как играть?"), KeyboardButton(text="🛒 Магазин")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 # ─── ИГРЫ ───
@@ -1836,16 +1835,20 @@ def mines_field_kb(user_id):
 
 # ─── АДМИН-ПАНЕЛЬ (6 КАТЕГОРИЙ) ───
 def admin_panel_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_cat_players"),
-         InlineKeyboardButton(text="🎮 Игры", callback_data="admin_cat_games")],
-        [InlineKeyboardButton(text="🛒 Контент", callback_data="admin_cat_content"),
-         InlineKeyboardButton(text="💰 Экономика", callback_data="admin_cat_economy")],
-        [InlineKeyboardButton(text="📢 Связь", callback_data="admin_cat_comm"),
-         InlineKeyboardButton(text="📊 Мониторинг", callback_data="admin_cat_monitor")],
-        [InlineKeyboardButton(text="🎮 Mini App", web_app={"url": MINI_APP_URL})],
-        [InlineKeyboardButton(text="📋 Все команды", callback_data="admin_all_cmds")]
-    ])
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👥 Игроки")],
+            [KeyboardButton(text="🎮 Игры"), KeyboardButton(text="🛒 Контент")],
+            [KeyboardButton(text="💰 Экономика")],
+            [KeyboardButton(text="📢 Связь"), KeyboardButton(text="📊 Мониторинг")],
+            [KeyboardButton(text="🌐 WebApp")],
+            [KeyboardButton(text="🛒 Редактор магазина")],
+            [KeyboardButton(text="🎰 Редактор кейсов")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def admin_back_kb():
@@ -2357,6 +2360,195 @@ async def cmd_start(message: Message):
 
 
 # ═══════════════ /admin ═══════════════
+@dp.message(F.text == "👑 Профиль")
+async def btn_profile(message: Message):
+    await cmd_profile(message)
+
+
+@dp.message(F.text == "🎁 Бонус")
+async def btn_bonus(message: Message):
+    user_id = message.from_user.id
+    if is_banned(user_id):
+        return
+    can, left = get_daily_status(user_id)
+    if can:
+        claim_daily(user_id)
+        nb = get_balance(user_id)
+        await message.answer(
+            f"🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС!</b>\n\n"
+            f"💰 +<b>{DAILY_BONUS:,}</b>\n"
+            f"💎 Баланс: <b>{nb:,}</b>".replace(',', ' '),
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(f"⏳ Приходи через <b>{fmt_time_left(left)}</b>", parse_mode="HTML")
+
+
+@dp.message(F.text == "🏆 Топ")
+async def btn_top(message: Message):
+    rows = get_top(10)
+    if not rows:
+        await message.answer("📊 Пока нет игроков!", parse_mode="HTML")
+        return
+    txt = "🏆 <b>ТОП-10</b>\n━━━━━━━━━━━━━━━━━━\n"
+    medals = ["🥇", "🥈", "🥉"]
+    for i, row in enumerate(rows):
+        uid, uname, bal, xp = row
+        medal = medals[i] if i < 3 else f"{i+1}."
+        vip = get_vip_info(xp or 0)
+        icon = vip["icon"] if xp else ""
+        title = get_main_title(uid)
+        t = f" 🏷️{title}" if title else ""
+        txt += f"{medal} {icon} {uname}{t} — <b>{bal:,}</b>\n".replace(',', ' ')
+    await message.answer(txt, parse_mode="HTML")
+
+
+@dp.message(F.text == "💰 Донат")
+async def btn_donate(message: Message):
+    await message.answer(
+        "💰 <b>ДОНАТ</b>\n\n"
+        "💎 Покупка за Telegram Stars\n"
+        "🎁 Пакеты бустов в магазине\n\n"
+        "Открой 🌐 WebApp → 🛒 Магазин",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "🌐 WebApp")
+async def btn_webapp(message: Message):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Открыть Mini App", web_app=WebAppInfo(url=MINI_APP_URL))]
+    ])
+    await message.answer("🌐 <b>MINI APP</b>\n\nНажми кнопку 👇", parse_mode="HTML", reply_markup=kb)
+
+
+@dp.message(F.text == "🔗 Рефералка")
+async def btn_ref(message: Message):
+    await cmd_ref(message)
+
+
+@dp.message(F.text == "🎯 Квесты")
+async def btn_quests(message: Message):
+    await cmd_quests(message)
+
+
+@dp.message(F.text == "🎮 Как играть?")
+async def btn_howto(message: Message):
+    await message.answer(
+        "🎮 <b>КАК ИГРАТЬ</b>\n\n"
+        "📌 <b>В группе:</b>\n"
+        "Напиши: <code>спин 100</code>, <code>к 100</code>, <code>мины 100</code>\n\n"
+        "📌 <b>В Mini App:</b>\n"
+        "Нажми 🌐 WebApp → 🎮 Игры\n\n"
+        "🎁 <b>Бонусы:</b>\n"
+        "Ежедневный +10 000 💎",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "🛒 Магазин")
+async def btn_shop(message: Message):
+    await cmd_shop(message)
+
+
+@dp.message(F.text == "👥 Игроки")
+async def btn_admin_players(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT user_id, username, balance, banned FROM users ORDER BY balance DESC LIMIT 20")
+    rows = c.fetchall()
+    c.execute("SELECT COUNT(*) FROM users")
+    total = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+    medals = ["🥇", "🥈", "🥉"]
+    txt = f"👥 <b>ИГРОКИ ({total})</b>\n━━━━━━━━━━━━━━━━━━\n"
+    for i, row in enumerate(rows):
+        uid, uname, bal, is_b = row
+        medal = medals[i] if i < 3 else f"{i+1}."
+        ban = " 🚫" if is_b else ""
+        txt += f"{medal} {uname or f'user_{uid}'} — <b>{bal:,}</b>{ban}\n".replace(',', ' ')
+    await message.answer(txt, parse_mode="HTML")
+
+
+@dp.message(F.text == "🎮 Игры")
+async def btn_admin_games(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = []
+    for key, name in GAME_NAMES.items():
+        status = "❌" if key in disabled_games else "✅"
+        rows.append([InlineKeyboardButton(text=f"{status} {name}", callback_data=f"admin_toggle_{key}")])
+    rows.append([InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
+                 InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await message.answer("🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>", parse_mode="HTML", reply_markup=kb)
+
+
+@dp.message(F.text == "🛒 Контент")
+async def btn_admin_content(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "🛒 <b>КОНТЕНТ</b>\n\n"
+        "🛒 <code>/editshop</code>\n"
+        "🎰 <code>/editcases</code>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "💰 Экономика")
+async def btn_admin_economy(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "💰 <b>ЭКОНОМИКА</b>\n\n"
+        "🎁 <code>/bonus @user 50000</code>\n"
+        "💎 <code>/jackpot set/reset</code>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "📢 Связь")
+async def btn_admin_comm(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "📢 <b>СВЯЗЬ</b>\n\n"
+        "📢 <code>/broadcast Текст</code>\n"
+        "📊 <code>/stats</code>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "📊 Мониторинг")
+async def btn_admin_monitor(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "📊 <b>МОНИТОРИНГ</b>\n\n"
+        "👥 <code>/active</code>\n"
+        "🏆 <code>/bigwins</code>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text == "🛒 Редактор магазина")
+async def btn_admin_edit_shop(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await cmd_editshop(message)
+
+
+@dp.message(F.text == "🎰 Редактор кейсов")
+async def btn_admin_edit_cases(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await cmd_editcases(message)
 @dp.message(Command("admin"))
 async def cmd_admin(message: Message):
     if message.from_user.id != ADMIN_ID:
