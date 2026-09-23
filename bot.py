@@ -307,6 +307,435 @@ def api_transfer():
     new_balance = set_balance(target_id, amount)
     return jsonify({"user_id": target_id, "balance": new_balance})
 
+# ═══════════════ API ДЛЯ MINI APP ═══════════════
+@app.route('/api/profile/<int:user_id>')
+def api_profile(user_id):
+    if is_banned(user_id):
+        return jsonify({"error": "Banned"}), 403
+    xp = get_xp(user_id)
+    stats = get_user_stats(user_id)
+    titles = get_user_titles(user_id)
+    u = get_user(user_id)
+    return jsonify({
+        "user_id": user_id,
+        "username": u[0] if u else "",
+        "balance": get_balance(user_id),
+        "bank": get_bank(user_id),
+        "xp": xp,
+        "vip_tier": get_vip_tier(user_id),
+        "vip_expires": get_vip_expires(user_id),
+        "cashback": 5,
+        "titles": titles,
+        "stats": stats,
+        "unlimited": is_unlimited(user_id),
+    })
+
+
+@app.route('/api/shop')
+def api_shop():
+    return jsonify(get_shop_items())
+
+
+@app.route('/api/shop/buy', methods=['POST'])
+def api_shop_buy():
+    import requests as _requests
+    data = request.json
+    user_id = data.get('user_id')
+    item_id = data.get('item_id')
+    if not user_id or not item_id:
+        return jsonify({"error": "Missing"}), 400
+    items = get_shop_items()
+    item = next((it for it in items if it.get("id") == item_id), None)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+    stars = item.get("stars", 0)
+    if not stars or int(stars) < 1:
+        return jsonify({"error": "Item not available for Stars"}), 400
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": item["name"],
+            "description": item.get("desc", ""),
+            "payload": f"shop_stars_{items.index(item)}",
+            "currency": "XTR",
+            "prices": json.dumps([{"label": item["name"], "amount": int(stars)}]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cases')
+def api_cases():
+    return jsonify(get_cases())
+
+
+@app.route('/api/cases/buy', methods=['POST'])
+def api_cases_buy():
+    import requests as _requests
+    data = request.json
+    user_id = data.get('user_id')
+    case_id = data.get('case_id')
+    if not user_id or not case_id:
+        return jsonify({"error": "Missing"}), 400
+    case = get_case_by_id(case_id)
+    if not case:
+        return jsonify({"error": "Case not found"}), 404
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"Кейс «{case['name']}»",
+            "description": case.get("desc", "Кейс с наградами"),
+            "payload": f"case_{case_id}",
+            "currency": "XTR",
+            "prices": json.dumps([{"label": case["name"], "amount": int(case["stars"])}]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cases/last_reward/<int:user_id>')
+def api_last_reward(user_id):
+    reward = get_last_reward(user_id)
+    if reward:
+        return jsonify(reward)
+    return jsonify({})
+
+
+@app.route('/api/jackpot')
+def api_jackpot():
+    return jsonify({"jackpot": get_jackpot()})
+
+
+@app.route('/api/inventory/<int:user_id>')
+def api_inventory(user_id):
+    return jsonify(get_inventory(user_id))
+
+
+@app.route('/api/daily/status/<int:user_id>')
+def api_daily_status(user_id):
+    can, left = get_daily_status(user_id)
+    return jsonify({"can_claim": can, "time_left": left, "amount": DAILY_BONUS})
+
+
+@app.route('/api/daily/claim', methods=['POST'])
+def api_daily_claim():
+    data = request.json
+    user_id = data.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+    if claim_daily(user_id):
+        return jsonify({"success": True, "amount": DAILY_BONUS, "balance": get_balance(user_id)})
+    return jsonify({"success": False, "error": "Already claimed"})
+
+
+@app.route('/api/top')
+def api_top():
+    mode = request.args.get('mode', 'balance')
+    if mode == 'balance':
+        rows = get_top(10)
+    elif mode == 'xp':
+        rows = get_top_xp(10)
+    else:
+        rows = get_top(10)
+    result = []
+    for r in rows:
+        result.append({
+            "user_id": r[0], "username": r[1],
+            "balance": r[2], "xp": r[3]
+        })
+    return jsonify(result)
+
+
+@app.route('/api/market/lots')
+def api_market_lots():
+    return jsonify(get_market_lots())
+
+
+@app.route('/api/players')
+def api_players():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT user_id, username, balance, xp, banned, unlimited FROM users ORDER BY balance DESC")
+    rows = c.fetchall()
+    c.execute("SELECT COUNT(*) FROM users")
+    total = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+    banned = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+    players = []
+    for r in rows:
+        players.append({
+            "user_id": r[0],
+            "username": r[1] or f"user_{r[0]}",
+            "balance": r[2] or 0,
+            "xp": r[3] or 0,
+            "banned": bool(r[4]),
+            "unlimited": bool(r[5]),
+        })
+    return jsonify({"total": total, "banned": banned, "total_balance": total_balance, "players": players})
+
+
+# ═══════════════ API: ИГРЫ ═══════════════
+@app.route('/api/game/roulette', methods=['POST'])
+def api_game_roulette():
+    data = request.json
+    user_id = data.get('user_id')
+    bet = int(data.get('bet', 0))
+    choice = data.get('choice', 'red')
+    if not user_id or bet < 10:
+        return jsonify({"error": "Invalid bet"}), 400
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Not enough balance"}), 400
+    set_balance(user_id, -bet)
+    result = random.randint(0, 36)
+    if result == 0:
+        color = "green"
+    elif result in RED_NUMBERS:
+        color = "red"
+    else:
+        color = "black"
+    mult = 0; win = False
+    if choice == "red" and color == "red":
+        win, mult = True, 2
+    elif choice == "black" and color == "black":
+        win, mult = True, 2
+    elif choice == "green" and color == "green":
+        win, mult = True, 36
+    amount = 0
+    if win:
+        amount = int(bet * mult * get_event_mult() * get_user_mult(user_id))
+        amount = clamp(amount)
+        set_balance(user_id, amount)
+        u = get_user(user_id)
+        uname = u[0] if u else "user"
+        log_game(user_id, uname, "рулетка", bet, amount, f"{result} {color}")
+        pay_ref_commission(user_id, amount)
+    add_xp(user_id, 1)
+    update_quest(user_id, "roulette_10")
+    update_daily_quest(user_id, "daily_bets_5", 1)
+    return jsonify({
+        "win": win, "result": result, "color": color,
+        "amount": amount, "bet": bet, "balance": get_balance(user_id),
+    })
+
+
+@app.route('/api/game/slots', methods=['POST'])
+def api_game_slots():
+    data = request.json
+    user_id = data.get('user_id')
+    bet = int(data.get('bet', 0))
+    if not user_id or bet < 10:
+        return jsonify({"error": "Invalid bet"}), 400
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Not enough balance"}), 400
+    set_balance(user_id, -bet)
+    symbols = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣']
+    r1 = random.choice(symbols); r2 = random.choice(symbols); r3 = random.choice(symbols)
+    win = False; mult = 0
+    if r1 == r2 == r3:
+        win = True
+        mult = {'🍒': 10, '🍋': 15, '🍊': 20, '🍇': 25, '💎': 50, '7️⃣': 100}.get(r1, 10)
+    elif r1 == r2 or r2 == r3 or r1 == r3:
+        win = True; mult = 2
+    amount = 0
+    if win:
+        amount = clamp(int(bet * mult * get_event_mult() * get_user_mult(user_id)))
+        set_balance(user_id, amount)
+        u = get_user(user_id)
+        uname = u[0] if u else "user"
+        log_game(user_id, uname, "слоты", bet, amount, f"{r1}{r2}{r3}")
+        pay_ref_commission(user_id, amount)
+    add_xp(user_id, 1)
+    update_quest(user_id, "bets_20")
+    update_daily_quest(user_id, "daily_bets_5", 1)
+    return jsonify({
+        "win": win, "reels": [r1, r2, r3], "amount": amount,
+        "bet": bet, "balance": get_balance(user_id),
+    })
+
+
+@app.route('/api/game/coin', methods=['POST'])
+def api_game_coin():
+    data = request.json
+    user_id = data.get('user_id')
+    bet = int(data.get('bet', 0))
+    choice = data.get('choice', 'heads')
+    if not user_id or bet < 10:
+        return jsonify({"error": "Invalid bet"}), 400
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Not enough balance"}), 400
+    set_balance(user_id, -bet)
+    result = "heads" if random.random() < 0.5 else "tails"
+    win = result == choice
+    amount = 0
+    if win:
+        amount = clamp(int(bet * 2 * get_event_mult() * get_user_mult(user_id)))
+        set_balance(user_id, amount)
+        u = get_user(user_id)
+        uname = u[0] if u else "user"
+        log_game(user_id, uname, "монетка", bet, amount, "🦅" if result == "heads" else "👑")
+        pay_ref_commission(user_id, amount)
+    add_xp(user_id, 1)
+    update_quest(user_id, "bets_20")
+    update_daily_quest(user_id, "daily_bets_5", 1)
+    return jsonify({
+        "win": win, "result": result, "amount": amount,
+        "bet": bet, "balance": get_balance(user_id),
+    })
+
+
+@app.route('/api/game/mines/start', methods=['POST'])
+def api_mines_start():
+    data = request.json
+    user_id = data.get('user_id')
+    bet = int(data.get('bet', 0))
+    level = data.get('level', 'easy')
+    if not user_id or bet < 10 or level not in MINES_LEVELS:
+        return jsonify({"error": "Invalid"}), 400
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Not enough balance"}), 400
+    set_balance(user_id, -bet)
+    mines_count = MINES_LEVELS[level]["mines"]
+    positions = list(range(25))
+    random.shuffle(positions)
+    mine_positions = set(positions[:mines_count])
+    game_data = {"bet": bet, "level": level, "mines": list(mine_positions), "opened": []}
+    conn = get_conn()
+    c = conn.cursor()
+    key = f"mines_game_{user_id}"
+    value = json.dumps(game_data)
+    c.execute("""INSERT INTO settings (key, value) VALUES (%s, %s)
+                 ON CONFLICT (key) DO UPDATE SET value = %s""", (key, value, value))
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    return jsonify({"success": True, "level": level, "bet": bet, "mines_count": mines_count})
+
+
+@app.route('/api/game/mines/open', methods=['POST'])
+def api_mines_open():
+    data = request.json
+    user_id = data.get('user_id')
+    idx = int(data.get('idx', -1))
+    if not user_id or idx < 0 or idx > 24:
+        return jsonify({"error": "Invalid"}), 400
+    conn = get_conn()
+    c = conn.cursor()
+    key = f"mines_game_{user_id}"
+    c.execute("SELECT value FROM settings WHERE key = %s", (key,))
+    row = c.fetchone()
+    c.close()
+    release_conn(conn)
+    if not row or not row[0]:
+        return jsonify({"error": "No active game"}), 400
+    game = json.loads(row[0])
+    if idx in game["opened"]:
+        return jsonify({"error": "Already opened"}), 400
+    is_mine = idx in game["mines"]
+    if is_mine:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("DELETE FROM settings WHERE key = %s", (key,))
+        conn.commit()
+        c.close()
+        release_conn(conn)
+        u = get_user(user_id)
+        uname = u[0] if u else "user"
+        log_game(user_id, uname, "мины", game["bet"], 0, f"{game['level']} бум")
+        return jsonify({
+            "mine": True, "idx": idx, "win": False, "amount": 0,
+            "mines": game["mines"], "balance": get_balance(user_id),
+        })
+    game["opened"].append(idx)
+    opened_count = len(game["opened"])
+    step = MINES_LEVELS[game["level"]]["step"]
+    mult = round(1 + opened_count * step, 2)
+    safe_total = 25 - MINES_LEVELS[game["level"]]["mines"]
+    conn = get_conn()
+    c = conn.cursor()
+    value = json.dumps(game)
+    c.execute("UPDATE settings SET value = %s WHERE key = %s", (value, key))
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    if opened_count == safe_total:
+        wa = clamp(int(game["bet"] * mult * get_event_mult() * get_user_mult(user_id)))
+        set_balance(user_id, wa)
+        u = get_user(user_id)
+        uname = u[0] if u else "user"
+        log_game(user_id, uname, "мины", game["bet"], wa, f"{game['level']} all")
+        pay_ref_commission(user_id, wa)
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("DELETE FROM settings WHERE key = %s", (key,))
+        conn.commit()
+        c.close()
+        release_conn(conn)
+        return jsonify({
+            "mine": False, "idx": idx, "win": True, "amount": wa,
+            "balance": get_balance(user_id), "mult": mult,
+            "cashout_auto": True, "mines": game["mines"],
+        })
+    return jsonify({
+        "mine": False, "idx": idx, "win": False, "amount": 0,
+        "mult": mult, "opened": game["opened"], "balance": get_balance(user_id),
+    })
+
+
+@app.route('/api/game/mines/cashout', methods=['POST'])
+def api_mines_cashout():
+    data = request.json
+    user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({"error": "Invalid"}), 400
+    conn = get_conn()
+    c = conn.cursor()
+    key = f"mines_game_{user_id}"
+    c.execute("SELECT value FROM settings WHERE key = %s", (key,))
+    row = c.fetchone()
+    c.close()
+    release_conn(conn)
+    if not row or not row[0]:
+        return jsonify({"error": "No active game"}), 400
+    game = json.loads(row[0])
+    if not game["opened"]:
+        return jsonify({"error": "Open at least 1 cell"}), 400
+    opened_count = len(game["opened"])
+    step = MINES_LEVELS[game["level"]]["step"]
+    mult = round(1 + opened_count * step, 2)
+    wa = clamp(int(game["bet"] * mult * get_event_mult() * get_user_mult(user_id)))
+    set_balance(user_id, wa)
+    u = get_user(user_id)
+    uname = u[0] if u else "user"
+    log_game(user_id, uname, "мины", game["bet"], wa, f"{game['level']} x{mult}")
+    pay_ref_commission(user_id, wa)
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM settings WHERE key = %s", (key,))
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    return jsonify({"win": True, "amount": wa, "mult": mult, "balance": get_balance(user_id)})
+
+
+# ═══════════════ ЗАПУСК FLASK ═══════════════
 def run_web():
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
@@ -314,6 +743,7 @@ def run_web():
 web_thread = threading.Thread(target=run_web)
 web_thread.daemon = True
 web_thread.start()
+
 # ═══════════════════════════════════════════════════════════════
 # ЧАСТЬ 2/6 — БД, CRUD, УВЕДОМЛЕНИЯ, VIP-ХЕЛПЕРЫ, ЯЗЫК
 # ═══════════════════════════════════════════════════════════════
