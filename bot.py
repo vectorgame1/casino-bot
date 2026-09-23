@@ -4648,8 +4648,7 @@ async def vip_expire_loop():
 
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
     # ═══════════════════════════════════════════════════════════════
 # ЧАСТЬ 6/6 — CALLBACK HANDLER, TEXT HANDLER, EDITOR HANDLER
 # ═══════════════════════════════════════════════════════════════
