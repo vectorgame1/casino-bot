@@ -130,11 +130,12 @@ ANIM_COIN_DELAYS = [0.2, 0.2, 0.25, 0.25, 0.3, 0.35]
 ANIM_DUEL = ["⚔️", "🔴 ⚔️ 🔵", "🔴 💥 🔵", "🔵 💥 🔴", "🔴 ⚔️ 🔵", "💥 БАХ!"]
 ANIM_DUEL_DELAYS = [0.25, 0.25, 0.3, 0.3, 0.35, 0.4]
 
+
 # ═══════════════ СОСТОЯНИЯ ═══════════════
 active_bets = {}
 bj_games = {}
 duel_games = {}
-mines_games = {}
+mines_games = {} 
 disabled_games = set()
 giveaway_timers = {}
 edit_state = {}
