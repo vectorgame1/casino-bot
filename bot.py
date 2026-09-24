@@ -7697,30 +7697,31 @@ async def text_handler(message: Message):
 async def editor_text_handler(message: Message):
     user_id = message.from_user.id if message.from_user else None
     if user_id != ADMIN_ID:
-        # Проверка д.р. для обычных юзеров
-        if birthday_input_state.get(user_id):
-            val = message.text.strip()
-            parts = val.split(".")
-            if len(parts) == 2:
-                try:
-                    d, m = int(parts[0]), int(parts[1])
-                    if 1 <= d <= 31 and 1 <= m <= 12:
-                        conn = get_conn()
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (val, user_id))
-                        conn.commit()
-                        c.close()
-                        release_conn(conn)
-                        birthday_input_state.pop(user_id, None)
-                        await message.answer(
-                            f"✅ <b>Дата сохранена: {val}</b>\n\n🎂 Поздравим в этот день!",
-                            parse_mode="HTML"
-                        )
-                        return
-                except Exception:
-                    pass
-            await message.answer("❌ Формат: <code>ДД.ММ</code>\nПример: <code>15.06</code>\n\n/profile", parse_mode="HTML")
-        return
+    # Обычный юзер — только birthday
+    if birthday_input_state.get(user_id):
+        val = message.text.strip()
+        parts = val.split(".")
+        if len(parts) == 2:
+            try:
+                d, m = int(parts[0]), int(parts[1])
+                if 1 <= d <= 31 and 1 <= m <= 12:
+                    conn = get_conn()
+                    c = conn.cursor()
+                    c.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (val, user_id))
+                    conn.commit()
+                    c.close()
+                    release_conn(conn)
+                    birthday_input_state.pop(user_id, None)
+                    await message.answer(
+                        f"✅ <b>Дата сохранена: {val}</b>\n\n🎂 Поздравим в этот день!",
+                        parse_mode="HTML"
+                    )
+                    return
+            except Exception:
+                pass
+        await message.answer("❌ Формат: <code>ДД.ММ</code>\nПример: <code>15.06</code>\n\n/profile", parse_mode="HTML")
+    return  # ⚠️ ВАЖНО! Обычный юзер — выходим, НЕ идём в админ-код
+        
 
     # ═══════ ВВОД ЦЕНЫ ДЛЯ РЫНКА ═══════
     st = edit_shop_state.get(user_id)
