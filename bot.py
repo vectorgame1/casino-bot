@@ -461,6 +461,151 @@ def api_market_lots():
     return jsonify(get_market_lots())
 
 
+# ═══════════════ API: VIP ═══════════════
+@app.route('/api/vip')
+def api_vip():
+    return jsonify(get_vip_tiers())
+
+
+@app.route('/api/vip/buy', methods=['POST'])
+def api_vip_buy():
+    import requests as _requests
+    data = request.json
+    user_id = data.get('user_id')
+    tier_id = data.get('tier_id')
+    if not user_id or not tier_id:
+        return jsonify({"error": "Missing"}), 400
+    info = get_vip_tier_info(int(tier_id))
+    if not info:
+        return jsonify({"error": "VIP not found"}), 404
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"{info['icon']} VIP {info['id']} — {info['name']}",
+            "description": f"Кэшбэк {info['cashback']}%, бонус +{fmt_num(info['bonus'])} Tokens, {info['duration_days']} дней",
+            "payload": f"vip_{info['id']}_{info['stars']}",
+            "currency": "XTR",
+            "prices": json.dumps([{"label": f"VIP {info['id']} — {info['name']}", "amount": int(info['stars'])}]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ═══════════════ API: XP-ПАКИ ═══════════════
+@app.route('/api/xp')
+def api_xp():
+    return jsonify(get_xp_packs())
+
+
+@app.route('/api/xp/buy', methods=['POST'])
+def api_xp_buy():
+    import requests as _requests
+    data = request.json
+    user_id = data.get('user_id')
+    pack_id = data.get('pack_id')
+    if not user_id or not pack_id:
+        return jsonify({"error": "Missing"}), 400
+    packs = get_xp_packs()
+    pack = next((p for p in packs if p.get("id") == pack_id), None)
+    if not pack:
+        return jsonify({"error": "Pack not found"}), 404
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"⭐ Буст XP +{pack['xp']}",
+            "description": f"Мгновенно +{pack['xp']} XP",
+            "payload": f"xp_{pack['id']}_{pack['xp']}_{pack['stars']}",
+            "currency": "XTR",
+            "prices": json.dumps([{"label": f"+{pack['xp']} XP", "amount": int(pack['stars'])}]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ═══════════════ API: ЗАДАНИЯ ═══════════════
+@app.route('/api/quests/<int:user_id>')
+def api_quests(user_id):
+    if is_banned(user_id):
+        return jsonify({"error": "Banned"}), 403
+    return jsonify(get_user_daily_quests(user_id))
+
+
+@app.route('/api/quests/claim', methods=['POST'])
+def api_quests_claim():
+    data = request.json
+    user_id = data.get('user_id')
+    quest_key = data.get('quest_key')
+    if not user_id or not quest_key:
+        return jsonify({"error": "Missing"}), 400
+    reward = claim_daily_quest(user_id, quest_key)
+    if reward:
+        return jsonify({"success": True, "reward": reward, "balance": get_balance(user_id)})
+    return jsonify({"success": False, "error": "Already claimed or not completed"})
+
+
+# ═══════════════ API: ТУРНИР ═══════════════
+@app.route('/api/tournament')
+def api_tournament():
+    t = get_active_tournament()
+    if not t:
+        return jsonify({"active": False})
+    tid, name, started, ends, p1, p2, p3 = t
+    top = get_tournament_top(tid, 10)
+    players = []
+    for uid, uname, total in top:
+        players.append({
+            "user_id": uid,
+            "username": uname,
+            "total_won": total,
+        })
+    return jsonify({
+        "active": True,
+        "name": name,
+        "ends_at": ends.isoformat() if ends else None,
+        "prize_1": p1,
+        "prize_2": p2,
+        "prize_3": p3,
+        "top": players,
+    })
+
+
+# ═══════════════ API: ПРОДАЖА НА РЫНОК ═══════════════
+@app.route('/api/inventory/sell', methods=['POST'])
+def api_inventory_sell():
+    data = request.json
+    user_id = data.get('user_id')
+    inv_id = data.get('inv_id')
+    price = data.get('price')
+    if not user_id or not inv_id or not price:
+        return jsonify({"error": "Missing"}), 400
+    try:
+        price = int(price)
+    except Exception:
+        return jsonify({"error": "Invalid price"}), 400
+    if price < 10000:
+        return jsonify({"error": "Minimum price is 10 000"}), 400
+    if price > MAX_BALANCE:
+        return jsonify({"error": "Maximum price exceeded"}), 400
+    item = find_inventory_item(user_id, inv_id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+    username = get_user(user_id)
+    uname = username[0] if username else f"user_{user_id}"
+    remove_from_inventory(user_id, inv_id)
+    lot_id = add_market_lot(user_id, uname, item, price)
+    return jsonify({"success": True, "lot_id": lot_id, "price": price})
+
+
 @app.route('/api/players')
 def api_players():
     conn = get_conn()
