@@ -459,8 +459,8 @@ def api_top():
 @app.route('/api/market/lots')
 def api_market_lots():
     return jsonify(get_market_lots())
-    
-    @app.route('/api/market/buy', methods=['POST'])
+
+@app.route('/api/market/buy', methods=['POST'])
 def api_market_buy():
     data = request.json
     user_id = data.get('user_id')
