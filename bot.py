@@ -4463,7 +4463,7 @@ async def cmd_profile(message: Message):
     await message.answer(profile_text(user_id, username), parse_mode="HTML", reply_markup=profile_kb())
 # ═══════════════ /give ═══════════════
 @dp.message(Command("give"))
-(message: Message):
+async def cmd_give(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
