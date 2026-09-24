@@ -459,6 +459,51 @@ def api_top():
 @app.route('/api/market/lots')
 def api_market_lots():
     return jsonify(get_market_lots())
+    
+    @app.route('/api/market/buy', methods=['POST'])
+def api_market_buy():
+    data = request.json
+    user_id = data.get('user_id')
+    lot_id = data.get('lot_id')
+    if not user_id or not lot_id:
+        return jsonify({"error": "Missing"}), 400
+    lots = get_market_lots()
+    lot_idx = None
+    for i, l in enumerate(lots):
+        if l.get("id") == lot_id:
+            lot_idx = i
+            break
+    if lot_idx is None:
+        return jsonify({"error": "Lot not found"}), 404
+    ok, msg = buy_market_lot(user_id, lot_idx)
+    if ok:
+        return jsonify({"success": True, "message": msg})
+    return jsonify({"error": msg}), 400
+
+
+@app.route('/api/market/remove', methods=['POST'])
+def api_market_remove():
+    data = request.json
+    user_id = data.get('user_id')
+    lot_id = data.get('lot_id')
+    if not user_id or not lot_id:
+        return jsonify({"error": "Missing"}), 400
+    lots = get_market_lots()
+    removed = None
+    new_lots = []
+    for l in lots:
+        if l.get("id") == lot_id and l.get("seller_id") == user_id:
+            removed = l
+        else:
+            new_lots.append(l)
+    if not removed:
+        return jsonify({"error": "Lot not found"}), 404
+    save_market_lots(new_lots)
+    item = dict(removed["payload"])
+    item["type"] = removed["type"]
+    add_to_inventory(user_id, item)
+    return jsonify({"success": True, "message": "Лот снят, предмет возвращён"})
+
 
 
 # ═══════════════ API: VIP ═══════════════
