@@ -4461,6 +4461,328 @@ async def cmd_profile(message: Message):
         await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>", parse_mode="HTML")
         return
     await message.answer(profile_text(user_id, username), parse_mode="HTML", reply_markup=profile_kb())
+# ═══════════════ /give ═══════════════
+@dp.message(Command("give"))
+(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) >= 2 and args[1].lower() in ['unlimited', 'безлимит', '∞']:
+        set_unlimited(message.from_user.id, True)
+        await message.answer("♾️ <b>БЕЗЛИМИТ АКТИВИРОВАН!</b>", parse_mode="HTML")
+        return
+    if len(args) >= 2 and args[1].lower() in ['all', 'off', 'выкл']:
+        set_unlimited(message.from_user.id, False)
+        await message.answer("✅ <b>БЕЗЛИМИТ ОТКЛЮЧЁН</b>", parse_mode="HTML")
+        return
+    if len(args) >= 3 and args[1].startswith('@'):
+        username = args[1][1:]
+        try:
+            amount = int(args[2])
+        except Exception:
+            return
+        uid = get_user_id_by_username(username)
+        if not uid:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        nb = set_balance(uid, amount)
+        await message.answer(f"✅ <b>+{fmt_num(amount)}</b> → @{username}\n💎 {fmt_num(nb)}", parse_mode="HTML")
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
+        await message.answer("❌ Ответь на сообщение игрока или: <code>/give @user сумма</code>", parse_mode="HTML")
+        return
+    if len(args) < 2:
+        return
+    try:
+        amount = int(args[1])
+    except Exception:
+        return
+    target = message.reply_to_message.from_user
+    ensure_user(target.id, target.username or target.first_name)
+    nb = set_balance(target.id, amount)
+    await message.answer(f"✅ <b>+{fmt_num(amount)}</b> → {target.username or target.first_name}\n💎 {fmt_num(nb)}", parse_mode="HTML")
+
+
+# ═══════════════ /take ═══════════════
+@dp.message(Command("take"))
+async def cmd_take(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) >= 2 and args[1].lower() == 'all':
+        if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
+            await message.answer("❌ Ответь на сообщение игрока", parse_mode="HTML")
+            return
+        target = message.reply_to_message.from_user
+        ensure_user(target.id, target.username or target.first_name)
+        tb = get_balance(target.id)
+        if tb <= 0:
+            await message.answer("❌ Нет фишек!", parse_mode="HTML")
+            return
+        set_balance(target.id, -tb)
+        await message.answer(f"✅ <b>Забрано всё!</b> -{fmt_num(tb)}", parse_mode="HTML")
+        return
+    if len(args) >= 3 and args[1].startswith('@'):
+        username = args[1][1:]
+        try:
+            amount = int(args[2])
+        except Exception:
+            return
+        uid = get_user_id_by_username(username)
+        if not uid:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        nb = set_balance(uid, -amount)
+        await message.answer(f"✅ <b>-{fmt_num(amount)}</b> ← @{username}\n💎 {fmt_num(nb)}", parse_mode="HTML")
+        return
+    if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
+        await message.answer("❌ Ответь на сообщение игрока", parse_mode="HTML")
+        return
+    if len(args) < 2:
+        return
+    try:
+        amount = int(args[1])
+    except Exception:
+        return
+    target = message.reply_to_message.from_user
+    ensure_user(target.id, target.username or target.first_name)
+    nb = set_balance(target.id, -amount)
+    await message.answer(f"✅ <b>-{fmt_num(amount)}</b> ← {target.username or target.first_name}\n💎 {fmt_num(nb)}", parse_mode="HTML")
+
+
+# ═══════════════ /ban ═══════════════
+@dp.message(Command("ban"))
+async def cmd_ban(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    target = None
+    if message.reply_to_message and message.reply_to_message.from_user and not message.reply_to_message.from_user.is_bot:
+        target = message.reply_to_message.from_user
+    elif len(args) >= 2 and args[1].startswith('@'):
+        username = args[1][1:]
+        uid = get_user_id_by_username(username)
+        if uid:
+            set_banned(uid, True)
+            await message.answer(f"🚫 <b>@{username} забанен!</b>", parse_mode="HTML")
+        else:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+        return
+    if not target:
+        await message.answer("❌ Ответь или <code>/ban @username</code>", parse_mode="HTML")
+        return
+    ensure_user(target.id, target.username or target.first_name)
+    set_banned(target.id, True)
+    await message.answer(f"🚫 <b>{target.username or target.first_name} забанен!</b>", parse_mode="HTML")
+
+
+# ═══════════════ /unban ═══════════════
+@dp.message(Command("unban"))
+async def cmd_unban(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    target = None
+    if message.reply_to_message and message.reply_to_message.from_user and not message.reply_to_message.from_user.is_bot:
+        target = message.reply_to_message.from_user
+    elif len(args) >= 2 and args[1].startswith('@'):
+        username = args[1][1:]
+        uid = get_user_id_by_username(username)
+        if uid:
+            set_banned(uid, False)
+            await message.answer(f"✅ <b>@{username} разбанен!</b>", parse_mode="HTML")
+        else:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+        return
+    if not target:
+        await message.answer("❌ Ответь или <code>/unban @username</code>", parse_mode="HTML")
+        return
+    ensure_user(target.id, target.username or target.first_name)
+    set_banned(target.id, False)
+    await message.answer(f"✅ <b>{target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
+
+
+# ═══════════════ /broadcast ═══════════════
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ <code>/broadcast Текст</code>", parse_mode="HTML")
+        return
+    text = args[1]
+    uids = get_all_user_ids()
+    if not uids:
+        await message.answer("❌ Нет игроков", parse_mode="HTML")
+        return
+    sent, failed = 0, 0
+    for uid in uids:
+        try:
+            await bot.send_message(uid, f"📢 <b>РАССЫЛКА</b>\n\n{text}", parse_mode="HTML")
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            failed += 1
+    await message.answer(f"📢 <b>Готово</b>\n✅ {sent} | ❌ {failed}", parse_mode="HTML")
+
+
+# ═══════════════ /stats ═══════════════
+@dp.message(Command("stats"))
+async def cmd_stats(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    conn = get_conn()
+    c = conn.cursor()
+    if len(args) >= 2 and args[1].startswith('@'):
+        username = args[1][1:]
+        c.execute("SELECT user_id, username, balance, bank, xp FROM users WHERE username = %s", (username,))
+        row = c.fetchone()
+        if not row:
+            c.close()
+            release_conn(conn)
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        uid, uname, bal, bank, xp = row
+        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s", (uid,))
+        tg = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM game_log WHERE user_id = %s AND win > 0", (uid,))
+        tw = c.fetchone()[0]
+        c.close()
+        release_conn(conn)
+        txt = (
+            f"📊 <b>СТАТИСТИКА ИГРОКА</b>\n\n"
+            f"👤 {uname} (<code>{uid}</code>)\n"
+            f"⭐ XP: {xp or 0}\n"
+            f"💎 Баланс: <b>{fmt_num(bal)}</b>\n"
+            f"🏦 Банк: <b>{fmt_num(bank)}</b>\n\n"
+            f"🎮 Игр: <b>{tg}</b>\n"
+            f"🏆 Побед: <b>{tw}</b>"
+        )
+        await message.answer(txt, parse_mode="HTML")
+        return
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+    banned_count = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE unlimited = TRUE")
+    unlimited_count = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM game_log")
+    total_games = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+    txt = (
+        f"📊 <b>СТАТИСТИКА БОТА</b>\n\n"
+        f"👥 Игроков: <b>{total_users}</b>\n"
+        f"💎 Tokens: <b>{fmt_num(total_balance)}</b>\n"
+        f"🎮 Игр: <b>{total_games}</b>\n\n"
+        f"🚫 Забанено: <b>{banned_count}</b>\n"
+        f"♾️ Безлимитов: <b>{unlimited_count}</b>"
+    )
+    await message.answer(txt, parse_mode="HTML")
+
+
+# ═══════════════ /event ═══════════════
+@dp.message(Command("event"))
+async def cmd_event(message: Message):
+    global event_double
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        status = "✅ ВКЛ" if event_double else "❌ ВЫКЛ"
+        await message.answer(f"🎰 <b>ИВЕНТ ×2</b>\n\nСтатус: <b>{status}</b>\n\n<code>/event double on/off</code>", parse_mode="HTML")
+        return
+    if args[1].lower() == "double" and len(args) >= 3:
+        mode = args[2].lower()
+        if mode == "on":
+            event_double = True
+            await message.answer("🎰 <b>ИВЕНТ ×2 ВКЛЮЧЁН!</b>", parse_mode="HTML")
+        elif mode == "off":
+            event_double = False
+            await message.answer("🎰 <b>ИВЕНТ ×2 ВЫКЛЮЧЕН</b>", parse_mode="HTML")
+
+
+# ═══════════════ /maintenance ═══════════════
+@dp.message(Command("maintenance"))
+async def cmd_maintenance(message: Message):
+    global maintenance_on
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        status = "🛠️ ВКЛ" if maintenance_on else "✅ ВЫКЛ"
+        await message.answer(f"🛠️ <b>ТЕХ.РАБОТЫ</b>\n\nСтатус: <b>{status}</b>", parse_mode="HTML")
+        return
+    sub = args[1].lower()
+    if sub == "on":
+        maintenance_on = True
+        await message.answer("🛠️ <b>ТЕХ.РАБОТЫ ВКЛЮЧЕНЫ</b>", parse_mode="HTML")
+    elif sub == "off":
+        maintenance_on = False
+        await message.answer("✅ <b>ТЕХ.РАБОТЫ ВЫКЛЮЧЕНЫ</b>", parse_mode="HTML")
+
+
+# ═══════════════ /bonus ═══════════════
+@dp.message(Command("bonus"))
+async def cmd_bonus(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("🎁 <code>/bonus @user 50000</code>\n<code>/bonus all 10000</code>", parse_mode="HTML")
+        return
+    target = args[1]
+    try:
+        amount = int(args[2])
+    except Exception:
+        await message.answer("❌ Неверная сумма", parse_mode="HTML")
+        return
+    if target.lower() == 'all':
+        uids = get_all_user_ids()
+        count = 0
+        for uid in uids:
+            try:
+                set_balance(uid, amount)
+                count += 1
+            except Exception:
+                pass
+        await message.answer(f"🎁 <b>+{fmt_num(amount)} всем!</b>\n👥 {count}", parse_mode="HTML")
+        return
+    if target.startswith('@'):
+        username = target[1:]
+        uid = get_user_id_by_username(username)
+        if not uid:
+            await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
+            return
+        nb = set_balance(uid, amount)
+        await message.answer(f"🎁 <b>+{fmt_num(amount)}</b> → @{username}\n💎 {fmt_num(nb)}", parse_mode="HTML")
+
+
+# ═══════════════ /jackpot ═══════════════
+@dp.message(Command("jackpot"))
+async def cmd_jackpot(message: Message):
+    global jackpot_amount
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer(f"💎 <b>ДЖЕКПОТ</b>: <b>{fmt_num(get_jackpot())}</b>", parse_mode="HTML")
+        return
+    sub = args[1].lower()
+    if sub == "set" and len(args) >= 3:
+        try:
+            amount = int(args[2])
+        except Exception:
+            return
+        save_jackpot(amount)
+        await message.answer(f"💎 <b>Установлен</b>: {fmt_num(amount)}", parse_mode="HTML")
+    elif sub == "reset":
+        reset_jackpot()
+        await message.answer("💎 <b>Сброшен</b>: 10 000", parse_mode="HTML")
 
 
 # ═══════════════ /balance ═══════════════
