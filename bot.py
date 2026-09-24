@@ -1110,6 +1110,43 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_purchase_log_user ON purchase_log(user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_tournament_scores ON tournament_scores(tournament_id, total_won DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_active_vip_expires ON active_vip(expires_at)")
+    
+    # ─── ТАБЛИЦЫ ДЛЯ CRASH ───
+    c.execute("""CREATE TABLE IF NOT EXISTS crash_rounds (
+        id SERIAL PRIMARY KEY,
+        crash_point DECIMAL(10,2),
+        started_at TIMESTAMP DEFAULT NOW(),
+        crashed_at TIMESTAMP,
+        status TEXT DEFAULT 'waiting'
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS crash_bets (
+        id SERIAL PRIMARY KEY,
+        round_id INT,
+        user_id BIGINT,
+        username TEXT,
+        bet BIGINT,
+        auto_cashout DECIMAL(10,2),
+        cashed_out_at DECIMAL(10,2),
+        won BIGINT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crash_bets_round ON crash_bets(round_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_crash_bets_user ON crash_bets(user_id)")
+
+    # ─── ТАБЛИЦА ДЛЯ PLINKO ───
+    c.execute("""CREATE TABLE IF NOT EXISTS plinko_history (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT,
+        username TEXT,
+        bet BIGINT,
+        risk TEXT,
+        position INT,
+        multiplier DECIMAL(10,2),
+        won BIGINT,
+        created_at TIMESTAMP DEFAULT NOW()
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_plinko_user ON plinko_history(user_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_plinko_created ON plinko_history(created_at DESC)")
 
     conn.commit()
     c.close()
@@ -6619,7 +6656,7 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Только для админа", show_alert=True)
             return
 
-        if data == "admin_back":
+         if data == "admin_back":
             balance = get_balance(user_id)
             bank = get_bank(user_id)
             txt = (
@@ -6629,7 +6666,8 @@ async def callback_handler(call: CallbackQuery):
                 f"🏦 Банк: <b>{fmt_num(bank)}</b>\n\n"
                 f"📋 <b>Выбери раздел:</b>"
             )
-            await call.message.edit_text(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+            # ReplyKeyboard нельзя в edit_text — отправляем НОВОЕ
+            await call.message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
             await call.answer()
             return
 
@@ -8617,6 +8655,443 @@ async def editor_text_handler(message: Message):
 
     # ─── Прочее не обрабатываем ───
     return   
+# ═══════════════════════════════════════════════════════════════
+# CRASH — MULTIPLAYER ИГРА
+# ═══════════════════════════════════════════════════════════════
+
+import random as _random
+
+# ─── ГЛОБАЛЬНОЕ СОСТОЯНИЕ CRASH ───
+crash_state = {
+    "round_id": 0,
+    "status": "waiting",       # waiting / running / crashed
+    "multiplier": 1.00,
+    "crash_point": 0.0,
+    "started_at": 0.0,
+    "next_round_at": 0.0,
+    "history": [],             # последние 20 крашей
+    "bets": [],                # ставки текущего раунда
+}
+crash_lock = asyncio.Lock()
+
+
+def generate_crash_point():
+    """Генерирует точку краха. RTP ~96%."""
+    r = _random.random()
+    if r < 0.03:
+        return 1.00                                    # 3% — моментальный краш
+    if r < 0.50:
+        return round(_random.uniform(1.01, 1.50), 2)   # 47% — низкий
+    if r < 0.85:
+        return round(_random.uniform(1.50, 3.00), 2)   # 35% — средний
+    if r < 0.97:
+        return round(_random.uniform(3.00, 10.00), 2)  # 12% — высокий
+    return round(_random.uniform(10.00, 100.00), 2)    # 3% — джекпот
+
+
+async def crash_loop():
+    """Фоновый цикл игры Crash (24/7)."""
+    global crash_state
+    print("🚀 Crash loop запущен")
+
+    while True:
+        try:
+            # ═══ ФАЗА 1: ОТСЧЁТ (5 сек) ═══
+            async with crash_lock:
+                crash_state["status"] = "waiting"
+                crash_state["multiplier"] = 1.00
+                crash_state["crash_point"] = generate_crash_point()
+                crash_state["bets"] = []
+                crash_state["next_round_at"] = time.time() + 5
+                crash_state["round_id"] += 1
+                rid = crash_state["round_id"]
+
+            # Создаём раунд в БД
+            try:
+                conn = get_conn()
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO crash_rounds (crash_point, status) VALUES (%s, 'waiting') RETURNING id",
+                    (crash_state["crash_point"],)
+                )
+                db_round_id = c.fetchone()[0]
+                conn.commit()
+                c.close()
+                release_conn(conn)
+            except Exception as e:
+                print(f"[crash_loop] db error: {e}")
+                db_round_id = rid
+
+            await asyncio.sleep(5)
+
+            # ═══ ФАЗА 2: ПОЛЁТ ═══
+            async with crash_lock:
+                if crash_state["status"] != "waiting":
+                    continue
+                crash_state["status"] = "running"
+                crash_state["started_at"] = time.time()
+
+            # Обновляем статус в БД
+            try:
+                conn = get_conn()
+                c = conn.cursor()
+                c.execute("UPDATE crash_rounds SET status = 'running' WHERE id = %s", (db_round_id,))
+                conn.commit()
+                c.close()
+                release_conn(conn)
+            except Exception:
+                pass
+
+            start_time = time.time()
+            while True:
+                elapsed = time.time() - start_time
+                # Формула роста: чем больше времени, тем быстрее растёт
+                multiplier = round(1.0 + elapsed * 0.5 + (elapsed ** 2) * 0.15, 2)
+
+                if multiplier >= crash_state["crash_point"]:
+                    multiplier = crash_state["crash_point"]
+                    async with crash_lock:
+                        crash_state["multiplier"] = multiplier
+                        crash_state["status"] = "crashed"
+                    break
+
+                async with crash_lock:
+                    crash_state["multiplier"] = multiplier
+
+                # Проверка авто-кэшаутов
+                await check_crash_auto_cashouts(multiplier)
+
+                await asyncio.sleep(0.1)
+
+            # ═══ ФАЗА 3: КРАШ — финализация ═══
+            await finalize_crash_round(db_round_id)
+
+            # История
+            async with crash_lock:
+                crash_state["history"].insert(0, crash_state["crash_point"])
+                crash_state["history"] = crash_state["history"][:20]
+
+            # Пауза 5 сек
+            await asyncio.sleep(5)
+
+        except Exception as e:
+            print(f"[crash_loop] error: {e}")
+            await asyncio.sleep(5)
+
+
+async def check_crash_auto_cashouts(current_mult):
+    """Проверяет и выполняет авто-кэшауты."""
+    async with crash_lock:
+        for bet in crash_state["bets"]:
+            if bet.get("cashed_out_at"):
+                continue
+            auto = bet.get("auto_cashout")
+            if auto and current_mult >= auto:
+                # Авто-кэшаут
+                win = clamp(int(bet["bet"] * auto))
+                set_balance(bet["user_id"], win)
+                bet["cashed_out_at"] = auto
+                bet["won"] = win
+                # Запись в БД
+                try:
+                    conn = get_conn()
+                    c = conn.cursor()
+                    c.execute(
+                        "UPDATE crash_bets SET cashed_out_at = %s, won = %s WHERE round_id = %s AND user_id = %s",
+                        (auto, win, crash_state["round_id"], bet["user_id"])
+                    )
+                    conn.commit()
+                    c.close()
+                    release_conn(conn)
+                except Exception:
+                    pass
+                # Лог игры
+                log_game(bet["user_id"], bet["username"], "краш", bet["bet"], win, f"x{auto}")
+                # Уведомление игроку
+                try:
+                    await bot.send_message(
+                        bet["user_id"],
+                        f"✅ <b>АВТО-ЗАБРАЛ ×{auto}</b>\n\n"
+                        f"💰 Выигрыш: <b>+{fmt_num(win)}</b> Tokens",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+
+async def finalize_crash_round(db_round_id):
+    """Финализация раунда — все не забравшие проигрывают."""
+    global crash_state
+    async with crash_lock:
+        crash_point = crash_state["crash_point"]
+        bets = crash_state["bets"]
+
+        for bet in bets:
+            if bet.get("cashed_out_at"):
+                continue  # Уже забрал
+            # Проиграл
+            log_game(bet["user_id"], bet["username"], "краш", bet["bet"], 0, f"boom {crash_point}")
+            # Обновить в БД
+            try:
+                conn = get_conn()
+                c = conn.cursor()
+                c.execute(
+                    "UPDATE crash_bets SET won = 0 WHERE round_id = %s AND user_id = %s AND cashed_out_at IS NULL",
+                    (crash_state["round_id"], bet["user_id"])
+                )
+                conn.commit()
+                c.close()
+                release_conn(conn)
+            except Exception:
+                pass
+
+    # Обновить раунд
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            "UPDATE crash_rounds SET status = 'crashed', crashed_at = NOW() WHERE id = %s",
+            (db_round_id,)
+        )
+        conn.commit()
+        c.close()
+        release_conn(conn)
+    except Exception:
+        pass
+
+
+# ─── API: CRASH ───
+@app.route('/api/crash/state')
+def api_crash_state():
+    """Текущее состояние раунда."""
+    return jsonify({
+        "round_id": crash_state["round_id"],
+        "status": crash_state["status"],
+        "multiplier": crash_state["multiplier"],
+        "crash_point": crash_state["crash_point"] if crash_state["status"] == "crashed" else None,
+        "next_round_at": crash_state["next_round_at"],
+        "history": crash_state["history"][:20],
+        "bets": crash_state["bets"],
+        "time_to_next": max(0, crash_state["next_round_at"] - time.time()),
+    })
+
+
+@app.route('/api/crash/bet', methods=['POST'])
+def api_crash_bet():
+    """Сделать ставку в текущем раунде."""
+    data = request.json
+    user_id = data.get('user_id')
+    username = data.get('username') or f"user_{user_id}"
+    bet = int(data.get('bet', 0))
+    auto_cashout = data.get('auto_cashout')
+    if auto_cashout:
+        try:
+            auto_cashout = float(auto_cashout)
+        except Exception:
+            auto_cashout = None
+
+    if not user_id or bet < 10:
+        return jsonify({"error": "Invalid bet"}), 400
+
+    if crash_state["status"] != "waiting":
+        return jsonify({"error": "Раунд уже идёт. Жди следующего."}), 400
+
+    # Проверка на дубликат
+    for b in crash_state["bets"]:
+        if b["user_id"] == user_id:
+            return jsonify({"error": "Ты уже сделал ставку в этом раунде"}), 400
+
+    # Проверка баланса
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Недостаточно средств"}), 400
+
+    # Списание
+    set_balance(user_id, -bet)
+
+    # Добавление ставки
+    crash_state["bets"].append({
+        "user_id": user_id,
+        "username": username,
+        "bet": bet,
+        "auto_cashout": auto_cashout,
+        "cashed_out_at": None,
+        "won": 0,
+    })
+
+    # В БД
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO crash_bets (round_id, user_id, username, bet, auto_cashout)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (crash_state["round_id"], user_id, username, bet, auto_cashout)
+        )
+        conn.commit()
+        c.close()
+        release_conn(conn)
+    except Exception as e:
+        print(f"[crash bet] {e}")
+
+    return jsonify({"success": True, "balance": get_balance(user_id)})
+
+
+@app.route('/api/crash/cashout', methods=['POST'])
+def api_crash_cashout():
+    """Забрать выигрыш на текущем множителе."""
+    data = request.json
+    user_id = data.get('user_id')
+
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
+    if crash_state["status"] != "running":
+        return jsonify({"error": "Раунд не идёт"}), 400
+
+    current_mult = crash_state["multiplier"]
+
+    for b in crash_state["bets"]:
+        if b["user_id"] == user_id:
+            if b["cashed_out_at"]:
+                return jsonify({"error": "Уже забрал"}), 400
+            win = clamp(int(b["bet"] * current_mult))
+            set_balance(user_id, win)
+            b["cashed_out_at"] = current_mult
+            b["won"] = win
+            log_game(user_id, b["username"], "краш", b["bet"], win, f"x{current_mult}")
+
+            # БД
+            try:
+                conn = get_conn()
+                c = conn.cursor()
+                c.execute(
+                    "UPDATE crash_bets SET cashed_out_at = %s, won = %s WHERE round_id = %s AND user_id = %s",
+                    (current_mult, win, crash_state["round_id"], user_id)
+                )
+                conn.commit()
+                c.close()
+                release_conn(conn)
+            except Exception:
+                pass
+
+            return jsonify({
+                "success": True,
+                "mult": current_mult,
+                "win": win,
+                "balance": get_balance(user_id),
+            })
+
+    return jsonify({"error": "У тебя нет ставки"}), 400
+
+
+@app.route('/api/crash/history')
+def api_crash_history():
+    """История последних крашей."""
+    return jsonify(crash_state["history"][:20])
+
+
+# ═══════════════════════════════════════════════════════════════
+# PLINKO — SINGLE-PLAYER ИГРА
+# ═══════════════════════════════════════════════════════════════
+
+PLINKO_MULTIPLIERS = {
+    "low":    [1.5, 1.2, 1.1, 1.0, 0.5, 1.0, 1.1, 1.2, 1.5],
+    "medium": [5.0, 2.0, 1.0, 0.5, 0.3, 0.5, 1.0, 2.0, 5.0],
+    "high":   [100.0, 10.0, 2.0, 0.5, 0.0, 0.5, 2.0, 10.0, 100.0],
+}
+
+
+def generate_plinko_drop():
+    """Симулирует падение шарика — 8 шагов 50/50."""
+    position = 0
+    for _ in range(8):
+        if _random.random() < 0.5:
+            position += 1
+    # position от 0 до 8, но нам нужно 9 лунок (0..8)
+    return min(position, 8)
+
+
+@app.route('/api/plinko/play', methods=['POST'])
+def api_plinko_play():
+    """Сделать бросок шарика."""
+    data = request.json
+    user_id = data.get('user_id')
+    bet = int(data.get('bet', 0))
+    risk = data.get('risk', 'medium')
+
+    if not user_id or bet < 10:
+        return jsonify({"error": "Invalid bet"}), 400
+    if risk not in PLINKO_MULTIPLIERS:
+        return jsonify({"error": "Invalid risk"}), 400
+
+    # Проверка баланса
+    balance = get_balance(user_id)
+    if balance < bet and not is_unlimited(user_id):
+        return jsonify({"error": "Недостаточно средств"}), 400
+
+    # Списание
+    set_balance(user_id, -bet)
+
+    # Генерация
+    position = generate_plinko_drop()
+    multiplier = PLINKO_MULTIPLIERS[risk][position]
+    win = clamp(int(bet * multiplier)) if multiplier > 0 else 0
+
+    if win > 0:
+        set_balance(user_id, win)
+
+    # Лог
+    u = get_user(user_id)
+    uname = u[0] if u else f"user_{user_id}"
+    log_game(user_id, uname, "плинко", bet, win, f"{risk} x{multiplier} pos{position}")
+
+    # БД
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO plinko_history (user_id, username, bet, risk, position, multiplier, won)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (user_id, uname, bet, risk, position, multiplier, win)
+        )
+        conn.commit()
+        c.close()
+        release_conn(conn)
+    except Exception as e:
+        print(f"[plinko] {e}")
+
+    return jsonify({
+        "win": win > 0,
+        "position": position,
+        "multiplier": multiplier,
+        "amount": win,
+        "bet": bet,
+        "balance": get_balance(user_id),
+    })
+
+
+@app.route('/api/plinko/history')
+def api_plinko_history():
+    """История последних дропов (для ленты)."""
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("""
+            SELECT username, bet, risk, multiplier, won
+            FROM plinko_history
+            WHERE created_at > NOW() - INTERVAL '1 hour'
+            ORDER BY id DESC LIMIT 20
+        """)
+        rows = c.fetchall()
+        c.close()
+        release_conn(conn)
+        return jsonify([
+            {"username": r[0], "bet": r[1], "risk": r[2], "multiplier": float(r[3]), "won": r[4]}
+            for r in rows
+        ])
+    except Exception:
+        return jsonify([])
     
 # ═══════════════════════════════════════════════════════════════
 # MAIN — ЗАПУСК БОТА
