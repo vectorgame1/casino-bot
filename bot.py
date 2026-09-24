@@ -6656,7 +6656,7 @@ async def callback_handler(call: CallbackQuery):
             await call.answer("❌ Только для админа", show_alert=True)
             return
 
-         if data == "admin_back":
+            if data == "admin_back":
             balance = get_balance(user_id)
             bank = get_bank(user_id)
             txt = (
