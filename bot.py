@@ -9110,7 +9110,7 @@ async def main():
     asyncio.create_task(cashback_loop())
     asyncio.create_task(tournament_checker_loop())
     asyncio.create_task(vip_expire_loop())
-        asyncio.create_task(crash_loop())
+    asyncio.create_task(crash_loop())
     await dp.start_polling(bot)    
 
 
