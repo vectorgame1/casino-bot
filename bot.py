@@ -9212,51 +9212,60 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
         )
         return True
     
-    # ═══════════════ АДМИН ═══════════════
+    
+    
+        # ═══════════════ АДМИН ═══════════════
     
     if user_id != ADMIN_ID:
         return False
     
     if text == "👥 Игроки":
-        await message.answer("👥 ...", parse_mode="HTML", reply_markup=admin_players_kb())
+        await message.answer(
+            "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=admin_players_kb()
+        )
         return True
     
     if text == "🎮 Игры":
-        await message.answer("🎮 ...", parse_mode="HTML", reply_markup=admin_games_kb())
+        await message.answer(
+            "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Включай/выключай:",
+            parse_mode="HTML",
+            reply_markup=admin_games_kb()
+        )
         return True
-    
-    # ... остальные админ-кнопки
-    
-    return False
-    
-    # ═══════════════ АДМИН ═══════════════
-    
-    if user_id != ADMIN_ID:
-        return
-    
-    if text == "👥 Игроки":
-        await message.answer("👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_players_kb())
-        return
-    
-    if text == "🎮 Игры":
-        await message.answer("🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Включай/выключай:", parse_mode="HTML", reply_markup=admin_games_kb())
-        return
     
     if text == "🛒 Контент":
-        await message.answer("🛒 <b>КОНТЕНТ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_content_kb())
-        return
+        await message.answer(
+            "🛒 <b>КОНТЕНТ</b>\n\n👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=admin_content_kb()
+        )
+        return True
     
     if text == "💰 Экономика":
-        await message.answer("💰 <b>ЭКОНОМИКА</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_economy_kb())
-        return
+        await message.answer(
+            "💰 <b>ЭКОНОМИКА</b>\n\n👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=admin_economy_kb()
+        )
+        return True
     
     if text == "📢 Связь":
-        await message.answer("📢 <b>СВЯЗЬ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_comm_kb())
-        return
+        await message.answer(
+            "📢 <b>СВЯЗЬ</b>\n\n👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=admin_comm_kb()
+        )
+        return True
     
     if text == "📊 Мониторинг":
-        await message.answer("📊 <b>МОНИТОРИНГ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_monitor_kb())
-        return
+        await message.answer(
+            "📊 <b>МОНИТОРИНГ</b>\n\n👇 Выбери:",
+            parse_mode="HTML",
+            reply_markup=admin_monitor_kb()
+        )
+        return True
     
     if text == "💳 Кредиты":
         stats = get_all_credits_stats()
@@ -9268,11 +9277,17 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
             f"📊 Всего: <b>{stats['total_count']}</b>"
         )
         await message.answer(txt, parse_mode="HTML", reply_markup=admin_credits_kb())
-        return
+        return True
     
     if text == "📋 Все команды":
-        await message.answer(all_commands_text(), parse_mode="HTML", reply_markup=all_commands_kb())
-        return
+        await message.answer(
+            all_commands_text(),
+            parse_mode="HTML",
+            reply_markup=all_commands_kb()
+        )
+        return True
+    
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════
