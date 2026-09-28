@@ -5487,15 +5487,17 @@ async def text_handler_group(message: Message):
         )
         return
     
-    if text in ["лог", "log"]:
+        if text in ["лог", "log"]:
         rows = get_last_roulette_results(10, chat_id=chat_id)
         if not rows:
             await message.reply("📜 <b>История пуста</b>", parse_mode="HTML")
             return
         
         txt = "📜 <b>ИСТОРИЯ РУЛЕТКИ</b>\n━━━━━━━━━━━━━━\n\n"
-        for detail in rows:
-            parts_d = detail.split()
+        for row in rows:
+            # row — это tuple, берём первый элемент
+            detail = row[0] if isinstance(row, (tuple, list)) else row
+            parts_d = str(detail).split()
             if len(parts_d) >= 2:
                 num, color = parts_d[0], parts_d[-1]
                 txt += f"{color} {num}\n"
@@ -5504,7 +5506,6 @@ async def text_handler_group(message: Message):
         txt += "\n━━━━━━━━━━━━━━\n📊 Последние 10 раундов"
         await message.reply(txt, parse_mode="HTML")
         return
-    
     # ─── БАНК: положить / снять ───
     if len(parts) == 3 and parts[0] == "банк" and parts[1] == "положить":
         try:
