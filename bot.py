@@ -7451,17 +7451,26 @@ async def callback_handler(call: CallbackQuery):
 # ═══════════════════════════════════════════════════════════════
 
 async def safe_edit(call: CallbackQuery, text: str, reply_markup=None):
-    """Редактирует сообщение. Если не получилось — отправляет новое."""
+    """Редактирует сообщение. Если не получилось — НЕ отправляет новое."""
     try:
-        await call.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
-    except TelegramBadRequest:
-        try:
-            await call.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
-        except Exception:
-            pass
-    except Exception:
-        pass
-
+        await call.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
+    except TelegramBadRequest as e:
+        err = str(e).lower()
+        # Игнорируем "message is not modified" — ничего не делаем
+        if "message is not modified" in err:
+            return
+        # Игнорируем "message can't be edited" — ничего не делаем
+        if "message can't be edited" in err:
+            return
+        # Остальные ошибки — логируем, НЕ отправляем новое
+        logger.error(f"[safe_edit] {e}")
+    except Exception as e:
+        logger.error(f"[safe_edit] {e}")
 
 # ═══════════════════════════════════════════════════════════════
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ИГР
@@ -9258,12 +9267,22 @@ PRIVATE_ONLY_COMMANDS = [
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
 async def redirect_to_private(message: Message):
-    """Редирект команд, которые работают только в ЛС."""
-    if not message.text:
+        if not message.text:
+        return
+    
+    # ⚠️ Обрабатываем ТОЛЬКО команды с /
+    if not message.text.startswith("/"):
         return
     
     text = message.text.strip().lower()
     cmd = text.split()[0].lstrip("/") if text else ""
+    
+    # Игровые команды — пропускаем
+    IGNORE = ["к", "ч", "з", "го", "спин", "орёл", "решка", "бж", 
+              "мины", "дуэль", "принять", "отмена", "лог", "б", 
+              "баланс", "топ", "профиль", "задания", "банк", "кредиты", "бонус", "п"]
+    if cmd in IGNORE:
+        return
     
     if cmd in PRIVATE_ONLY_COMMANDS:
         try:
@@ -9281,8 +9300,7 @@ async def redirect_to_private(message: Message):
                 reply_markup=private_url_kb()
             )
         except Exception as e:
-            logger.error(f"[redirect] {e}")
-        return
+        logger.error(f"[redirect] {e}")
         # ═══════════════════════════════════════════════════════════════
 # ЧАСТЬ 13/15 — FLASK API ДЛЯ MINI APP
 # ═══════════════════════════════════════════════════════════════
