@@ -9271,7 +9271,7 @@ async def redirect_to_private(message: Message):
             return
     
     # ⚠️ Обрабатываем ТОЛЬКО команды с /
-    if not message.text.startswith("/"):
+if not message.text.startswith("/"):
         return
     
     text = message.text.strip().lower()
