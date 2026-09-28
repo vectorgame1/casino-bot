@@ -5366,6 +5366,7 @@ def is_credit_locked(user_id: int) -> bool:
 
 @dp.message(F.text, F.chat.type != "private")
 async def text_handler_group(message: Message):
+    logger.info(f"[GROUP] text={message.text!r} chat={message.chat.id}")
     if not message.text:
         return
     if not message.from_user or message.from_user.is_bot:
