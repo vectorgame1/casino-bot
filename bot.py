@@ -8072,7 +8072,7 @@ async def handle_admin_callback(call: CallbackQuery):
             reply_markup=kb
         )
         return
-            if data == "rates_input_start":
+    if data == "rates_input_start":
         rates_input_state[user_id] = {"step": "gram"}
         await safe_edit(call,
             "💱 <b>ОБНОВЛЕНИЕ КУРСОВ</b>\n"
