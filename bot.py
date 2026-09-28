@@ -9267,19 +9267,19 @@ PRIVATE_ONLY_COMMANDS = [
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
 async def redirect_to_private(message: Message):
-        if not message.text:
-            return
+    if not message.text:
+        return
     
-    # ⚠️ Обрабатываем ТОЛЬКО команды с /
-        if not message.text.startswith("/"):
-            return
+    # Обрабатываем ТОЛЬКО команды с /
+    if not message.text.startswith("/"):
+        return
     
     text = message.text.strip().lower()
     cmd = text.split()[0].lstrip("/") if text else ""
     
     # Игровые команды — пропускаем
-    IGNORE = ["к", "ч", "з", "го", "спин", "орёл", "решка", "бж", 
-              "мины", "дуэль", "принять", "отмена", "лог", "б", 
+    IGNORE = ["к", "ч", "з", "го", "спин", "орёл", "решка", "бж",
+              "мины", "дуэль", "принять", "отмена", "лог", "б",
               "баланс", "топ", "профиль", "задания", "банк", "кредиты", "бонус", "п"]
     if cmd in IGNORE:
         return
@@ -9300,7 +9300,7 @@ async def redirect_to_private(message: Message):
                 reply_markup=private_url_kb()
             )
         except Exception as e:
-        logger.error(f"[redirect] {e}")
+            logger.error(f"[redirect] {e}")
         # ═══════════════════════════════════════════════════════════════
 # ЧАСТЬ 13/15 — FLASK API ДЛЯ MINI APP
 # ═══════════════════════════════════════════════════════════════
