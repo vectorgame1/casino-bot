@@ -9268,7 +9268,7 @@ PRIVATE_ONLY_COMMANDS = [
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
 async def redirect_to_private(message: Message):
         if not message.text:
-        return
+            return
     
     # ⚠️ Обрабатываем ТОЛЬКО команды с /
     if not message.text.startswith("/"):
