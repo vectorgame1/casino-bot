@@ -9115,8 +9115,8 @@ async def text_handler_private(message: Message):
 # ОБРАБОТКА REPLY-КНОПОК
 # ═══════════════════════════════════════════════════════════════
 
-    async def handle_reply_button(message: Message, text: str, user_id: int, username: str) -> bool:
-    """Обработка всех Reply-кнопок в ЛС."""
+async def handle_reply_button(message: Message, text: str, user_id: int, username: str) -> bool:
+"""Обработка всех Reply-кнопок в ЛС."""
     
     # ═══════════════ ИГРОК ═══════════════
     
