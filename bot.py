@@ -9115,41 +9115,41 @@ async def text_handler_private(message: Message):
 # ОБРАБОТКА REPLY-КНОПОК
 # ═══════════════════════════════════════════════════════════════
 
-async def handle_reply_button(message: Message, text: str, user_id: int, username: str):
+    async def handle_reply_button(message: Message, text: str, user_id: int, username: str) -> bool:
     """Обработка всех Reply-кнопок в ЛС."""
     
-# ═══════════════ ИГРОК ═══════════════
-
+    # ═══════════════ ИГРОК ═══════════════
+    
     if text == "🎮 Игры":
         await message.answer(
-        "🎮 <b>ИГРЫ</b>\n"
-        "━━━━━━━━━━━━━━\n\n"
-        "🎡 Рулетка · 🎰 Слоты · 🪙 Монетка\n"
-        "🃏 Блэкджек · 💣 Мины · ⚔️ Дуэль\n\n"
-        "💡 Играть можно в группе или Mini App",
-        parse_mode="HTML",
-        reply_markup=games_kb()
-    )
-    return True
-
+            "🎮 <b>ИГРЫ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "🎡 Рулетка · 🎰 Слоты · 🪙 Монетка\n"
+            "🃏 Блэкджек · 💣 Мины · ⚔️ Дуэль\n\n"
+            "💡 Играть можно в группе или Mini App",
+            parse_mode="HTML",
+            reply_markup=games_kb()
+        )
+        return True
+    
     if text == "💰 Баланс":
         await cmd_balance(message)
         return True
-
+    
     if text == "🏦 Банк":
         await message.answer(bank_text(user_id, username), parse_mode="HTML", reply_markup=bank_kb())
         return True
-
+    
     if text == "💳 Кредиты":
         info = get_credit_amount_info(user_id)
         status = info.get("status", "available")
         await message.answer(credits_text(user_id), parse_mode="HTML", reply_markup=credits_kb(status))
         return True
-
+    
     if text == "👤 Профиль":
         await cmd_profile(message)
         return True
-
+    
     if text == "🎁 Бонус":
         can, left = get_daily_status(user_id)
         if can:
@@ -9166,31 +9166,31 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
         else:
             await message.answer(f"⏳ Приходи через <b>{fmt_time_left(left)}</b>", parse_mode="HTML")
         return True
-
+    
     if text == "🛒 Магазин":
         await cmd_shop(message)
         return True
-
+    
     if text == "🎒 Инвентарь":
         await cmd_inventory(message)
         return True
-
+    
     if text == "🏪 Рынок":
         await cmd_market(message)
         return True
-
+    
     if text == "🎯 Задания":
         await cmd_quests(message)
         return True
-
+    
     if text == "🏆 Турнир":
         await message.answer(tournament_text(), parse_mode="HTML")
         return True
-
+    
     if text == "🔗 Рефералка":
         await cmd_ref(message)
         return True
-
+    
     if text == "🌐 WebApp":
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=MINI_APP_URL))]
@@ -9201,7 +9201,7 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
             reply_markup=kb
         )
         return True
-
+    
     if text == "🎮 ИГРАТЬ В ГРУППЕ":
         await message.answer(
             "🎮 <b>ИГРАТЬ В ГРУППЕ</b>\n"
@@ -9211,6 +9211,23 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
             reply_markup=group_url_kb("🎮 ПЕРЕЙТИ В ГРУППУ")
         )
         return True
+    
+    # ═══════════════ АДМИН ═══════════════
+    
+    if user_id != ADMIN_ID:
+        return False
+    
+    if text == "👥 Игроки":
+        await message.answer("👥 ...", parse_mode="HTML", reply_markup=admin_players_kb())
+        return True
+    
+    if text == "🎮 Игры":
+        await message.answer("🎮 ...", parse_mode="HTML", reply_markup=admin_games_kb())
+        return True
+    
+    # ... остальные админ-кнопки
+    
+    return False
     
     # ═══════════════ АДМИН ═══════════════
     
