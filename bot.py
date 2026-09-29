@@ -107,9 +107,8 @@ REF_COMMISSION_PERCENT = 5          # 5% с выигрышей реферала
 # ЕЖЕДНЕВНЫЙ БОНУС
 # ═══════════════════════════════════════════════════════════════
 
-DAILY_BONUS = 10_000                # 10K
-START_BONUS = 5_000                 # 5K новичку
-
+START_BONUS = 1_000
+DAILY_BONUS = 5_000                
 
 # ═══════════════════════════════════════════════════════════════
 # РУЛЕТКА: ЧЕСТНЫЕ КОЭФФИЦИЕНТЫ (RTP ~95%)
@@ -7433,9 +7432,9 @@ async def callback_handler(call: CallbackQuery):
     
     # ═══════════════ АДМИН ═══════════════
     
-    if data.startswith("admin_") or data.startswith("confirm_reset") or data.startswith("cancel_reset") or data.startswith("adm_"):
-        await handle_admin_callback(call)
-        return
+    if data.startswith("admin_") or data.startswith("rates_"):
+    await handle_admin_callback(call)
+    return
     
     # ═══════════════ РЕДАКТОРЫ ═══════════════
     
@@ -10283,15 +10282,17 @@ crash_lock = asyncio.Lock()
 
 def generate_crash_point():
     r = _random.random()
-    if r < 0.03:
+    if r < 0.02:
         return 1.00
-    if r < 0.50:
-        return round(_random.uniform(1.01, 1.50), 2)
-    if r < 0.85:
-        return round(_random.uniform(1.50, 3.00), 2)
-    if r < 0.97:
-        return round(_random.uniform(3.00, 10.00), 2)
-    return round(_random.uniform(10.00, 100.00), 2)
+    if r < 0.30:
+        return round(_random.uniform(1.20, 2.00), 2)
+    if r < 0.65:
+        return round(_random.uniform(2.00, 5.00), 2)
+    if r < 0.90:
+        return round(_random.uniform(5.00, 15.00), 2)
+    if r < 0.99:
+        return round(_random.uniform(15.00, 50.00), 2)
+    return round(_random.uniform(50.00, 200.00), 2)
 
 
 async def crash_loop():
@@ -10305,10 +10306,10 @@ async def crash_loop():
                 crash_state["multiplier"] = 1.00
                 crash_state["crash_point"] = generate_crash_point()
                 crash_state["bets"] = []
-                crash_state["next_round_at"] = time.time() + 5
+                crash_state["next_round_at"] = time.time() + 8
                 crash_state["round_id"] += 1
             
-            await asyncio.sleep(5)
+            await asyncio.sleep(8)
             
             async with crash_lock:
                 if crash_state["status"] != "waiting":
@@ -10319,7 +10320,7 @@ async def crash_loop():
             start_time = time.time()
             while True:
                 elapsed = time.time() - start_time
-                multiplier = round(1.0 + elapsed * 0.5 + (elapsed ** 2) * 0.15, 2)
+                multiplier = round(1.0 + elapsed * 0.15 + (elapsed ** 2) * 0.03, 2)
                 
                 if multiplier >= crash_state["crash_point"]:
                     multiplier = crash_state["crash_point"]
