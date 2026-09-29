@@ -9793,6 +9793,128 @@ def api_tokens_packs_buy():
         return jsonify({"error": str(e)}), 500
 
 
+# ═══════════════ API: КРЕДИТЫ ═══════════════
+
+@app.route("/api/credits/<int:user_id>")
+def api_credits(user_id):
+    """Инфо о кредитах игрока + история."""
+    if is_banned(user_id):
+        return jsonify({"error": "Banned"}), 403
+    
+    info = get_credit_amount_info(user_id)
+    history = get_credit_history(user_id, 10)
+    
+    history_list = []
+    for cid, amount, issued, due, returned, status in history:
+        if issued and issued.tzinfo is None:
+            issued = issued.replace(tzinfo=TZ_MINSK)
+        if due and due.tzinfo is None:
+            due = due.replace(tzinfo=TZ_MINSK)
+        history_list.append({
+            "id": cid,
+            "amount": amount,
+            "issued_at": issued.isoformat() if issued else None,
+            "due_at": due.isoformat() if due else None,
+            "returned_at": returned.isoformat() if returned else None,
+            "status": status,
+        })
+    
+    return jsonify({
+        "info": info,
+        "history": history_list,
+    })
+
+
+@app.route("/api/credits/take", methods=["POST"])
+def api_credits_take():
+    """Взять кредит."""
+    data = request.json
+    user_id = data.get("user_id")
+    amount = data.get("amount")
+    
+    if not user_id or not amount:
+        return jsonify({"error": "Missing"}), 400
+    
+    try:
+        amount = int(amount)
+    except Exception:
+        return jsonify({"error": "Invalid amount"}), 400
+    
+    ok, msg, due_at = issue_credit(user_id, amount)
+    if not ok:
+        return jsonify({"error": msg}), 400
+    
+    return jsonify({
+        "success": True,
+        "amount": amount,
+        "due_at": due_at.isoformat() if due_at else None,
+        "balance": get_balance(user_id),
+    })
+
+
+@app.route("/api/credits/return", methods=["POST"])
+def api_credits_return():
+    """Вернуть кредит."""
+    data = request.json
+    user_id = data.get("user_id")
+    
+    if not user_id:
+        return jsonify({"error": "Missing"}), 400
+    
+    ok, msg = return_credit(user_id)
+    if not ok:
+        return jsonify({"error": msg}), 400
+    
+    return jsonify({
+        "success": True,
+        "balance": get_balance(user_id),
+    })
+
+
+# ═══════════════ API: СТАТУС ИГР ═══════════════
+
+@app.route("/api/games/status")
+def api_games_status():
+    """Статус игр (включены/выключены)."""
+    all_games = ["roulette", "slots", "coin", "mines", "bj", "duel", "crash", "plinko"]
+    return jsonify({g: (g not in disabled_games) for g in all_games})
+    
+    data = request.json
+    user_id = data.get("user_id")
+    pack_id = data.get("pack_id")
+    
+    if not user_id or not pack_id:
+        return jsonify({"error": "Missing"}), 400
+    
+    pack = get_tokens_pack_by_id(pack_id)
+    if not pack:
+        return jsonify({"error": "Pack not found"}), 404
+    
+    stars = pack.get("stars", 0)
+    if not stars or stars < 1:
+        return jsonify({"error": "Not available"}), 400
+    
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"{fmt_num(pack['amount'])} Tokens",
+            "description": f"Покупка {fmt_num(pack['amount'])} Tokens",
+            "payload": f"tokens_{pack_id}",
+            "currency": "XTR",
+            "prices": json.dumps([
+                {"label": f"{fmt_num(pack['amount'])} Tokens", "amount": int(stars)}
+            ]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/xp/buy", methods=["POST"])
 def api_xp_buy():
     import requests as _requests
