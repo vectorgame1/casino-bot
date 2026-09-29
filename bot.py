@@ -8300,12 +8300,14 @@ async def handle_editor_callback(call: CallbackQuery):
     """Обработка callback редакторов."""
     data = call.data
     user_id = call.from_user.id
-        original_answer = call.answer
+
+    original_answer = call.answer
     async def _safe_answer(text=None, **kwargs):
         if text and kwargs.get('show_alert'):
             text = clean_alert(text)
         return await original_answer(text, **kwargs)
     call.answer = _safe_answer
+
     if user_id != ADMIN_ID:
         await call.answer("❌ Только для админа", show_alert=True)
         return
