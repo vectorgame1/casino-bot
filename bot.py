@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import random
+import re
 import json
 import time
 from datetime import datetime, timedelta, timezone
@@ -300,6 +301,7 @@ giveaway_timers = {}
 edit_state = {}
 edit_case_state = {}
 edit_shop_state = {}
+edit_tokens_state = {}
 edit_vip_state = {}
 edit_xp_state = {}
 edit_quest_state = {}
@@ -562,6 +564,18 @@ ALL_BOT_COMMANDS = {
         ("/maintenance on/off", "Тех. работы"),
     ],
 }
+# ═══════════════ HTML STRIP (для alert'ов) ═══════════════
+
+def strip_html(text: str) -> str:
+    """Убирает HTML-теги. Для alert'ов (Telegram не поддерживает HTML в alert)."""
+    if not text:
+        return ""
+    return re.sub(r'<[^>]+>', '', str(text))
+
+
+def clean_alert(msg: str) -> str:
+    """Очищает сообщение для alert."""
+    return strip_html(msg).strip()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -6322,6 +6336,17 @@ async def callback_handler(call: CallbackQuery):
     user_id = call.from_user.id
     username = call.from_user.username or call.from_user.first_name
     ensure_user(user_id, username)
+
+    
+    # ⚠️ ДОБАВЬ: обёртка для alert
+    original_answer = call.answer
+    async def _safe_answer(text=None, **kwargs):
+        if text and kwargs.get('show_alert'):
+            text = clean_alert(text)
+        return await original_answer(text, **kwargs)
+    call.answer = _safe_answer
+    
+    # ... остальной код
     
     if call.message and call.message.chat and call.message.chat.id < 0:
         track_group_member(call.message.chat.id, user_id, username)
@@ -7607,6 +7632,17 @@ async def handle_admin_callback(call: CallbackQuery):
     """Обработка всех админ-callback."""
     data = call.data
     user_id = call.from_user.id
+
+    
+    # ⚠️ ДОБАВЬ: обёртка для alert
+    original_answer = call.answer
+    async def _safe_answer(text=None, **kwargs):
+        if text and kwargs.get('show_alert'):
+            text = clean_alert(text)
+        return await original_answer(text, **kwargs)
+    call.answer = _safe_answer
+    
+    # ... остальной код
     
     if user_id != ADMIN_ID:
         await call.answer("❌ Только для админа", show_alert=True)
@@ -8264,6 +8300,12 @@ async def handle_editor_callback(call: CallbackQuery):
     """Обработка callback редакторов."""
     data = call.data
     user_id = call.from_user.id
+    original_answer = call.answer
+async def _safe_answer(text=None, **kwargs):
+        if text and kwargs.get('show_alert'):
+            text = clean_alert(text)
+        return await original_answer(text, **kwargs)
+    call.answer = _safe_answer
     
     if user_id != ADMIN_ID:
         await call.answer("❌ Только для админа", show_alert=True)
@@ -8424,13 +8466,17 @@ async def handle_editor_callback(call: CallbackQuery):
         await call.answer()
         return
     
-    # ═══════════════ РЕДАКТОР TOKENS-ПАКОВ ═══════════════
-    
+        # ═══════════════ РЕДАКТОР TOKENS-ПАКОВ ═══════════════
+
     if data == "edittokens_start":
         packs = get_tokens_packs()
-        txt = "💰 <b>РЕДАКТОР TOKENS-ПАКОВ</b>\n━━━━━━━━━━━━━━\n\n"
-        for i, p in enumerate(packs, 1):
-            txt += f"{i}. {fmt_num(p['amount'])} Tokens — {p['stars']} ⭐\n"
+        txt = "TOKENS ПАКИ\n━━━━━━━━━━━━━━\n\n"
+        if not packs:
+            txt += "Пусто."
+        else:
+            for i, p in enumerate(packs, 1):
+                status = "●" if p.get("active", True) else "○"
+                txt += f"{status} {i}. {fmt_num(p['amount'])} Tokens — {p['stars']} ⭐\n"
         
         rows = []
         for i, p in enumerate(packs):
@@ -8438,34 +8484,95 @@ async def handle_editor_callback(call: CallbackQuery):
                 text=f"{i+1}. {fmt_num(p['amount'])} — {p['stars']}⭐",
                 callback_data=f"edittokens_item_{i}"
             )])
+        rows.append([InlineKeyboardButton(text="➕ Добавить пакет", callback_data="edittokens_add")])
         rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_cat_content")])
         
         await safe_edit(call, txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
         await call.answer()
         return
-    
+
     if data.startswith("edittokens_item_"):
-        idx = int(data.replace("edittokens_item_", ""))
-        packs = get_tokens_packs()
-        if idx < 0 or idx >= len(packs):
+        try:
+            idx = int(data.replace("edittokens_item_", ""))
+        except Exception:
             await call.answer("❌", show_alert=True)
             return
+        
+        packs = get_tokens_packs()
+        if idx < 0 or idx >= len(packs):
+            await call.answer("❌ Не найден", show_alert=True)
+            return
+        
         p = packs[idx]
+        status = "● АКТИВЕН" if p.get("active", True) else "○ ВЫКЛЮЧЕН"
         txt = (
-            f"💰 <b>Пакет</b>\n\n"
-            f"💎 Tokens: {fmt_num(p['amount'])}\n"
-            f"⭐ Stars: {p['stars']}"
+            f"TOKENS ПАК\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"№{idx+1}\n"
+            f"СУММА: {fmt_num(p['amount'])} Tokens\n"
+            f"ЦЕНА: {p['stars']} STARS\n"
+            f"СТАТУС: {status}\n\n"
+            f"Что меняем?"
         )
+        
         rows = [
+            [InlineKeyboardButton(text="Сумма", callback_data=f"edittokens_field_{idx}_amount"),
+             InlineKeyboardButton(text="Цена", callback_data=f"edittokens_field_{idx}_stars")],
+            [InlineKeyboardButton(
+                text="ВЫКЛЮЧИТЬ" if p.get("active", True) else "ВКЛЮЧИТЬ",
+                callback_data=f"edittokens_toggle_{idx}"
+            )],
             [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"edittokens_del_{idx}")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="edittokens_start")],
         ]
         await safe_edit(call, txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
         await call.answer()
         return
-    
+
+    if data.startswith("edittokens_field_"):
+        parts = data.replace("edittokens_field_", "").split("_")
+        try:
+            idx = int(parts[0])
+            field = parts[1]
+        except Exception:
+            await call.answer("❌", show_alert=True)
+            return
+        
+        edit_tokens_state[user_id] = {"mode": "edit_tokens", "idx": idx, "field": field}
+        
+        prompts = {
+            "amount": "Введи сумму Tokens (число):",
+            "stars": "Введи цену в Stars (число):",
+        }
+        await safe_edit(
+            call,
+            f"РЕДАКТИРОВАНИЕ\n\n{prompts.get(field, 'Значение')}\n\n❌ Отмена: /admin"
+        )
+        await call.answer()
+        return
+
+    if data.startswith("edittokens_toggle_"):
+        try:
+            idx = int(data.replace("edittokens_toggle_", ""))
+        except Exception:
+            await call.answer("❌", show_alert=True)
+            return
+        packs = get_tokens_packs()
+        if 0 <= idx < len(packs):
+            packs[idx]["active"] = not packs[idx].get("active", True)
+            save_tokens_packs(packs)
+            await call.answer(f"✅ {'Включён' if packs[idx]['active'] else 'Выключен'}")
+        # Вернуть в карточку
+        call.data = f"edittokens_item_{idx}"
+        await handle_editor_callback(call)
+        return
+
     if data.startswith("edittokens_del_"):
-        idx = int(data.replace("edittokens_del_", ""))
+        try:
+            idx = int(data.replace("edittokens_del_", ""))
+        except Exception:
+            await call.answer("❌", show_alert=True)
+            return
         packs = get_tokens_packs()
         if 0 <= idx < len(packs):
             packs.pop(idx)
@@ -8473,6 +8580,18 @@ async def handle_editor_callback(call: CallbackQuery):
         await safe_edit(call, "✅ Удалено.", reply_markup=admin_back_kb())
         await call.answer()
         return
+
+    if data == "edittokens_add":
+        edit_tokens_state[user_id] = {"mode": "new_tokens", "step": "amount"}
+        await safe_edit(
+            call,
+            "НОВЫЙ ПАК\n\nВведи сумму Tokens (число):\n\n❌ Отмена: /admin"
+        )
+        await call.answer()
+        return
+     
+        
+    
     
     # ═══════════════ ОСТАЛЬНЫЕ РЕДАКТОРЫ (упрощённо) ═══════════════
     
@@ -8647,6 +8766,72 @@ async def text_handler_private(message: Message):
                 reply_markup=credit_confirm_kb(amount)
             )
             return
+        # ═══════════════ РЕДАКТОР TOKENS (ВВОД) ═══════════════
+    
+    if user_id in edit_tokens_state:
+        st = edit_tokens_state[user_id]
+        mode = st.get("mode")
+        
+        if mode == "edit_tokens":
+            idx = st["idx"]
+            field = st["field"]
+            packs = get_tokens_packs()
+            if idx < 0 or idx >= len(packs):
+                edit_tokens_state.pop(user_id, None)
+                await message.answer("❌ Пакет не найден", parse_mode="HTML")
+                return
+            try:
+                num = int(text.strip())
+            except ValueError:
+                await message.answer("❌ Введи число:", parse_mode="HTML")
+                return
+            if num < 1:
+                await message.answer("❌ Минимум 1", parse_mode="HTML")
+                return
+            packs[idx][field] = num
+            save_tokens_packs(packs)
+            edit_tokens_state.pop(user_id, None)
+            await message.answer("✅ Обновлено! /admin", parse_mode="HTML")
+            return
+        
+        if mode == "new_tokens":
+            step = st.get("step")
+            if step == "amount":
+                try:
+                    num = int(text.strip())
+                except ValueError:
+                    await message.answer("❌ Введи число:", parse_mode="HTML")
+                    return
+                if num < 1:
+                    await message.answer("❌ Минимум 1", parse_mode="HTML")
+                    return
+                st["amount"] = num
+                st["step"] = "stars"
+                edit_tokens_state[user_id] = st
+                await message.answer("Введи цену в Stars:", parse_mode="HTML")
+                return
+            
+            if step == "stars":
+                try:
+                    num = int(text.strip())
+                except ValueError:
+                    await message.answer("❌ Введи число:", parse_mode="HTML")
+                    return
+                if num < 1:
+                    await message.answer("❌ Минимум 1", parse_mode="HTML")
+                    return
+                
+                packs = get_tokens_packs()
+                packs.append({
+                    "id": f"tokens_{st['amount']}_{int(time.time())}",
+                    "amount": st["amount"],
+                    "stars": num,
+                    "active": True,
+                })
+                save_tokens_packs(packs)
+                edit_tokens_state.pop(user_id, None)
+                await message.answer("✅ Пакет добавлен! /admin", parse_mode="HTML")
+                return
     
     # ═══════════════ РЕДАКТОР МАГАЗИНА: ЦЕНА ЛОТА ═══════════════
     if user_id in edit_shop_state:
@@ -9604,6 +9789,55 @@ def api_vip_buy():
 @app.route("/api/xp")
 def api_xp():
     return jsonify(get_xp_packs())
+
+    # ═══════════════ API: TOKENS-ПАКИ ═══════════════
+
+@app.route("/api/tokens-packs")
+def api_tokens_packs():
+    """Список Tokens-паков (активных)."""
+    packs = get_tokens_packs()
+    return jsonify([p for p in packs if p.get("active", True)])
+
+
+@app.route("/api/tokens-packs/buy", methods=["POST"])
+def api_tokens_packs_buy():
+    """Создаёт счёт на Stars для покупки Tokens-пака."""
+    import requests as _requests
+    
+    data = request.json
+    user_id = data.get("user_id")
+    pack_id = data.get("pack_id")
+    
+    if not user_id or not pack_id:
+        return jsonify({"error": "Missing"}), 400
+    
+    pack = get_tokens_pack_by_id(pack_id)
+    if not pack:
+        return jsonify({"error": "Pack not found"}), 404
+    
+    stars = pack.get("stars", 0)
+    if not stars or stars < 1:
+        return jsonify({"error": "Not available"}), 400
+    
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
+        payload = {
+            "title": f"{fmt_num(pack['amount'])} Tokens",
+            "description": f"Покупка {fmt_num(pack['amount'])} Tokens",
+            "payload": f"tokens_{pack_id}",
+            "currency": "XTR",
+            "prices": json.dumps([
+                {"label": f"{fmt_num(pack['amount'])} Tokens", "amount": int(stars)}
+            ]),
+        }
+        r = _requests.post(url, data=payload, timeout=15)
+        result = r.json()
+        
+        if result.get("ok"):
+            return jsonify({"invoice_url": result["result"]})
+        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/xp/buy", methods=["POST"])
