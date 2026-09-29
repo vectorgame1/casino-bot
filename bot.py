@@ -9825,50 +9825,7 @@ def api_credits(user_id):
     })
 
 
-@app.route("/api/credits/take", methods=["POST"])
-def api_credits_take():
-    """Взять кредит."""
-    data = request.json
-    user_id = data.get("user_id")
-    amount = data.get("amount")
-    
-    if not user_id or not amount:
-        return jsonify({"error": "Missing"}), 400
-    
-    try:
-        amount = int(amount)
-    except Exception:
-        return jsonify({"error": "Invalid amount"}), 400
-    
-    ok, msg, due_at = issue_credit(user_id, amount)
-    if not ok:
-        return jsonify({"error": msg}), 400
-    
-    return jsonify({
-        "success": True,
-        "amount": amount,
-        "due_at": due_at.isoformat() if due_at else None,
-        "balance": get_balance(user_id),
-    })
 
-
-@app.route("/api/credits/return", methods=["POST"])
-def api_credits_return():
-    """Вернуть кредит."""
-    data = request.json
-    user_id = data.get("user_id")
-    
-    if not user_id:
-        return jsonify({"error": "Missing"}), 400
-    
-    ok, msg = return_credit(user_id)
-    if not ok:
-        return jsonify({"error": msg}), 400
-    
-    return jsonify({
-        "success": True,
-        "balance": get_balance(user_id),
-    })
 
 
 # ═══════════════ API: СТАТУС ИГР ═══════════════
