@@ -45,7 +45,7 @@ BOT_USERNAME = "gold1_casino_bot"
 GROUP_URL = "https://t.me/+xrmEcGndccs5ZGFi"
 EXCHANGE_CHAT_URL = "https://t.me/Tokenschange"
 EXCHANGE_CHAT_ID = -1001234567890  # ← ЗАМЕНИ на реальный ID чата обмена
-MINI_APP_URL = "https://thriving-lokum-1f7004.netlify.app"
+MINI_APP_URL = "https://casino-miniapp.pages.dev"
 TOURNAMENT_CHANNEL = "@TokenCasinoTournaments"
 
 # Время по Минску (UTC+3)
