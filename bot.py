@@ -9671,40 +9671,6 @@ def api_shop_buy():
         return jsonify({"error": str(e)}), 500
 
 
-# ═══════════════ TOKENS-ПАКИ ═══════════════
-
-@app.route("/api/tokens-packs")
-def api_tokens_packs():
-    return jsonify(get_tokens_packs())
-
-
-@app.route("/api/tokens-packs/buy", methods=["POST"])
-def api_tokens_packs_buy():
-    import requests as _requests
-    data = request.json
-    user_id = data.get("user_id")
-    pack_id = data.get("pack_id")
-    if not user_id or not pack_id:
-        return jsonify({"error": "Missing"}), 400
-    pack = get_tokens_pack_by_id(pack_id)
-    if not pack:
-        return jsonify({"error": "Pack not found"}), 404
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink"
-        payload = {
-            "title": f"💰 {fmt_num(pack['amount'])} Tokens",
-            "description": f"Покупка {fmt_num(pack['amount'])} Tokens",
-            "payload": f"tokens_{pack_id}",
-            "currency": "XTR",
-            "prices": json.dumps([{"label": f"{fmt_num(pack['amount'])} Tokens", "amount": int(pack["stars"])}]),
-        }
-        r = _requests.post(url, data=payload, timeout=15)
-        result = r.json()
-        if result.get("ok"):
-            return jsonify({"invoice_url": result["result"]})
-        return jsonify({"error": f"Telegram: {result.get('description', 'unknown')}"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 # ═══════════════ КЕЙСЫ ═══════════════
