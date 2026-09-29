@@ -7433,8 +7433,8 @@ async def callback_handler(call: CallbackQuery):
     # ═══════════════ АДМИН ═══════════════
     
     if data.startswith("admin_") or data.startswith("rates_"):
-    await handle_admin_callback(call)
-    return
+        await handle_admin_callback(call)
+        return
     
     # ═══════════════ РЕДАКТОРЫ ═══════════════
     
