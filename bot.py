@@ -10005,34 +10005,7 @@ def api_bank_withdraw():
     })
 
 
-# ═══════════════ КРЕДИТЫ ═══════════════
 
-@app.route("/api/credits/<int:user_id>")
-def api_credits(user_id):
-    if is_banned(user_id):
-        return jsonify({"error": "Banned"}), 403
-    info = get_credit_amount_info(user_id)
-    history = get_credit_history(user_id, 10)
-    
-    history_list = []
-    for cid, amount, issued, due, returned, status in history:
-        if issued and issued.tzinfo is None:
-            issued = issued.replace(tzinfo=TZ_MINSK)
-        if due and due.tzinfo is None:
-            due = due.replace(tzinfo=TZ_MINSK)
-        history_list.append({
-            "id": cid,
-            "amount": amount,
-            "issued_at": issued.isoformat() if issued else None,
-            "due_at": due.isoformat() if due else None,
-            "returned_at": returned.isoformat() if returned else None,
-            "status": status,
-        })
-    
-    return jsonify({
-        "info": info,
-        "history": history_list,
-    })
 
 
 @app.route("/api/credits/take", methods=["POST"])
