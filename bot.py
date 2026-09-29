@@ -576,6 +576,12 @@ def strip_html(text: str) -> str:
 def clean_alert(msg: str) -> str:
     """Очищает сообщение для alert."""
     return strip_html(msg).strip()
+async def safe_alert(call, text: str):
+    """Отправляет alert с очисткой HTML. Для aiogram 3."""
+    try:
+        await call.answer(clean_alert(text), show_alert=True)
+    except Exception as e:
+        logger.error(f"[safe_alert] {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -6338,15 +6344,7 @@ async def callback_handler(call: CallbackQuery):
     ensure_user(user_id, username)
 
     
-    # ⚠️ ДОБАВЬ: обёртка для alert
-    original_answer = call.answer
-    async def _safe_answer(text=None, **kwargs):
-        if text and kwargs.get('show_alert'):
-            text = clean_alert(text)
-        return await original_answer(text, **kwargs)
-    call.answer = _safe_answer
     
-    # ... остальной код
     
     if call.message and call.message.chat and call.message.chat.id < 0:
         track_group_member(call.message.chat.id, user_id, username)
@@ -7634,13 +7632,7 @@ async def handle_admin_callback(call: CallbackQuery):
     user_id = call.from_user.id
 
     
-    # ⚠️ ДОБАВЬ: обёртка для alert
-    original_answer = call.answer
-    async def _safe_answer(text=None, **kwargs):
-        if text and kwargs.get('show_alert'):
-            text = clean_alert(text)
-        return await original_answer(text, **kwargs)
-    call.answer = _safe_answer
+    
     
     # ... остальной код
     
@@ -8301,13 +8293,7 @@ async def handle_editor_callback(call: CallbackQuery):
     data = call.data
     user_id = call.from_user.id
 
-    original_answer = call.answer
-    async def _safe_answer(text=None, **kwargs):
-        if text and kwargs.get('show_alert'):
-            text = clean_alert(text)
-        return await original_answer(text, **kwargs)
-    call.answer = _safe_answer
-
+    
     if user_id != ADMIN_ID:
         await call.answer("❌ Только для админа", show_alert=True)
         return
