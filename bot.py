@@ -10193,6 +10193,10 @@ def api_game_roulette():
     user_id = data.get("user_id")
     bet = int(data.get("bet", 0))
     choice = data.get("choice", "red")
+      
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
     
     if not user_id or bet < 10:
         return jsonify({"error": "Invalid bet"}), 400
@@ -10249,8 +10253,9 @@ def api_game_slots():
     user_id = data.get("user_id")
     bet = int(data.get("bet", 0))
     
-    if not user_id or bet < 10:
-        return jsonify({"error": "Invalid bet"}), 400
+        # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
     
     ok, err = check_bet_limit("slots", bet)
     if not ok:
@@ -10305,8 +10310,9 @@ def api_game_coin():
     bet = int(data.get("bet", 0))
     choice = data.get("choice", "heads")
     
-    if not user_id or bet < 10:
-        return jsonify({"error": "Invalid bet"}), 400
+        # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
     
     ok, err = check_bet_limit("coin", bet)
     if not ok:
@@ -10349,7 +10355,11 @@ def api_mines_start():
     user_id = data.get("user_id")
     bet = int(data.get("bet", 0))
     level = data.get("level", "easy")
-    
+
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
+
     if not user_id or bet < 10 or level not in MINES_LEVELS:
         return jsonify({"error": "Invalid"}), 400
     
@@ -10386,10 +10396,13 @@ def api_mines_start():
 
 @app.route("/api/game/mines/open", methods=["POST"])
 def api_mines_open():
-    data = request.json
-    user_id = data.get("user_id")
+        user_id = data.get("user_id")
     idx = int(data.get("idx", -1))
-    
+
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
+
     if not user_id or idx < 0 or idx > 24:
         return jsonify({"error": "Invalid"}), 400
     
@@ -10472,6 +10485,11 @@ def api_mines_open():
 def api_mines_cashout():
     data = request.json
     user_id = data.get("user_id")
+
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
+
     if not user_id:
         return jsonify({"error": "Invalid"}), 400
     
@@ -10632,7 +10650,12 @@ def api_crash_state():
 @app.route("/api/crash/bet", methods=["POST"])
 def api_crash_bet():
     data = request.json
-    user_id = data.get("user_id")
+        user_id = data.get("user_id")
+
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
+
     username = data.get("username") or f"user_{user_id}"
     bet = int(data.get("bet", 0))
     auto_cashout = data.get("auto_cashout")
@@ -10641,7 +10664,7 @@ def api_crash_bet():
             auto_cashout = float(auto_cashout)
         except Exception:
             auto_cashout = None
-    
+
     if not user_id or bet < 10:
         return jsonify({"error": "Invalid bet"}), 400
     
@@ -10720,11 +10743,16 @@ def generate_plinko_drop():
 
 @app.route("/api/plinko/play", methods=["POST"])
 def api_plinko_play():
-    data = request.json
+        data = request.json
     user_id = data.get("user_id")
+
+    # 🆕 ЗАЩИТА: бан + кредит-блок
+    if is_banned(user_id) or is_credit_blocked(user_id):
+        return jsonify({"error": "Blocked"}), 403
+
     bet = int(data.get("bet", 0))
     risk = data.get("risk", "medium")
-    
+
     if not user_id or bet < 10:
         return jsonify({"error": "Invalid bet"}), 400
     if risk not in PLINKO_MULTIPLIERS:
