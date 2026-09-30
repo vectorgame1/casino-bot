@@ -10650,7 +10650,7 @@ def api_crash_state():
 @app.route("/api/crash/bet", methods=["POST"])
 def api_crash_bet():
     data = request.json
-        user_id = data.get("user_id")
+    user_id = data.get("user_id")
 
     # 🆕 ЗАЩИТА: бан + кредит-блок
     if is_banned(user_id) or is_credit_blocked(user_id):
