@@ -5779,7 +5779,7 @@ async def text_handler_group(message: Message):
         for b in bets:
             win_amount = 0
             
-                if b["type"] == "red" and result in RED_NUMBERS:
+            if b["type"] == "red" and result in RED_NUMBERS:
                     win_amount = int(b["bet"] * ROULETTE_PAYOUTS["red"])
                 elif b["type"] == "black" and result in BLACK_NUMBERS:
                     win_amount = int(b["bet"] * ROULETTE_PAYOUTS["black"])
