@@ -5799,11 +5799,11 @@ async def text_handler_group(message: Message):
             log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
             update_daily_quest(b["user_id"], "daily_win_1", 1)
                 
-        if is_unlimited(b["user_id"]):
-            winners.append(f"🏆 @{b['username']} — ♾️")
+            if is_unlimited(b["user_id"]):
+                winners.append(f"🏆 @{b['username']} — ♾️")
+            else:
+                winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
         else:
-            winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
-    else:
         log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
         losers.append(f"😢 @{b['username']}")
         
