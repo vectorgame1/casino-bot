@@ -9319,26 +9319,12 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
         return True
     
     if text == "💳 Кредиты":
-        # Админ → статистика
-        if user_id == ADMIN_ID:
-            stats = get_all_credits_stats()
-            txt = (
-                f"💳 <b>КРЕДИТЫ</b>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"✅ Активных: <b>{stats['active_count']}</b>\n"
-                f"💰 Сумма: <b>{fmt_num(stats['active_sum'])}</b>\n\n"
-                f"🚫 Просрочено: <b>{stats['overdue_count']}</b>\n"
-                f"💰 Сумма: <b>{fmt_num(stats['overdue_sum'])}</b>\n\n"
-                f"📊 Всего: <b>{stats['total_count']}</b>\n"
-                f"💰 Сумма: <b>{fmt_num(stats['total_sum'])}</b>"
-            )
-            await message.answer(txt, parse_mode="HTML", reply_markup=admin_credits_kb())
-            return True
-    # Игрок → карточка
-    info = get_credit_amount_info(user_id)
-    status = info.get("status", "available")
-    await message.answer(credits_text(user_id), parse_mode="HTML", reply_markup=credits_kb(status))
-    return True
+        info = get_credit_amount_info(user_id)
+        status = info.get("status", "available")
+        await message.answer(credits_text(user_id), parse_mode="HTML", reply_markup=credits_kb(status))
+        return True
+                
+    
     
     if text == "👤 Профиль":
         await cmd_profile(message)
