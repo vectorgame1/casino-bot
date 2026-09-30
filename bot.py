@@ -7810,11 +7810,11 @@ async def handle_admin_callback(call: CallbackQuery):
     # ═══════════════ УПРАВЛЕНИЕ ИГРОКОМ ═══════════════
     
     if data.startswith("adm_add_"):
-    uid = int(data.replace("adm_add_", ""))
-    set_balance(uid, 1000)
-    await call.answer("✅ +1000", show_alert=True)
-    await _refresh_edit_user_card(call, uid)   # 🆕
-    return
+        uid = int(data.replace("adm_add_", ""))
+        set_balance(uid, 1000)
+        await call.answer("✅ +1000", show_alert=True)
+        await _refresh_edit_user_card(call, uid)   # 🆕
+        return
 
     if data.startswith("adm_sub_"):
         uid = int(data.replace("adm_sub_", ""))
