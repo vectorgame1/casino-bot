@@ -5804,8 +5804,8 @@ async def text_handler_group(message: Message):
             else:
                 winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
         else:
-        log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
-        losers.append(f"😢 @{b['username']}")
+            log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
+            losers.append(f"😢 @{b['username']}")
         
         # Красивый результат
         result_txt = (
