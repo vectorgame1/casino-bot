@@ -10397,7 +10397,7 @@ def api_mines_start():
 @app.route("/api/game/mines/open", methods=["POST"])
 def api_mines_open():
         user_id = data.get("user_id")
-    idx = int(data.get("idx", -1))
+        idx = int(data.get("idx", -1))
 
     # 🆕 ЗАЩИТА: бан + кредит-блок
     if is_banned(user_id) or is_credit_blocked(user_id):
