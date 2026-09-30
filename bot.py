@@ -7455,7 +7455,7 @@ async def callback_handler(call: CallbackQuery):
     
     # ═══════════════ АДМИН ═══════════════
     
-    if data.startswith("admin_") or data.startswith("rates_"):
+    if data.startswith("admin_") or data.startswith("adm_") or data.startswith("rates_"):
         await handle_admin_callback(call)
         return
     
@@ -7810,23 +7810,26 @@ async def handle_admin_callback(call: CallbackQuery):
     # ═══════════════ УПРАВЛЕНИЕ ИГРОКОМ ═══════════════
     
     if data.startswith("adm_add_"):
-        uid = int(data.replace("adm_add_", ""))
-        set_balance(uid, 1000)
-        await call.answer("✅ +1000", show_alert=True)
-        return
-    
+    uid = int(data.replace("adm_add_", ""))
+    set_balance(uid, 1000)
+    await call.answer("✅ +1000", show_alert=True)
+    await _refresh_edit_user_card(call, uid)   # 🆕
+    return
+
     if data.startswith("adm_sub_"):
         uid = int(data.replace("adm_sub_", ""))
         set_balance(uid, -1000)
         await call.answer("✅ -1000", show_alert=True)
+        await _refresh_edit_user_card(call, uid)   # 🆕
         return
-    
+
     if data.startswith("adm_zero_"):
         uid = int(data.replace("adm_zero_", ""))
         set_balance_exact(uid, 0)
         await call.answer("✅ Баланс обнулён", show_alert=True)
+        await _refresh_edit_user_card(call, uid)   # 🆕
         return
-    
+
     if data.startswith("adm_stats_"):
         uid = int(data.replace("adm_stats_", ""))
         conn = get_conn()
@@ -7838,8 +7841,9 @@ async def handle_admin_callback(call: CallbackQuery):
         release_conn(conn)
         cache_invalidate(f"xp_{uid}")
         await call.answer("✅ Статистика обнулена", show_alert=True)
+        await _refresh_edit_user_card(call, uid)   # 🆕
         return
-    
+
     if data.startswith("adm_refs_"):
         uid = int(data.replace("adm_refs_", ""))
         conn = get_conn()
@@ -7849,7 +7853,10 @@ async def handle_admin_callback(call: CallbackQuery):
         c.close()
         release_conn(conn)
         await call.answer("✅ Рефералы обнулены", show_alert=True)
+        await _refresh_edit_user_card(call, uid)   # 🆕
         return
+    
+    
     
     if data.startswith("adm_del_"):
         uid = int(data.replace("adm_del_", ""))
@@ -9312,10 +9319,26 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
         return True
     
     if text == "💳 Кредиты":
-        info = get_credit_amount_info(user_id)
-        status = info.get("status", "available")
-        await message.answer(credits_text(user_id), parse_mode="HTML", reply_markup=credits_kb(status))
+    # Админ → статистика
+    if user_id == ADMIN_ID:
+        stats = get_all_credits_stats()
+        txt = (
+            f"💳 <b>КРЕДИТЫ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"✅ Активных: <b>{stats['active_count']}</b>\n"
+            f"💰 Сумма: <b>{fmt_num(stats['active_sum'])}</b>\n\n"
+            f"🚫 Просрочено: <b>{stats['overdue_count']}</b>\n"
+            f"💰 Сумма: <b>{fmt_num(stats['overdue_sum'])}</b>\n\n"
+            f"📊 Всего: <b>{stats['total_count']}</b>\n"
+            f"💰 Сумма: <b>{fmt_num(stats['total_sum'])}</b>"
+        )
+        await message.answer(txt, parse_mode="HTML", reply_markup=admin_credits_kb())
         return True
+    # Игрок → карточка
+    info = get_credit_amount_info(user_id)
+    status = info.get("status", "available")
+    await message.answer(credits_text(user_id), parse_mode="HTML", reply_markup=credits_kb(status))
+    return True
     
     if text == "👤 Профиль":
         await cmd_profile(message)
@@ -9438,17 +9461,7 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
         )
         return True
     
-    if text == "💳 Кредиты":
-        stats = get_all_credits_stats()
-        txt = (
-            f"💳 <b>КРЕДИТЫ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"✅ Активных: <b>{stats['active_count']}</b>\n"
-            f"🚫 Просрочено: <b>{stats['overdue_count']}</b>\n"
-            f"📊 Всего: <b>{stats['total_count']}</b>"
-        )
-        await message.answer(txt, parse_mode="HTML", reply_markup=admin_credits_kb())
-        return True
+    
     
     if text == "📋 Все команды":
         await message.answer(
