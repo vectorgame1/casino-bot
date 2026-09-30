@@ -2348,16 +2348,24 @@ def return_credit(user_id: int) -> tuple:
             f"аккаунт будет <b>заблокирован</b>."
         )
     
-    set_balance(user_id, -amount)
-    
+        set_balance(user_id, -amount)
+
     conn = get_conn()
     c = conn.cursor()
     c.execute("""UPDATE credits SET status = 'returned', returned_at = NOW()
                  WHERE id = %s""", (credit_id,))
+    
+    # 🆕 СНЯТЬ БАН ПО КРЕДИТУ
+    c.execute("""UPDATE users SET credit_blocked = FALSE, banned = FALSE
+                 WHERE user_id = %s""", (user_id,))
+    
     conn.commit()
     c.close()
     release_conn(conn)
-    
+
+    # 🆕 СБРОСИТЬ КЭШ БАНА
+    cache_invalidate(f"banned_{user_id}")
+
     new_balance = get_balance(user_id)
     return True, (
         f"✅ <b>Кредит возвращён!</b>\n\n"
