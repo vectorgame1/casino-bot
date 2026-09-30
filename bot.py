@@ -5779,22 +5779,20 @@ async def text_handler_group(message: Message):
         for b in bets:
             win_amount = 0
             
-            if b["type"] == "red" and result in RED_NUMBERS:
-                win_amount = int(b["bet_total"] * ROULETTE_PAYOUTS["red"])
-            elif b["type"] == "black" and result in BLACK_NUMBERS:
-                win_amount = int(b["bet_total"] * ROULETTE_PAYOUTS["black"])
-            elif b["type"] == "green" and result == 0:
-                win_amount = int(b["bet_total"] * ROULETTE_PAYOUTS["zero"])
-            elif b["type"] == "ranges":
-                mult = calc_best_range_mult(b["ranges"], result)
-                if mult > 0:
-                    win_amount = int(b["bet_total"] * mult)
-            
-            # Event ×2 + boost
-            if win_amount > 0:
-                win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
-                # Лимит стола
-                win_amount = cap_win(win_amount)
+                if b["type"] == "red" and result in RED_NUMBERS:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["red"])
+                elif b["type"] == "black" and result in BLACK_NUMBERS:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["black"])
+                elif b["type"] == "green" and result == 0:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["zero"])
+                elif b["type"] == "ranges":
+                    mult = calc_best_range_mult(b["ranges"], result)
+                    if mult > 0:
+                        win_amount = int(b["bet"] * mult)
+                
+                # Event ×2 + boost
+                if win_amount > 0:
+                    win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
                 
                 set_balance(b["user_id"], win_amount)
                 pay_ref_commission(b["user_id"], win_amount)
