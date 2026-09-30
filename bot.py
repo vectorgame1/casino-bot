@@ -5793,11 +5793,11 @@ async def text_handler_group(message: Message):
         # Event ×2 + boost
         if win_amount > 0:
             win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
-                
-                set_balance(b["user_id"], win_amount)
-                pay_ref_commission(b["user_id"], win_amount)
-                log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
-                update_daily_quest(b["user_id"], "daily_win_1", 1)
+
+            set_balance(b["user_id"], win_amount)
+            pay_ref_commission(b["user_id"], win_amount)
+            log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
+            update_daily_quest(b["user_id"], "daily_win_1", 1)
                 
                 if is_unlimited(b["user_id"]):
                     winners.append(f"🏆 @{b['username']} — ♾️")
