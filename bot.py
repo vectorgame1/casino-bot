@@ -10743,7 +10743,7 @@ def generate_plinko_drop():
 
 @app.route("/api/plinko/play", methods=["POST"])
 def api_plinko_play():
-        data = request.json
+    data = request.json
     user_id = data.get("user_id")
 
     # 🆕 ЗАЩИТА: бан + кредит-блок
