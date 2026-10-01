@@ -1920,7 +1920,8 @@ def pay_daily_cashback() -> int:
     rows = c.fetchall()
     paid = 0
     for uid, uname, lost in rows:
-        base = int(lost * 5 / 100)
+        user_cashback = get_user_cashback_percent(uid)
+        base = int(lost * user_cashback / 100)
         if base < 100:
             continue
         try:
