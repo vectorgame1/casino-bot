@@ -10623,6 +10623,36 @@ def api_jackpot():
     return jsonify({"jackpot": get_jackpot()})
 
 
+
+# ═══════════════ ТУРНИР ═══════════════
+
+@app.route("/api/tournament")
+def api_tournament():
+    """Активный турнир + топ-10."""
+    t = get_active_tournament()
+    if not t:
+        return jsonify({"active": False})
+    
+    tid, name, started, ends, p1, p2, p3 = t
+    top = get_tournament_top(tid, 10)
+    
+    if ends and ends.tzinfo is None:
+        ends = ends.replace(tzinfo=TZ_MINSK)
+    
+    return jsonify({
+        "active": True,
+        "id": tid,
+        "name": name,
+        "ends_at": ends.isoformat() if ends else None,
+        "prize_1": p1,
+        "prize_2": p2,
+        "prize_3": p3,
+        "top": [
+            {"user_id": uid, "username": uname, "total_won": total}
+            for uid, uname, total in top
+        ],
+    })аа
+
 # ═══════════════ ИГРА: РУЛЕТКА ═══════════════
 
 @app.route("/api/game/roulette", methods=["POST"])
