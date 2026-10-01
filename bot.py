@@ -5965,7 +5965,7 @@ async def text_handler_group(message: Message):
             await message.reply("❌ Недостаточно!")
             return
         ensure_user(target.id, target.username or target.first_name)
-                set_balance(user_id, -amount)
+        set_balance(user_id, -amount)
         set_balance(target.id, amount)
         # 🆕 Лог в transactions
         log_transaction(user_id, "transfer_out", -amount, f"→ @{target.username or target.first_name}")
