@@ -5903,7 +5903,7 @@ async def text_handler_group(message: Message):
         bal = get_balance(user_id)
     if bal < amount and not is_unlimited(user_id):
             await message.reply("❌ Недостаточно!")
-        return
+            return
          set_balance(user_id, -amount)
         new_bank = set_bank(user_id, amount)
         # 🆕 Лог в transactions
