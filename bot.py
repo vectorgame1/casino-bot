@@ -4795,6 +4795,8 @@ def build_bot_stats() -> str:
         f"• Сумма: <b>{fmt_num(credits_sum)}</b>\n"
     )
     return text
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
 
 
 @dp.message(Command("userstats", "стат"))
@@ -4876,9 +4878,7 @@ def all_commands_text() -> str:
 # ЧАСТЬ 8/15 — ХЕНДЛЕРЫ КОМАНД (БАЗОВЫЕ)
 # ═══════════════════════════════════════════════════════════════
 
-# Инициализация бота и диспетчера (в конце файла — обязательно)
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+
 
 
 # ═══════════════ /start ═══════════════
