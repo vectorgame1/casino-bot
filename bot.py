@@ -879,6 +879,19 @@ def init_db():
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS win_streak INT DEFAULT 0")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS credit_blocked BOOLEAN DEFAULT FALSE")
 
+        # ═══════════════ TRANSACTIONS (лог всех операций) ═══════════════
+    c.execute("""CREATE TABLE IF NOT EXISTS transactions (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        type TEXT NOT NULL,
+        amount BIGINT NOT NULL,
+        detail TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id, created_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
+
+
     # ═══════════════ ИНДЕКСЫ ═══════════════
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_balance ON users(balance DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_xp ON users(xp DESC)")
@@ -1177,6 +1190,21 @@ def get_user_stats(user_id: int) -> dict:
         "fav_game": fav[0] if fav else "—",
         "winrate": round(total_wins / total_games * 100) if total_games > 0 else 0,
     }
+def log_transaction(user_id: int, type_: str, amount: int, detail: str = ""):
+    """Записывает транзакцию в единый лог."""
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("""INSERT INTO transactions (user_id, type, amount, detail)
+                     VALUES (%s, %s, %s, %s)""",
+                  (user_id, type_, clamp(amount), detail))
+        conn.commit()
+        c.close()
+        release_conn(conn)
+    except Exception as e:
+        logger.error(f"[log_transaction] {e}")
+
+
 
 
 # ═══════════════ ЛОГИ ═══════════════
@@ -1188,17 +1216,26 @@ def log_game(user_id: int, username: str, game: str, bet: int, win: int, detail:
                  VALUES (%s, %s, %s, %s, %s, %s, %s)""",
               (user_id, username, game, clamp(bet), clamp(win), detail,
                datetime.now(TZ_MINSK).strftime("%H:%M:%S")))
+    
     if win > 0:
         c.execute("UPDATE users SET total_won = total_won + %s WHERE user_id = %s", (win, user_id))
     else:
         c.execute("UPDATE users SET total_lost = total_lost + %s WHERE user_id = %s", (bet, user_id))
+    
     conn.commit()
     c.close()
     release_conn(conn)
     cache_invalidate("top_balance")
     cache_invalidate("top_xp")
+    
     if win > 0:
         update_tournament_score(user_id, username, win)
+    
+    # 🆕 Лог в transactions
+    if win > 0:
+        log_transaction(user_id, "game_win", win, f"{game}: {detail}")
+    else:
+        log_transaction(user_id, "game_loss", -bet, f"{game}: {detail}")
 
 
 def get_last_roulette_results(limit: int = 10, chat_id: int = None):
@@ -1662,6 +1699,9 @@ def set_referrer(user_id: int, referrer_id: int) -> bool:
     set_balance(user_id, REF_BONUS_REFERRED)
     set_balance(referrer_id, REF_BONUS_REFERRER)
     add_ref_earnings(referrer_id, REF_BONUS_REFERRER)
+    # 🆕 Лог в transactions
+    log_transaction(user_id, "ref_bonus", REF_BONUS_REFERRED, "Бонус за реферала")
+    log_transaction(referrer_id, "ref_bonus", REF_BONUS_REFERRER, "Пригласил друга")
     return True
 
 
@@ -1765,7 +1805,9 @@ def claim_daily(user_id: int) -> bool:
     c.close()
     release_conn(conn)
     set_balance(user_id, DAILY_BONUS)
-    update_daily_quest(user_id, "daily_win_1", 0)  # просто триггерим
+    # 🆕 Лог в transactions
+    log_transaction(user_id, "bonus_daily", DAILY_BONUS, "Ежедневный бонус")
+    update_daily_quest(user_id, "daily_win_1", 0)
     return True
 
 
@@ -1883,6 +1925,8 @@ def pay_daily_cashback() -> int:
             continue
         try:
             set_balance(uid, base)
+            # 🆕 Лог в transactions
+            log_transaction(uid, "cashback", base, "Ежедневный кэшбэк")
             c.execute("""INSERT INTO daily_cashback (user_id, amount)
                          VALUES (%s, %s) ON CONFLICT (user_id, date) DO NOTHING""",
                       (uid, base))
@@ -1985,13 +2029,14 @@ def claim_daily_quest(user_id: int, quest_key: str) -> int:
         release_conn(conn)
         return 0
     c.execute("""UPDATE daily_quests SET claimed = TRUE
-                 WHERE user_id = %s AND quest_key = %s""", (user_id, quest_key))
+                WHERE user_id = %s AND quest_key = %s""", (user_id, quest_key))
     conn.commit()
     c.close()
     release_conn(conn)
     set_balance(user_id, q["reward"])
+    # 🆕 Лог в transactions
+    log_transaction(user_id, "quest_claim", q["reward"], f"Задание: {q['name']}")
     return q["reward"]
-
 
 # ═══════════════ НАГРАДЫ ЗА УРОВНИ ═══════════════
 
@@ -2032,6 +2077,8 @@ def check_level_rewards(user_id: int, new_level: int) -> list:
             continue
         if r["type"] == "tokens":
             set_balance(user_id, r["value"])
+            # 🆕 Лог в transactions
+            log_transaction(user_id, "level_reward", r["value"], f"Уровень {r['level']}")
             given.append(f"🏆 Уровень {r['level']} — +{fmt_num(r['value'])} Tokens")
         elif r["type"] == "cashback":
             given.append(f"🏆 Уровень {r['level']} — кэшбэк +{r['value']}%")
@@ -2314,6 +2361,10 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     release_conn(conn)
     
     set_balance(user_id, amount)
+    # 🆕 Лог в transactions
+    log_transaction(user_id, "credit_take", amount, f"Кредит {amount}")
+    
+    try:
     
     try:
         asyncio.create_task(notify_admin_credit(user_id, amount, due_at))
@@ -2350,6 +2401,10 @@ def return_credit(user_id: int) -> tuple:
     
         set_balance(user_id, -amount)
 
+        set_balance(user_id, -amount)
+    # 🆕 Лог в transactions
+    log_transaction(user_id, "credit_return", -amount, f"Возврат кредита")
+
     conn = get_conn()
     c = conn.cursor()
     c.execute("""UPDATE credits SET status = 'returned', returned_at = NOW()
@@ -2367,11 +2422,7 @@ def return_credit(user_id: int) -> tuple:
     cache_invalidate(f"banned_{user_id}")
 
     new_balance = get_balance(user_id)
-    return True, (
-        f"✅ <b>Кредит возвращён!</b>\n\n"
-        f"💰 Списано: <b>{fmt_num(amount)}</b> Tokens\n"
-        f"💎 Новый баланс: <b>{fmt_num(new_balance)}</b> Tokens"
-    )
+    
 
 
 def check_overdue_credits() -> list:
@@ -2840,6 +2891,8 @@ def apply_case_reward(user_id: int, reward: dict) -> str:
     if t == "tokens":
         amount = int(reward.get("amount", 0))
         set_balance(user_id, amount)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "case_reward", amount, "Награда из кейса")
         return f"💰 +{fmt_num(amount)} Tokens"
     
     if t == "boost":
@@ -4474,6 +4527,308 @@ def purchases_text(limit: int = 20) -> str:
             f"📍 {source} | 🕐 {time_str}\n\n"
         )
     return txt
+# ═══════════════ СТАТИСТИКА (АДМИН) ═══════════════
+
+def build_stats_summary(uid: int) -> tuple:
+    """Краткая статистика игрока + кнопки."""
+    user = get_user(uid)
+    if not user:
+        return "❌ Игрок не найден", None
+
+    username = user[0] or f"user_{uid}"
+    balance = get_balance(uid)
+    bank = get_bank(uid)
+    xp = get_xp(uid)
+    level = xp // 100
+    rank = get_rank_name(level)
+    stats = get_user_stats(uid)
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT
+        COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+        COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0)
+        FROM transactions WHERE user_id = %s""", (uid,))
+    total_in, total_out = c.fetchone()
+    c.execute("SELECT COUNT(*) FROM credits WHERE user_id = %s", (uid,))
+    credits_count = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT MIN(created_at) FROM transactions WHERE user_id = %s", (uid,))
+    reg_row = c.fetchone()
+    reg_date = reg_row[0].strftime('%d.%m.%Y') if reg_row and reg_row[0] else "?"
+    c.close()
+    release_conn(conn)
+
+    vip_tier = get_vip_tier(uid)
+    vip_str = "нет"
+    if vip_tier > 0:
+        info = get_vip_tier_info(vip_tier)
+        if info:
+            vip_str = f"{info['icon']} {info['name']}"
+
+    title = get_main_title(uid) or "—"
+
+    text = (
+        f"📊 <b>СТАТИСТИКА ИГРОКА</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>@{username}</b>\n"
+        f"🆔 <code>{uid}</code>\n"
+        f"📅 Регистрация: <b>{reg_date}</b>\n"
+        f"🎖 Ранг: <b>{rank}</b>\n"
+        f"⭐ XP: <b>{xp}</b> (уровень {level})\n"
+        f"👑 VIP: <b>{vip_str}</b>\n"
+        f"🏷️ Титул: <b>{title}</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 <b>БАЛАНСЫ</b>\n"
+        f"💎 Баланс: <b>{fmt_num(balance)}</b>\n"
+        f"🏦 Банк: <b>{fmt_num(bank)}</b>\n"
+        f"📊 Всего: <b>{fmt_num(balance + bank)}</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📈 <b>ПРИХОД:</b> +{fmt_num(total_in or 0)}\n"
+        f"📉 <b>РАСХОД:</b> {fmt_num(total_out or 0)}\n"
+        f"🎮 Игр всего: <b>{stats['total_games']}</b>\n"
+        f"🏆 Побед: <b>{stats['total_wins']}</b>\n"
+        f"📈 Винрейт: <b>{stats['winrate']}%</b>\n"
+        f"💳 Кредитов: <b>{credits_count}</b>\n"
+        f"🔥 Best win: <b>{fmt_num(stats['best_win'])}</b>\n"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Подробнее", callback_data=f"stats_detail_{uid}"),
+         InlineKeyboardButton(text="🎮 Игры", callback_data=f"stats_games_{uid}")],
+        [InlineKeyboardButton(text="⭐ Stars", callback_data=f"stats_stars_{uid}"),
+         InlineKeyboardButton(text="📜 Транзакции", callback_data=f"stats_tx_{uid}")],
+        [InlineKeyboardButton(text="🚨 Аномалии", callback_data=f"stats_anomaly_{uid}")],
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"stats_refresh_{uid}")],
+    ])
+    return text, kb
+
+
+def build_stats_detail(uid: int) -> str:
+    """Подробный приход/расход по типам."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT type,
+                 COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+                 COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0),
+                 COUNT(*)
+                 FROM transactions WHERE user_id = %s
+                 GROUP BY type ORDER BY 2 DESC NULLS LAST""", (uid,))
+    rows = c.fetchall()
+    c.close()
+    release_conn(conn)
+
+    type_names = {
+        "game_win": "🏆 Выигрыши", "game_loss": "🎰 Проигрыши",
+        "bonus_start": "🎁 Бонус новичка", "bonus_daily": "🎁 Ежедневный",
+        "bonus_streak": "🔥 Streak", "credit_take": "💳 Кредит взят",
+        "credit_return": "💳 Возврат кредита", "transfer_in": "📥 Переводы (вход)",
+        "transfer_out": "📤 Переводы (выход)", "ref_bonus": "🔗 Рефералка",
+        "ref_commission": "🔗 % с реферала", "shop_buy": "🛒 Покупки",
+        "shop_stars": "⭐ Покупки Stars", "case_reward": "📦 Кейсы",
+        "quest_claim": "🎯 Задания", "level_reward": "🏆 Уровни",
+        "bank_deposit": "🏦 В банк", "bank_withdraw": "🏦 Из банка",
+        "bank_interest": "🏦 % банка", "cashback": "💸 Кэшбэк",
+        "giveaway": "🎁 Розыгрыш", "admin_give": "👑 Админ выдал",
+        "market_buy": "🏪 Рынок (купил)", "market_sell": "🏪 Рынок (продал)",
+        "jackpot": "💎 Джекпот",
+    }
+
+    in_lines, out_lines = [], []
+    for t, ti, to, cnt in rows:
+        name = type_names.get(t, t)
+        if ti and ti > 0:
+            in_lines.append(f"{name}: <b>+{fmt_num(ti)}</b> ({cnt}×)")
+        if to and to < 0:
+            out_lines.append(f"{name}: <b>{fmt_num(to)}</b> ({cnt}×)")
+
+    text = "📊 <b>ПРИХОД / РАСХОД</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text += "📈 <b>ПРИХОД:</b>\n"
+    text += "\n".join(in_lines) if in_lines else "—"
+    text += "\n\n📉 <b>РАСХОД:</b>\n"
+    text += "\n".join(out_lines) if out_lines else "—"
+    return text
+
+
+def build_stats_games(uid: int) -> str:
+    """Статистика по играм."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT game, COUNT(*),
+                 COALESCE(SUM(bet), 0), COALESCE(SUM(win), 0),
+                 COUNT(*) FILTER (WHERE win > 0)
+                 FROM game_log WHERE user_id = %s
+                 GROUP BY game ORDER BY COUNT(*) DESC""", (uid,))
+    rows = c.fetchall()
+    c.close()
+    release_conn(conn)
+
+    text = "🎮 <b>СТАТИСТИКА ПО ИГРАМ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for game, cnt, total_bet, total_win, wins in rows:
+        profit = (total_win or 0) - (total_bet or 0)
+        emoji = "🟢" if profit > 0 else ("🔴" if profit < 0 else "⚪")
+        wr = int(wins / cnt * 100) if cnt else 0
+        text += (
+            f"{emoji} <b>{game}</b>\n"
+            f"   Игр: {cnt} | Побед: {wins} ({wr}%)\n"
+            f"   Профит: <b>{'+' if profit >= 0 else ''}{fmt_num(profit)}</b>\n\n"
+        )
+    return text
+
+
+def build_stats_stars(uid: int) -> str:
+    """Статистика по Stars."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT purchase_type, item_name, price, source, created_at
+                 FROM purchase_log WHERE user_id = %s
+                 ORDER BY id DESC LIMIT 30""", (uid,))
+    rows = c.fetchall()
+    c.close()
+    release_conn(conn)
+
+    if not rows:
+        return "⭐ <b>STARS / ПОКУПКИ</b>\n\nПокупок нет"
+
+    text = f"⭐ <b>STARS / ПОКУПКИ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text += f"📜 <b>Последние покупки:</b>\n"
+    for ptype, iname, price, source, created in rows[:15]:
+        time_str = created.strftime("%d.%m %H:%M") if created else "?"
+        text += f"• {iname} — {price} ({source})\n"
+    return text
+
+
+def build_stats_transactions(uid: int, limit: int = 20) -> str:
+    """Последние транзакции."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT type, amount, detail, created_at
+                 FROM transactions WHERE user_id = %s
+                 ORDER BY id DESC LIMIT %s""", (uid, limit))
+    rows = c.fetchall()
+    c.close()
+    release_conn(conn)
+
+    text = f"📜 <b>ПОСЛЕДНИЕ {limit} ТРАНЗАКЦИЙ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    if not rows:
+        return text + "Нет транзакций"
+
+    for i, (t, amount, detail, created) in enumerate(rows, 1):
+        time_str = created.strftime("%d.%m %H:%M") if created else "?"
+        emoji = "🟢" if amount > 0 else "🔴"
+        text += f"{i}. {emoji} <b>{'+' if amount > 0 else ''}{fmt_num(amount)}</b> | {detail} | {time_str}\n"
+    return text
+
+
+def build_stats_anomalies(uid: int) -> str:
+    """Аномалии — подозрительные операции."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT type, amount, detail, created_at
+                 FROM transactions WHERE user_id = %s AND amount > 1000000
+                 ORDER BY amount DESC LIMIT 10""", (uid,))
+    big_in = c.fetchall()
+    c.execute("""SELECT COUNT(*) FROM credits
+                 WHERE user_id = %s AND status IN ('active', 'overdue')""", (uid,))
+    open_credits = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+
+    text = "🚨 <b>ПОДОЗРИТЕЛЬНАЯ АКТИВНОСТЬ</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    if big_in:
+        text += "💰 <b>Крупные приходы:</b>\n"
+        for t, amount, detail, created in big_in:
+            time_str = created.strftime("%d.%m %H:%M") if created else "?"
+            text += f"• +{fmt_num(amount)} — {detail} ({time_str})\n"
+        text += "\n"
+    if open_credits > 0:
+        text += f"💳 <b>Активных кредитов: {open_credits}</b>\n⚠️ Проверь, вернул ли\n\n"
+    if not big_in and open_credits == 0:
+        text += "✅ Аномалий не найдено\n"
+    return text
+
+
+def build_bot_stats() -> str:
+    """Общая статистика бота."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(balance), 0) FROM users")
+    total_balance = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(bank), 0) FROM users")
+    total_bank = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM game_log WHERE created_at > NOW() - INTERVAL '24 hours'")
+    games_24h = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(bet), 0), COALESCE(SUM(win), 0) FROM game_log WHERE created_at > NOW() - INTERVAL '24 hours'")
+    bets_24h, wins_24h = c.fetchone()
+    c.execute("SELECT COUNT(*) FROM credits WHERE status = 'active'")
+    active_credits = c.fetchone()[0]
+    c.execute("SELECT COALESCE(SUM(amount), 0) FROM credits WHERE status = 'active'")
+    credits_sum = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+
+    jackpot = get_jackpot()
+    profit = (bets_24h or 0) - (wins_24h or 0)
+
+    text = (
+        f"📊 <b>СТАТИСТИКА БОТА</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 <b>ИГРОКИ</b>\n"
+        f"• Всего: <b>{total_users}</b>\n\n"
+        f"💰 <b>ЭКОНОМИКА</b>\n"
+        f"• Общий баланс: <b>{fmt_num(total_balance)}</b>\n"
+        f"• Общий банк: <b>{fmt_num(total_bank)}</b>\n"
+        f"• Джекпот: <b>{fmt_num(jackpot)}</b>\n\n"
+        f"🎮 <b>ИГРЫ (24ч)</b>\n"
+        f"• Сыграно: <b>{games_24h}</b>\n"
+        f"• Ставок: <b>{fmt_num(bets_24h or 0)}</b>\n"
+        f"• Выигрышей: <b>{fmt_num(wins_24h or 0)}</b>\n"
+        f"• Профит казино: <b>+{fmt_num(profit)}</b>\n\n"
+        f"💳 <b>КРЕДИТЫ</b>\n"
+        f"• Активных: <b>{active_credits}</b>\n"
+        f"• Сумма: <b>{fmt_num(credits_sum)}</b>\n"
+    )
+    return text
+
+
+@dp.message(Command("userstats", "стат"))
+async def cmd_userstats(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Использование: <code>/userstats @username</code>", parse_mode="HTML")
+        return
+    target = args[1]
+    if target.startswith('@'):
+        uid = get_user_id_by_username(target[1:])
+    elif target.isdigit():
+        uid = int(target)
+    else:
+        await message.answer("❌ Неверный формат")
+        return
+    if not uid:
+        await message.answer("❌ Игрок не найден")
+        return
+    text, kb = build_stats_summary(uid)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@dp.message(Command("botstats", "ботстат"))
+async def cmd_botstats(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = build_bot_stats()
+    await message.answer(text, parse_mode="HTML")
+
+
 
 
 # ═══════════════ ПРАВИЛА / HELP ═══════════════
@@ -4628,6 +4983,9 @@ async def cmd_start(message: Message):
     bonus_text = ""
     if not got_bonus:
         set_balance(user_id, START_BONUS)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "bonus_start", START_BONUS, "Бонус новичка")
+        
         conn = get_conn()
         c = conn.cursor()
         c.execute("UPDATE users SET got_start_bonus = TRUE WHERE user_id = %s", (user_id,))
@@ -5056,9 +5414,11 @@ async def cmd_give(message: Message):
         if not uid:
             await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
             return
-        nb = set_balance(uid, amount)
+        nb = set_balance(target.id, amount)
+        # 🆕 Лог в transactions
+        log_transaction(target.id, "admin_give", amount, "Админ выдал")
         await message.answer(
-            f"✅ <b>+{fmt_num(amount)}</b> → @{username}\n💎 {fmt_num(nb)}",
+            f"✅ <b>+{fmt_num(amount)}</b> → {target.username or target.first_name}\n💎 {fmt_num(nb)}",
             parse_mode="HTML"
         )
         return
@@ -5545,8 +5905,10 @@ async def text_handler_group(message: Message):
         if bal < amount and not is_unlimited(user_id):
             await message.reply("❌ Недостаточно!")
             return
-        set_balance(user_id, -amount)
+         set_balance(user_id, -amount)
         new_bank = set_bank(user_id, amount)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "bank_deposit", -amount, "В банк")
         new_bal = get_balance(user_id)
         await message.reply(
             f"🏦 <b>В БАНК</b>\n\n"
@@ -5568,6 +5930,8 @@ async def text_handler_group(message: Message):
             return
         set_bank(user_id, -amount)
         new_bal = set_balance(user_id, amount)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "bank_withdraw", amount, "Из банка")
         new_bank = get_bank(user_id)
         await message.reply(
             f"🏦 <b>ИЗ БАНКА</b>\n\n"
@@ -5602,12 +5966,15 @@ async def text_handler_group(message: Message):
             await message.reply("❌ Недостаточно!")
             return
         ensure_user(target.id, target.username or target.first_name)
-        set_balance(user_id, -amount)
+                set_balance(user_id, -amount)
         set_balance(target.id, amount)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "transfer_out", -amount, f"→ @{target.username or target.first_name}")
+        log_transaction(target.id, "transfer_in", amount, f"← @{username}")
         nb = get_balance(user_id)
         nt = get_balance(target.id)
         await message.reply(
-            f"💸 <b>ПЕРЕВОД</b>\n\n"
+            f"💸 <b>ПЕРЕВОД</b>\n..."
             f"💰 <b>{fmt_num(amount)}</b> → {target.username or target.first_name}\n"
             f"💎 Твой: <b>{fmt_num(nb)}</b> | Его: <b>{fmt_num(nt)}</b>",
             parse_mode="HTML"
@@ -6362,6 +6729,75 @@ async def callback_handler(call: CallbackQuery):
     if maintenance_on and user_id != ADMIN_ID:
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
         return
+
+        # ═══════════════ STATS (АДМИН) ═══════════════
+    if data.startswith("stats_"):
+        if user_id != ADMIN_ID:
+            await call.answer("❌ Только для админа", show_alert=True)
+            return
+        
+        parts = data.split("_")
+        action = parts[1]
+        
+        if action == "refresh":
+            uid = int(parts[2])
+            text, kb = build_stats_summary(uid)
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer("🔄 Обновлено")
+            return
+        
+        if action == "detail":
+            uid = int(parts[2])
+            text = build_stats_detail(uid)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"stats_refresh_{uid}")]
+            ])
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer()
+            return
+        
+        if action == "games":
+            uid = int(parts[2])
+            text = build_stats_games(uid)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"stats_refresh_{uid}")]
+            ])
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer()
+            return
+        
+        if action == "stars":
+            uid = int(parts[2])
+            text = build_stats_stars(uid)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"stats_refresh_{uid}")]
+            ])
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer()
+            return
+        
+        if action == "tx":
+            uid = int(parts[2])
+            text = build_stats_transactions(uid)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"stats_refresh_{uid}")]
+            ])
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer()
+            return
+        
+        if action == "anomaly":
+            uid = int(parts[2])
+            text = build_stats_anomalies(uid)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"stats_refresh_{uid}")]
+            ])
+            await safe_edit(call, text, reply_markup=kb)
+            await call.answer()
+            return
+        
+        await call.answer()
+        return
     
     # ═══════════════ ЗАЩИТА КНОПОК ═══════════════
     # Кнопки с префиксами, где важен user_id:
@@ -6877,6 +7313,8 @@ async def callback_handler(call: CallbackQuery):
             return
         
         set_balance(user_id, -price)
+        # 🆕 Лог в transactions
+        log_transaction(user_id, "shop_buy", -price, f"Купил: {it['name']}")
         reward_text = grant_shop_item(user_id, it)
         nb = get_balance(user_id)
         
