@@ -2133,7 +2133,7 @@ def get_active_tournament():
     return row
 
 
-def start_tournament(name: str, duration_hours: int = 168):
+def start_tournament(name: str, duration_hours: int = 72):
     ends_at = datetime.now(TZ_MINSK) + timedelta(hours=duration_hours)
     conn = get_conn()
     c = conn.cursor()
@@ -8419,16 +8419,16 @@ async def handle_admin_callback(call: CallbackQuery):
         return
     
     if data == "admin_tournament_start":
-        tid, ends_at = start_tournament("🏆 Турнир недели", 168)
+        tid, ends_at = start_tournament("🏆 Турнир недели", 72)
         await call.answer(f"✅ Турнир до {ends_at.strftime('%d.%m %H:%M')}", show_alert=True)
         try:
             await bot.send_message(
                 TOURNAMENT_CHANNEL,
                 f"🏆 <b>НОВЫЙ ТУРНИР!</b>\n"
                 f"━━━━━━━━━━━━━━\n\n"
-                f"🥇 1 место — <b>10 000</b>\n"
-                f"🥈 2 место — <b>5 000</b>\n"
-                f"🥉 3 место — <b>2 000</b>\n\n"
+                f"🥇 1 место — <b>750 000</b>\n"
+                f"🥈 2 место — <b>500 000</b>\n"
+                f"🥉 3 место — <b>250 000</b>\n\n"
                 f"⏱ До: <b>{ends_at.strftime('%d.%m %H:%M')}</b>",
                 parse_mode="HTML"
             )
