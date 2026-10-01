@@ -2364,8 +2364,7 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     # 🆕 Лог в transactions
     log_transaction(user_id, "credit_take", amount, f"Кредит {amount}")
     
-    try:
-    
+
     try:
         asyncio.create_task(notify_admin_credit(user_id, amount, due_at))
     except Exception:
