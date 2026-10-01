@@ -10651,7 +10651,7 @@ def api_tournament():
             {"user_id": uid, "username": uname, "total_won": total}
             for uid, uname, total in top
         ],
-    })аа
+    })
 
 # ═══════════════ ИГРА: РУЛЕТКА ═══════════════
 
