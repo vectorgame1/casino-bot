@@ -2139,7 +2139,7 @@ def start_tournament(name: str, duration_hours: int = 168):
     c = conn.cursor()
     c.execute("UPDATE tournaments SET status = 'finished' WHERE status = 'active'")
     c.execute("""INSERT INTO tournaments (name, ends_at, status, prize_1, prize_2, prize_3)
-                 VALUES (%s, %s, 'active', 10000, 5000, 2000) RETURNING id""",
+                 VALUES (%s, %s, 'active', 750000, 500000, 250000) RETURNING id""",
               (name, ends_at))
     tid = c.fetchone()[0]
     conn.commit()
