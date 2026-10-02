@@ -606,8 +606,8 @@ def init_pool():
     global _db_pool
     try:
         _db_pool = pool.ThreadedConnectionPool(
-            minconn=2,
-            maxconn=20,
+            minconn=5,
+            maxconn=50,
             dsn=DATABASE_URL,
             sslmode='require',
         )
