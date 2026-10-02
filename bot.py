@@ -7979,10 +7979,11 @@ def fmt_hand(cards: list, hide_second: bool = False) -> str:
 
 
 def parse_multi_bet(text: str) -> tuple:
-    """Парсит мульти-ставку: '1000 1-8 11-18'."""
+    """Парсит мульти-ставку: '1000 1-8 11-18' или '1000 0 26 36'."""
     parts = text.split()
     if len(parts) < 2:
         return None, []
+    
     try:
         bet = int(parts[0]) if parts[0].isdigit() else 0
     except ValueError:
@@ -7992,17 +7993,26 @@ def parse_multi_bet(text: str) -> tuple:
     
     ranges = []
     for part in parts[1:]:
+        part = part.strip()
+        if not part:
+            continue
         try:
             if '-' in part:
-                a, z = map(int, part.split('-'))
+                a_str, z_str = part.split('-', 1)
+                a = int(a_str)
+                z = int(z_str)
                 if 0 <= a <= z <= 36:
                     ranges.append((a, z))
             else:
                 n = int(part)
                 if 0 <= n <= 36:
                     ranges.append((n, n))
-        except ValueError:
+        except (ValueError, IndexError):
             continue
+    
+    if not ranges:
+        return None, []
+    
     return bet, ranges
 
 
