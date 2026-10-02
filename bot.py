@@ -6166,70 +6166,70 @@ async def text_handler_group(message: Message):
             elif b["type"] == "ranges":
                 mult = calc_best_range_mult(b["ranges"], result)
                 if mult > 0:
-                    win_amount = int(b["bet"] * mult)
+                win_amount = int(b["bet"] * mult)
 
-        # Event ×2 + boost
-        if win_amount > 0:
-            win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
+            # Event ×2 + boost
+            if win_amount > 0:
+                win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
 
-            set_balance(b["user_id"], win_amount)
-            pay_ref_commission(b["user_id"], win_amount)
-            log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
-            update_daily_quest(b["user_id"], "daily_win_1", 1)
-                
-            if is_unlimited(b["user_id"]):
-                winners.append(f"🏆 @{b['username']} — ♾️")
+                set_balance(b["user_id"], win_amount)
+                pay_ref_commission(b["user_id"], win_amount)
+                log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
+                update_daily_quest(b["user_id"], "daily_win_1", 1)
+                    
+                if is_unlimited(b["user_id"]):
+                    winners.append(f"🏆 @{b['username']} — ♾️")
+                else:
+                    winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
             else:
-                winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
-        else:
-            log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
-            losers.append(f"😢 @{b['username']}")
-        
-        # Красивый результат
-        result_txt = (
-            f"🎡 <b>РУЛЕТКА</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"🎯 Выпало: <b>{color_emoji} {result}</b>\n\n"
-            f"━━━━━━━━━━━━━━\n\n"
-        )
-        
-        if winners:
-            result_txt += "🎉 <b>ПОБЕДИТЕЛИ:</b>\n"
-            result_txt += "\n".join(winners) + "\n\n"
-        
-        if losers:
-            result_txt += "💔 <b>Проиграли:</b>\n"
-            result_txt += "\n".join(losers) + "\n\n"
-        
-        # Джекпот при Зеро
-        if result == 0:
-            jackpot = get_jackpot()
-            green_bettors = [b for b in bets if b["type"] == "green"]
-            if green_bettors and jackpot > 0:
-                share = jackpot // len(green_bettors)
-                for b in green_bettors:
-                    set_balance(b["user_id"], share)
-                result_txt += (
-                    f"━━━━━━━━━━━━━━\n\n"
-                    f"💎 <b>ДЖЕКПОТ СОРВАН!</b>\n"
-                    f"💰 {fmt_num(jackpot)} разделены\n"
-                )
-                reset_jackpot()
-        
-        # Комиссия в джекпот
-        commission = int(total_bank * 0.01)
-        if commission > 0:
-            add_to_jackpot(commission)
-        
-        result_txt += f"\n━━━━━━━━━━━━━━\n💰 Банк: <b>{bank_line}</b>"
-        
-        del active_bets[chat_id]
-        
-        try:
-            await msg.edit_text(result_txt, parse_mode="HTML")
-        except Exception:
-            await message.reply(result_txt, parse_mode="HTML")
-        return
+                log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
+                losers.append(f"😢 @{b['username']}")
+            
+            # Красивый результат
+            result_txt = (
+                f"🎡 <b>РУЛЕТКА</b>\n"
+                f"━━━━━━━━━━━━━━\n\n"
+                f"🎯 Выпало: <b>{color_emoji} {result}</b>\n\n"
+                f"━━━━━━━━━━━━━━\n\n"
+            )
+            
+            if winners:
+                result_txt += "🎉 <b>ПОБЕДИТЕЛИ:</b>\n"
+                result_txt += "\n".join(winners) + "\n\n"
+            
+            if losers:
+                result_txt += "💔 <b>Проиграли:</b>\n"
+                result_txt += "\n".join(losers) + "\n\n"
+            
+            # Джекпот при Зеро
+            if result == 0:
+                jackpot = get_jackpot()
+                green_bettors = [b for b in bets if b["type"] == "green"]
+                if green_bettors and jackpot > 0:
+                    share = jackpot // len(green_bettors)
+                    for b in green_bettors:
+                        set_balance(b["user_id"], share)
+                    result_txt += (
+                        f"━━━━━━━━━━━━━━\n\n"
+                        f"💎 <b>ДЖЕКПОТ СОРВАН!</b>\n"
+                        f"💰 {fmt_num(jackpot)} разделены\n"
+                    )
+                    reset_jackpot()
+            
+            # Комиссия в джекпот
+            commission = int(total_bank * 0.01)
+            if commission > 0:
+                add_to_jackpot(commission)
+            
+            result_txt += f"\n━━━━━━━━━━━━━━\n💰 Банк: <b>{bank_line}</b>"
+            
+            del active_bets[chat_id]
+            
+            try:
+                await msg.edit_text(result_txt, parse_mode="HTML")
+            except Exception:
+                await message.reply(result_txt, parse_mode="HTML")
+            return
     
     # ═══════════════ СЛОТЫ ═══════════════
     
