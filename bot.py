@@ -6117,10 +6117,15 @@ async def text_handler_group(message: Message):
     # ═══════════════ ЗАПУСК РУЛЕТКИ: «го» ═══════════════
     
     if text == "го":
-        user_bets = [b for b in active_bets.get(chat_id, {}).get("bets", []) if b["user_id"] == user_id]
-    if not user_bets:
-        await message.reply("❌ <b>У вас нет ставок!</b>", parse_mode="HTML")
-        return
+        user_bets = []
+        if chat_id in active_bets:
+            for b in active_bets[chat_id]["bets"]:
+                if b["user_id"] == user_id:
+                    user_bets.append(b)
+        
+        if not user_bets:
+            await message.reply("❌ <b>У вас нет ставок!</b>", parse_mode="HTML")
+            return
         
         bets = active_bets[chat_id]["bets"]
         total_bank = clamp(sum(b["bet_total"] for b in bets))
