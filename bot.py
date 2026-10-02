@@ -6166,7 +6166,7 @@ async def text_handler_group(message: Message):
             elif b["type"] == "ranges":
                 mult = calc_best_range_mult(b["ranges"], result)
                 if mult > 0:
-                win_amount = int(b["bet"] * mult)
+                    win_amount = int(b["bet"] * mult)
 
             # Event ×2 + boost
             if win_amount > 0:
