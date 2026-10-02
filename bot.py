@@ -6045,10 +6045,10 @@ async def text_handler_group(message: Message):
         # Красивое сообщение со спойлером
         bets_list = ""
         for i, b in enumerate(bets, 1):
-        if b["type"] == "ranges":
-            bi = "🎯"
-        else:
-            bi = {"red": "🔴", "black": "⚫", "green": "🟢"}.get(b["type"], "❓")
+            if b["type"] == "ranges":
+                bi = "🎯"
+            else:
+                bi = {"red": "🔴", "black": "⚫", "green": "🟢"}.get(b["type"], "❓")
         bets_list += f"{i}. <b>@{b['username']}</b> — {fmt_num(b['bet'])} ({bi})\n"
         
         txt = (
