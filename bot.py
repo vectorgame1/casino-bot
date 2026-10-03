@@ -2481,7 +2481,7 @@ async def send_credit_ban_message(user_id: int, amount: int, days_overdue: int):
         f"━━━━━━━━━━━━━━\n\n"
         f"🔓 Чтобы разблокироваться —\n"
         f"свяжитесь с администратором.\n\n"
-        f"💬 @admin"
+        f"💬 @vctorw"
     )
     try:
         await bot.send_message(user_id, text, parse_mode="HTML")
@@ -5491,8 +5491,8 @@ async def cmd_unban(message: Message):
         username = args[1][1:]
         uid = get_user_id_by_username(username)
         if uid:
-            set_banned(uid, False)
-            await message.answer(f"✅ <b>@{username} разбанен!</b>", parse_mode="HTML")
+            _full_unban(uid)
+            await message.answer(f"✅ <b>@{username} разбанен (бан + кредит)!</b>", parse_mode="HTML")
         else:
             await message.answer(f"❌ @{username} не найден", parse_mode="HTML")
         return
@@ -5501,8 +5501,21 @@ async def cmd_unban(message: Message):
         await message.answer("❌ Ответь или <code>/unban @username</code>", parse_mode="HTML")
         return
     ensure_user(target.id, target.username or target.first_name)
-    set_banned(target.id, False)
-    await message.answer(f"✅ <b>{target.username or target.first_name} разбанен!</b>", parse_mode="HTML")
+    _full_unban(target.id)
+    await message.answer(f"✅ <b>{target.username or target.first_name} разбанен (бан + кредит)!</b>", parse_mode="HTML")
+
+
+def _full_unban(user_id: int):
+    """Полный разбан: снять бан, credit_blocked, закрыть кредиты."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE users SET banned = FALSE, credit_blocked = FALSE WHERE user_id = %s", (user_id,))
+    c.execute("""UPDATE credits SET status = 'returned', returned_at = NOW()
+                 WHERE user_id = %s AND status IN ('active', 'overdue')""", (user_id,))
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    cache_invalidate(f"banned_{user_id}")
 
 
 # ═══════════════ /reset_all ═══════════════
