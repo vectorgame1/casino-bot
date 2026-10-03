@@ -633,7 +633,7 @@ def get_conn():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
     
     
-    def release_conn(conn):
+def release_conn(conn):
     """Возвращает соединение в пул."""
     if _db_pool:
         _db_pool.putconn(conn)
