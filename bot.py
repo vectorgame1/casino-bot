@@ -4089,7 +4089,7 @@ def credits_text(user_id: int) -> str:
         txt += (
             f"🚫 <b>ЗАБЛОКИРОВАНО</b>\n\n"
             f"{info.get('reason', 'Вы заблокированы.')}\n\n"
-            f"💬 Свяжитесь с админом: @admin"
+            f"💬 Свяжитесь с админом: @vctorw"
         )
     
     return txt
@@ -4904,7 +4904,7 @@ async def cmd_start(message: Message):
     ensure_user(user_id, username)
     
     if is_banned(user_id):
-        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>\n\nОбратитесь к @admin", parse_mode="HTML")
+        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>\n\nОбратитесь к @vctorw", parse_mode="HTML")
         return
     
     # ─── Рефералка (только для новых) ───
