@@ -638,7 +638,7 @@ def get_conn():
     if _db_pool:
         _db_pool.putconn(conn)
     else:
-        conn.close()
+        conn.close() 
 
 
 # ═══════════════ ИНИЦИАЛИЗАЦИЯ БД ═══════════════
