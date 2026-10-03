@@ -11539,9 +11539,7 @@ async def daily_rates_loop():
 # ═══════════════ РОЗЫГРЫШИ ═══════════════
 
 async def giveaway_checker_loop():
-    """
-    Проверяет розыгрыши. Каждую минуту.
-    """
+    """Проверяет розыгрыши. Каждую минуту."""
     while True:
         await asyncio.sleep(60)
         try:
@@ -11551,19 +11549,9 @@ async def giveaway_checker_loop():
             rows = c.fetchall()
             c.close()
             release_conn(conn)
-            
-            for (gid,) in rows:
-                try:
-                       try:
-            conn = get_conn()
-            c = conn.cursor()
-            c.execute("SELECT id FROM giveaways WHERE status = 'active' AND ends_at <= NOW()")
-            rows = c.fetchall()
-            c.close()
-            release_conn(conn)
         except Exception as e:
             logger.error(f"[giveaway_checker_loop] select: {e}")
-            return
+            continue
         
         for (gid,) in rows:
             conn = None
