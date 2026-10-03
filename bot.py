@@ -11566,7 +11566,7 @@ async def giveaway_checker_loop():
             try:
                 conn = get_conn()
                 c = conn.cursor()
-                c.execute("SELECT user_id, amount FROM giveaways WHERE id = %s AND status = 'active'", (gid,))
+                c.execute("SELECT created_by, amount FROM giveaways WHERE id = %s AND status = 'active'", (gid,))
                 row = c.fetchone()
                 if not row:
                     continue
