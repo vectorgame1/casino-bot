@@ -618,22 +618,19 @@ def init_pool():
 
 
 def get_conn():
-    """Берёт соединение из пула."""
+    """Берёт соединение из пула с восстановлением."""
+    global _db_pool
     if _db_pool:
-        return _db_pool.getconn()
+        try:
+            return _db_pool.getconn()
+        except pool.PoolError:
+            try:
+                _db_pool.closeall()
+            except Exception:
+                pass
+            init_pool()
+            return _db_pool.getconn()
     return psycopg2.connect(DATABASE_URL, sslmode='require')
-
-
-def release_conn(conn):
-    """Возвращает соединение в пул."""
-    if _db_pool:
-        _db_pool.putconn(conn)
-    else:
-        conn.close()
-
-
-def get_db():
-    return get_conn()
 
 
 # ═══════════════ ИНИЦИАЛИЗАЦИЯ БД ═══════════════
@@ -11556,20 +11553,32 @@ async def giveaway_checker_loop():
             release_conn(conn)
             
             for (gid,) in rows:
+                try:
+                       try:
+            conn = get_conn()
+            c = conn.cursor()
+            c.execute("SELECT id FROM giveaways WHERE status = 'active' AND ends_at <= NOW()")
+            rows = c.fetchall()
+            c.close()
+            release_conn(conn)
+        except Exception as e:
+            logger.error(f"[giveaway_checker_loop] select: {e}")
+            return
+        
+        for (gid,) in rows:
+            conn = None
+            try:
                 conn = get_conn()
                 c = conn.cursor()
                 c.execute("SELECT user_id, amount FROM giveaways WHERE id = %s AND status = 'active'", (gid,))
                 row = c.fetchone()
                 if not row:
-                    c.close()
-                    release_conn(conn)
                     continue
                 uid, amount = row
                 c.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, uid))
                 c.execute("UPDATE giveaways SET status = 'finished', winner_id = %s WHERE id = %s", (uid, gid))
                 conn.commit()
                 c.close()
-                release_conn(conn)
                 
                 try:
                     await bot.send_message(
@@ -11580,8 +11589,16 @@ async def giveaway_checker_loop():
                     )
                 except Exception:
                     pass
-        except Exception as e:
-            logger.error(f"[giveaway_checker_loop] {e}")
+            except Exception as e:
+                logger.error(f"[giveaway_checker_loop] for: {e}")
+            finally:
+                if conn:
+                    try:
+                        release_conn(conn)
+                    except Exception:
+                        pass
+                    
+                    
 
 
 # ═══════════════ ЗАПУСК ВСЕХ ЦИКЛОВ ═══════════════
