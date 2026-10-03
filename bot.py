@@ -5961,9 +5961,14 @@ async def text_handler_group(message: Message):
         return
     
     # ─── ПЕРЕВОД ───
-    if parts and parts[0] == "п":
+    is_my_group = (chat_id == -100436922819)
+    is_transfer_cmd = (parts and parts[0] == "п" and not is_my_group) or (parts and parts[0] == "д" and is_my_group)
+    
+        if is_transfer_cmd:
         if len(parts) < 2:
-            await message.reply("💸 Ответь и напиши: <code>п 1000</code>", parse_mode="HTML")
+            cmd_letter = "д" if is_my_group else "п"
+            await message.reply(f"💸 Ответь и напиши: <code>{cmd_letter} 1000</code>", parse_mode="HTML")
+            return
             return
         if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
             await message.reply("❌ Ответь на сообщение!")
