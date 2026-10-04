@@ -1592,7 +1592,7 @@ def save_vip_tiers(tiers: list):
 
 def get_user_cashback_percent(user_id: int) -> int:
     """Кэшбэк % (базовый 5% + VIP)."""
-    base = 5
+    base = 3
     tier = get_vip_tier(user_id)
     if tier > 0:
         info = get_vip_tier_info(tier)
