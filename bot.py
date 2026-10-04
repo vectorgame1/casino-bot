@@ -5961,7 +5961,7 @@ async def text_handler_group(message: Message):
         return
     
     # ─── ПЕРЕВОД ───
-    is_my_group = (chat_id == -100436922819)
+    is_my_group = (chat_id == -1004424481023)
     is_transfer_cmd = (parts and parts[0] == "п" and not is_my_group) or (parts and parts[0] == "д" and is_my_group)
     
     if is_transfer_cmd:
