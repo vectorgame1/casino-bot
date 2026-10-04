@@ -5969,7 +5969,7 @@ async def text_handler_group(message: Message):
             cmd_letter = "д" if is_my_group else "п"
             await message.reply(f"💸 Ответь и напиши: <code>{cmd_letter} 1000</code>", parse_mode="HTML")
             return
-            return
+    
         if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
             await message.reply("❌ Ответь на сообщение!")
             return
