@@ -44,7 +44,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 BOT_USERNAME = "gold1_casino_bot"
 GROUP_URL = "https://t.me/+xrmEcGndccs5ZGFi"
 EXCHANGE_CHAT_URL = "https://t.me/Tokenschange"
-EXCHANGE_CHAT_ID = -1001234567890  # ← ЗАМЕНИ на реальный ID чата обмена
+EXCHANGE_CHAT_ID = -1004424481023 # ← реальный ID группы обмена  
 MINI_APP_URL = "https://casino-miniapp.pages.dev"
 TOURNAMENT_CHANNEL = "@TokenCasinoTournaments"
 
