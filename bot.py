@@ -90,7 +90,7 @@ GAME_BET_LIMITS = {
 # ═══════════════════════════════════════════════════════════════
 
 CREDIT_MIN = 50_000                 # 50K
-CREDIT_MAX = 500_000                # 500K
+CREDIT_MAX = 200_000                # 200K
 CREDIT_DAYS = 3                     # 3 дня
 CREDIT_PERCENT = 0                  # 0%
 
@@ -245,10 +245,10 @@ DEFAULT_XP_PACKS = [
 # ═══════════════════════════════════════════════════════════════
 
 DEFAULT_DAILY_QUESTS = [
-    {"key": "daily_bets_5",  "name": "🎰 Сделать 5 ставок",  "target": 5, "reward": 100},
-    {"key": "daily_win_1",   "name": "🎲 Выиграть 1 раз",    "target": 1, "reward": 200},
-    {"key": "daily_ref_1",   "name": "👥 Пригласить друга",  "target": 1, "reward": 500},
-    {"key": "daily_buy_vip", "name": "⭐ Купить VIP",         "target": 1, "reward": 1000},
+    {"key": "daily_bets_5",  "name": "🎰 Сделать 5 ставок",  "target": 5, "reward": 1000},
+    {"key": "daily_win_1",   "name": "🎲 Выиграть 1 раз",    "target": 1, "reward": 2000},
+    {"key": "daily_ref_1",   "name": "👥 Пригласить друга",  "target": 1, "reward": 5000},
+    {"key": "daily_buy_vip", "name": "⭐ Купить VIP",         "target": 1, "reward": 100000},
 ]
 
 
@@ -1006,6 +1006,8 @@ def set_balance(user_id: int, amount: int) -> int:
     c.close()
     release_conn(conn)
     cache_invalidate(f"user_{user_id}")
+    cache_invalidate("top_balance")
+    cache_invalidate("top_xp")
     return new_balance
 
 
@@ -1023,9 +1025,11 @@ def set_balance_exact(user_id: int, amount: int) -> int:
         c.execute("UPDATE users SET bank = LEAST(bank + %s, %s) WHERE user_id = %s",
                   (overflow, MAX_BANK, user_id))
     conn.commit()
-    c.close()
+    c.close() 
     release_conn(conn)
     cache_invalidate(f"user_{user_id}")
+    cache_invalidate("top_balance")
+    cache_invalidate("top_xp")
     return amount
 
 
@@ -2822,7 +2826,7 @@ DEFAULT_CASES = [
             {"type": "tokens", "amount": 25_000,  "chance": 35},
             {"type": "tokens", "amount": 50_000,  "chance": 30},
             {"type": "boost",  "mult": 3, "minutes": 30, "chance": 20},
-            {"type": "tokens", "amount": 200_000, "chance": 14},
+            {"type": "tokens", "amount": 250_000, "chance": 14},
             {"type": "title",  "title": "🎰 Лудоман", "chance": 1},
         ]
     },
@@ -5836,7 +5840,7 @@ async def text_handler_group(message: Message):
         return
     
     if text in ["топ", "top"]:
-        await message.reply(top_text("balance"), parse_mode="HTML", reply_markup=top_kb())
+        await message.reply(top_text("balance"), parse_mode="HTML")
         return
     
     if text in ["профиль", "я"]:
