@@ -3307,14 +3307,34 @@ def credits_kb(status: str = "available") -> InlineKeyboardMarkup:
 
 def credits_amounts_kb() -> InlineKeyboardMarkup:
     """Быстрый выбор суммы кредита."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="50 000", callback_data="credit_amount_50000"),
-         InlineKeyboardButton(text="100 000", callback_data="credit_amount_100000")],
-        [InlineKeyboardButton(text="250 000", callback_data="credit_amount_250000"),
-         InlineKeyboardButton(text="500 000", callback_data="credit_amount_500000")],
-        [InlineKeyboardButton(text="✏️ Своя сумма", callback_data="credit_amount_custom")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu_credits")],
-    ])
+    # Динамические кнопки на основе CREDIT_MIN и CREDIT_MAX
+    step = (CREDIT_MAX - CREDIT_MIN) // 4
+    
+    amounts = [
+        CREDIT_MIN,                    # 50к
+        CREDIT_MIN + step,             # 87.5к
+        CREDIT_MIN + step * 2,         # 125к
+        CREDIT_MIN + step * 3,         # 162.5к
+        CREDIT_MAX,                    # 200к
+    ]
+    
+    # Округляем до 50к
+    amounts = [round(a / 50_000) * 50_000 for a in amounts]
+    
+    rows = []
+    for i in range(0, len(amounts), 2):
+        row = []
+        for amt in amounts[i:i+2]:
+            row.append(InlineKeyboardButton(
+                text=f"{fmt_num(amt)}",
+                callback_data=f"credit_amount_{amt}"
+            ))
+        rows.append(row)
+    
+    rows.append([InlineKeyboardButton(text="✏️ Своя сумма", callback_data="credit_amount_custom")])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="menu_credits")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def credit_confirm_kb(amount: int) -> InlineKeyboardMarkup:
@@ -11243,7 +11263,7 @@ def api_crash_cashout():
 PLINKO_MULTIPLIERS = {
     "low":    [1.5, 1.2, 1.1, 1.0, 0.5, 1.0, 1.1, 1.2, 1.5],
     "medium": [5.0, 2.0, 1.0, 0.5, 0.3, 0.5, 1.0, 2.0, 5.0],
-    "high":   [100.0, 10.0, 2.0, 0.5, 0.0, 0.5, 2.0, 10.0, 100.0],
+    "high":   [20.0, 5.0, 1.5, 0.5, 0.0, 0.5, 1.5, 5.0, 20.0],
 }
 
 
