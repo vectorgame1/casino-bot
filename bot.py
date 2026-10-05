@@ -2348,14 +2348,33 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     Выдаёт кредит.
     Возвращает (успех: bool, сообщение: str, due_at или None).
     """
+    # 🆕 Проверка времени (09:00-22:00 МСК)
+    now = datetime.now(TZ_MINSK)
+    if not (9 <= now.hour < 22):
+        return False, "⏰ Кредиты выдаются с 09:00 до 22:00 МСК", None
+    
     if amount < CREDIT_MIN:
         return False, f"❌ Минимум: <b>{fmt_num(CREDIT_MIN)}</b> Tokens", None
     if amount > CREDIT_MAX:
         return False, f"❌ Максимум: <b>{fmt_num(CREDIT_MAX)}</b> Tokens", None
     
+    # 🆕 Проверка: 1 кредит в день (24 часа)
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT COUNT(*) FROM credits
+                 WHERE user_id = %s AND issued_at > NOW() - INTERVAL '24 hours'""",
+              (user_id,))
+    count = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+    
+    if count >= 1:
+        return False, "❌ Вы уже брали кредит за последние 24 часа!", None
+    
     can, reason = can_take_credit(user_id)
     if not can:
         return False, reason, None
+    ...
     
     issued_at = datetime.now(TZ_MINSK)
     due_at = issued_at + timedelta(days=CREDIT_DAYS)
@@ -2388,6 +2407,10 @@ def return_credit(user_id: int) -> tuple:
     Возврат кредита вручную полной суммой.
     Возвращает (успех: bool, сообщение: str).
     """
+    # 🆕 Проверка времени (09:00-22:00 МСК)
+    now = datetime.now(TZ_MINSK)
+    if not (9 <= now.hour < 22):
+        return False, "⏰ Возврат кредита работает с 09:00 до 22:00 МСК"
     active = get_active_credit(user_id)
     if not active:
         return False, "❌ У вас нет активного кредита."
@@ -5936,17 +5959,16 @@ async def text_handler_group(message: Message):
         return 
     # ─── БАНК: положить / снять ───
     if len(parts) == 3 and parts[0] == "банк" and parts[1] == "положить":
+        # 🆕 Проверка времени (09:00-22:00 МСК)
+        now = datetime.now(TZ_MINSK)
+        if not (9 <= now.hour < 22):
+            await message.reply("⏰ <b>Банк принимает вклады с 09:00 до 22:00 МСК</b>", parse_mode="HTML")
+            return
         try:
             amount = int(parts[2])
         except Exception:
             return
-        if amount < 1:
-            await message.reply("❌ Мин. 1 Tokens")
-            return
-        bal = get_balance(user_id)
-        if bal < amount and not is_unlimited(user_id):
-            await message.reply("❌ Недостаточно!")
-            return
+    
         set_balance(user_id, -amount)
         new_bank = set_bank(user_id, amount)
         # 🆕 Лог в transactions
@@ -10469,6 +10491,12 @@ def api_bank_deposit():
     amount = data.get("amount")
     if not user_id or not amount:
         return jsonify({"error": "Missing"}), 400
+    
+    # 🆕 Проверка времени (09:00-22:00 МСК = Минск)
+    now = datetime.now(TZ_MINSK)
+    if not (9 <= now.hour < 22):
+        return jsonify({"error": "Банк принимает вклады с 09:00 до 22:00 МСК"}), 400
+    
     try:
         amount = int(amount)
     except Exception:
@@ -10487,7 +10515,7 @@ def api_bank_deposit():
         "balance": get_balance(user_id),
         "bank": new_bank,
     })
-
+    
 
 @app.route("/api/bank/withdraw", methods=["POST"])
 def api_bank_withdraw():
@@ -10547,6 +10575,10 @@ def api_credits_return():
     user_id = data.get("user_id")
     if not user_id:
         return jsonify({"error": "Missing"}), 400
+    # 🆕 Проверка времени
+    now = datetime.now(TZ_MINSK)
+    if not (9 <= now.hour < 22):
+        return jsonify({"error": "Возврат кредита работает с 09:00 до 22:00 МСК"}), 400
     
     ok, msg = return_credit(user_id)
     if not ok:
