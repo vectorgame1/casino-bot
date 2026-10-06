@@ -2368,7 +2368,7 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     c.close()
     release_conn(conn)
     
-    if count >= 1:
+if count >= 2:
         return False, "❌ Вы уже брали кредит за последние 24 часа!", None
     
     can, reason = can_take_credit(user_id)
@@ -2417,7 +2417,9 @@ def return_credit(user_id: int) -> tuple:
     
     credit_id, amount, issued_at, due_at, status = active
     
-    if due_at.tzinfo is None:
+    if due_at is None:
+        due_at = datetime.now(TZ_MINSK)
+    elif due_at.tzinfo is None:
         due_at = due_at.replace(tzinfo=TZ_MINSK)
     
     balance = get_balance(user_id)
