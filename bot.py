@@ -2369,12 +2369,12 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     release_conn(conn)
     
 if count >= 2:
-        return False, "❌ Вы уже брали кредит за последние 24 часа!", None
+    return False, "❌ Вы уже брали кредит за последние 24 часа!", None
     
-    can, reason = can_take_credit(user_id)
-    if not can:
-        return False, reason, None
-    ...
+        can, reason = can_take_credit(user_id)
+        if not can:
+            return False, reason, None
+        ...
     
     issued_at = datetime.now(TZ_MINSK)
     due_at = issued_at + timedelta(days=CREDIT_DAYS)
