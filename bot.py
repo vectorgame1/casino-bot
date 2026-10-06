@@ -2358,7 +2358,7 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     if amount > CREDIT_MAX:
         return False, f"❌ Максимум: <b>{fmt_num(CREDIT_MAX)}</b> Tokens", None
     
-    # 🆕 Проверка: 1 кредит в день (24 часа)
+    # 🆕 Проверка: 2 кредита в день (24 часа) — временно для теста
     conn = get_conn()
     c = conn.cursor()
     c.execute("""SELECT COUNT(*) FROM credits
@@ -2368,13 +2368,12 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     c.close()
     release_conn(conn)
     
-if count >= 2:
-        return False, "❌ Вы уже брали кредит за последние 24 часа!", None
-
-    can, reason = can_take_credit(user_id) 
+    if count >= 2:
+        return False, "❌ Вы уже брали 2 кредита за последние 24 часа!", None
+    
+    can, reason = can_take_credit(user_id)
     if not can:
         return False, reason, None
-    ...
     
     issued_at = datetime.now(TZ_MINSK)
     due_at = issued_at + timedelta(days=CREDIT_DAYS)
@@ -2393,7 +2392,6 @@ if count >= 2:
     # 🆕 Лог в transactions
     log_transaction(user_id, "credit_take", amount, f"Кредит {amount}")
     
-
     try:
         asyncio.create_task(notify_admin_credit(user_id, amount, due_at))
     except Exception:
