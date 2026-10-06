@@ -6050,7 +6050,7 @@ async def text_handler_group(message: Message):
         )
         return
     
-        if text in ["отмена", "отменить"]:
+    if text in ["отмена", "отменить"]:
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]:
             await message.reply("❌ <b>Нет ставок</b>", parse_mode="HTML")
             return
