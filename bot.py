@@ -2401,61 +2401,57 @@ def issue_credit(user_id: int, amount: int) -> tuple:
 
 
 def return_credit(user_id: int) -> tuple:
-    """
-    Возврат кредита вручную полной суммой.
-    Возвращает (успех: bool, сообщение: str).
-    """
-    # 🆕 Проверка времени (09:00-22:00 МСК)
-    now = datetime.now(TZ_MINSK)
-    if not (9 <= now.hour < 22):
-        return False, "⏰ Возврат кредита работает с 09:00 до 22:00 МСК"
-    active = get_active_credit(user_id)
-    if not active:
-        return False, "❌ У вас нет активного кредита."
-    
-    credit_id, amount, issued_at, due_at, status = active
-    
-    if due_at is None:
-        due_at = datetime.now(TZ_MINSK)
-    elif due_at.tzinfo is None:
-        due_at = due_at.replace(tzinfo=TZ_MINSK)
-    
-    balance = get_balance(user_id)
-    if balance < amount and not is_unlimited(user_id):
-        return False, (
-            f"❌ <b>Недостаточно средств!</b>\n\n"
-            f"💰 Нужно: <b>{fmt_num(amount)}</b> Tokens\n"
-            f"💎 У вас: <b>{fmt_num(balance)}</b> Tokens\n\n"
-            f"⚠️ <b>ВНИМАНИЕ!</b>\n"
-            f"Если не вернёшь до <b>{due_at.strftime('%d.%m %H:%M')}</b> —\n"
-            f"аккаунт будет <b>заблокирован</b>."
+    """Возврат кредита вручную полной суммой."""
+    try:
+        # 🆕 Проверка времени (09:00-22:00 МСК)
+        now = datetime.now(TZ_MINSK)
+        if not (9 <= now.hour < 22):
+            return False, "⏰ Возврат кредита работает с 09:00 до 22:00 МСК"
+        
+        active = get_active_credit(user_id)
+        if not active:
+            return False, "❌ У вас нет активного кредита."
+        
+        credit_id, amount, issued_at, due_at, status = active
+        
+        if due_at is None:
+            due_at = datetime.now(TZ_MINSK)
+        elif due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=TZ_MINSK)
+        
+        balance = get_balance(user_id)
+        if balance < amount and not is_unlimited(user_id):
+            return False, (
+                f"❌ <b>Недостаточно средств!</b>\n\n"
+                f"💰 Нужно: <b>{fmt_num(amount)}</b> Tokens\n"
+                f"💎 У вас: <b>{fmt_num(balance)}</b> Tokens"
+            )
+        
+        set_balance(user_id, -amount)
+        log_transaction(user_id, "credit_return", -amount, "Возврат кредита")
+        
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("""UPDATE credits SET status = 'returned', returned_at = NOW()
+                     WHERE id = %s""", (credit_id,))
+        c.execute("""UPDATE users SET credit_blocked = FALSE, banned = FALSE
+                     WHERE user_id = %s""", (user_id,))
+        conn.commit()
+        c.close()
+        release_conn(conn)
+        
+        cache_invalidate(f"banned_{user_id}")
+        
+        new_balance = get_balance(user_id)
+        return True, (
+            f"✅ <b>Кредит возвращён!</b>\n\n"
+            f"💰 Списано: <b>{fmt_num(amount)}</b> Tokens\n"
+            f"💎 Новый баланс: <b>{fmt_num(new_balance)}</b> Tokens"
         )
+    except Exception as e:
+        logger.error(f"[return_credit] {e}")
+        return False, f"❌ Ошибка: {e}"
     
-        set_balance(user_id, -amount)
-
-        set_balance(user_id, -amount)
-    # 🆕 Лог в transactions
-    log_transaction(user_id, "credit_return", -amount, f"Возврат кредита")
-
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""UPDATE credits SET status = 'returned', returned_at = NOW()
-                 WHERE id = %s""", (credit_id,))
-    
-    # 🆕 СНЯТЬ БАН ПО КРЕДИТУ
-    c.execute("""UPDATE users SET credit_blocked = FALSE, banned = FALSE
-                 WHERE user_id = %s""", (user_id,))
-    
-    conn.commit()
-    c.close()
-    release_conn(conn)
-
-    # 🆕 СБРОСИТЬ КЭШ БАНА
-    cache_invalidate(f"banned_{user_id}")
-
-    new_balance = get_balance(user_id)
-    
-
 
 def check_overdue_credits() -> list:
     """
@@ -2471,6 +2467,8 @@ def check_overdue_credits() -> list:
     
     overdue = []
     for uid, amount, due_at in rows:
+        if due_at is None:
+            continue
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=TZ_MINSK)
         days = (datetime.now(TZ_MINSK) - due_at).days
@@ -2479,6 +2477,9 @@ def check_overdue_credits() -> list:
     c.close()
     release_conn(conn)
     return overdue
+
+
+
 
 
 def block_for_credit(user_id: int, amount: int, days_overdue: int):
