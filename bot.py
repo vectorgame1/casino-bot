@@ -2371,7 +2371,7 @@ def issue_credit(user_id: int, amount: int) -> tuple:
 if count >= 2:
         return False, "❌ Вы уже брали кредит за последние 24 часа!", None
 
-    can, reason = can_take_credit(user_id) 
+        can, reason = can_take_credit(user_id) 
         if not can:
         return False, reason, None
     ...
