@@ -2368,8 +2368,8 @@ def issue_credit(user_id: int, amount: int) -> tuple:
     c.close()
     release_conn(conn)
     
-    if count >= 2:
-        return False, "❌ Вы уже брали 2 кредита за последние 24 часа!", None
+    if count >= 1:
+        return False, "❌ Вы уже брали кредит за последние 24 часа!", None
     
     can, reason = can_take_credit(user_id)
     if not can:
