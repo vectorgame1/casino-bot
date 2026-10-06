@@ -2281,7 +2281,7 @@ def get_active_credit(user_id: int):
     c = conn.cursor()
     c.execute("""SELECT id, amount, issued_at, due_at, status
                  FROM credits
-                 WHERE user_id = %s AND status = 'active'
+                 WHERE user_id = %s AND status IN ('active', 'overdue')
                  ORDER BY id DESC LIMIT 1""", (user_id,))
     row = c.fetchone()
     c.close()
@@ -6050,16 +6050,34 @@ async def text_handler_group(message: Message):
         )
         return
     
-    # ─── ОТМЕНА СТАВОК ───
-    if text in ["отмена", "отменить"]:
-        if chat_id in active_bets and active_bets[chat_id]["bets"]:
-            count = len(active_bets[chat_id]["bets"])
-            for b in active_bets[chat_id]["bets"]:
-                set_balance(b["user_id"], b["bet_total"])
+        if text in ["отмена", "отменить"]:
+        if chat_id not in active_bets or not active_bets[chat_id]["bets"]:
+            await message.reply("❌ <b>Нет ставок</b>", parse_mode="HTML")
+            return
+        
+        # 🆕 Считаем только СВОИ ставки
+        user_bets = [b for b in active_bets[chat_id]["bets"] if b["user_id"] == user_id]
+        
+        if not user_bets:
+            await message.reply("❌ <b>У вас нет ставок для отмены</b>", parse_mode="HTML")
+            return
+        
+        # 🆕 Возвращаем только СВОИ ставки
+        for b in user_bets:
+            set_balance(b["user_id"], b["bet_total"])
+        
+        # 🆕 Удаляем только СВОИ ставки
+        active_bets[chat_id]["bets"] = [
+            b for b in active_bets[chat_id]["bets"]
+            if b["user_id"] != user_id
+        ]
+        
+        # 🆕 Если чужих не осталось — удаляем чат
+        if not active_bets[chat_id]["bets"]:
             del active_bets[chat_id]
-            await send_temp(chat_id, f"❌ <b>Отменено ({count} ставок)</b>", parse_mode="HTML")
+        
+        await send_temp(chat_id, f"❌ <b>Отменено ({len(user_bets)} ваших ставок)</b>", parse_mode="HTML")
         return
-    
     # ═══════════════ РУЛЕТКА: СТАВКИ ═══════════════
     
     if len(parts) == 2 and parts[0] in ["к", "ч", "з"]:
@@ -6104,7 +6122,8 @@ async def text_handler_group(message: Message):
         
         active_bets[chat_id]["bets"].append({
             "user_id": user_id, "username": username,
-            "type": bet_type, "bet": bet, "bet_total": bet
+            "type": bet_type, "bet": bet, "bet_total": bet,
+            "ts": time.time()
         })
         
         bets = active_bets[chat_id]["bets"]
@@ -6165,7 +6184,8 @@ async def text_handler_group(message: Message):
         
         active_bets[chat_id]["bets"].append({
             "user_id": user_id, "username": username, "type": "ranges",
-            "bet": bet, "bet_total": total_bet, "ranges": ranges
+            "bet": bet, "bet_total": total_bet, "ranges": ranges,
+            "ts": time.time()
         })
         
         bets = active_bets[chat_id]["bets"]
@@ -6186,6 +6206,15 @@ async def text_handler_group(message: Message):
     # ═══════════════ ЗАПУСК РУЛЕТКИ: «го» ═══════════════
     
     if text == "го":
+        # 🆕 Очистка ставок старше 5 минут
+        if chat_id in active_bets:
+            now_ts = time.time()
+            active_bets[chat_id]["bets"] = [
+                b for b in active_bets[chat_id]["bets"]
+                if b.get("ts", now_ts) > now_ts - 300
+            ]
+        
+        # 🆕 Собираем СВОИ ставки
         user_bets = []
         if chat_id in active_bets:
             for b in active_bets[chat_id]["bets"]:
