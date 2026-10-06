@@ -292,6 +292,7 @@ ANIM_DUEL_DELAYS = [0.15, 0.15, 0.2, 0.2, 0.2, 0.25]
 # ═══════════════════════════════════════════════════════════════
 
 active_bets = {}          # {chat_id: {"bets": [...]}}
+countdown_active = {}     # {chat_id: user_id} — кто запустил отсчёт
 bj_games = {}             # {user_id: {...}}
 duel_games = {}           # {chat_id: {...}}
 mines_games = {}          # {user_id: {...}}
