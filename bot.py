@@ -7268,7 +7268,9 @@ async def callback_handler(call: CallbackQuery):
             return
         
         _, amount, _, due_at, _ = active
-        if due_at.tzinfo is None:
+        if due_at is None:
+            due_at = datetime.now(TZ_MINSK)   # fallback
+        elif due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=TZ_MINSK)
         
         await safe_edit(call,
