@@ -6207,6 +6207,11 @@ async def text_handler_group(message: Message):
     # ═══════════════ ЗАПУСК РУЛЕТКИ: «го» ═══════════════
     
     if text == "го":
+        # 🆕 Защита: рулетка уже крутится
+        if chat_id in countdown_active:
+            await send_temp(chat_id, "⏱ <b>Рулетка уже крутится! Подожди.</b>", delay=5, parse_mode="HTML")
+            return
+        
         # 🆕 Очистка ставок старше 5 минут
         if chat_id in active_bets:
             now_ts = time.time()
@@ -6226,69 +6231,98 @@ async def text_handler_group(message: Message):
             await message.reply("❌ <b>У вас нет ставок!</b>", parse_mode="HTML")
             return
         
-        bets = active_bets[chat_id]["bets"]
-        total_bank = clamp(sum(b["bet_total"] for b in bets))
-        unlimited_in = any(is_unlimited(b["user_id"]) for b in bets)
-        bank_line = "♾️" if unlimited_in else f"{fmt_num(total_bank)}"
+        # 🆕 Ставим флаг — рулетка крутится
+        countdown_active[chat_id] = user_id
         
-        # Красивая анимация
-        msg = await message.reply(
-            f"🎡 <b>РУЛЕТКА</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"🎲 Крутится...\n\n"
-            f"🔴 ⚫ 🔴 ⚫ 🔴",
-            parse_mode="HTML"
-        )
-        
-        for i, frame in enumerate(ANIM_ROULETTE):
-            await asyncio.sleep(ANIM_ROULETTE_DELAYS[i] if i < len(ANIM_ROULETTE_DELAYS) else 0.3)
-            try:
-                await msg.edit_text(
-                    f"🎡 <b>РУЛЕТКА</b>\n"
-                    f"━━━━━━━━━━━━━━\n\n"
-                    f"🎲 Крутится...\n\n"
-                    f"{frame}",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
-        
-        result = random.randint(0, 36)
-        color_emoji = get_roulette_color(result)
-        
-        winners = []
-        losers = []
-        
-        for b in bets:
-            win_amount = 0
-
-            if b["type"] == "red" and result in RED_NUMBERS:
-                win_amount = int(b["bet"] * ROULETTE_PAYOUTS["red"])
-            elif b["type"] == "black" and result in BLACK_NUMBERS:
-                win_amount = int(b["bet"] * ROULETTE_PAYOUTS["black"])
-            elif b["type"] == "green" and result == 0:
-                win_amount = int(b["bet"] * ROULETTE_PAYOUTS["zero"])
-            elif b["type"] == "ranges":
-                mult = calc_best_range_mult(b["ranges"], result)
-                if mult > 0:
-                    win_amount = int(b["bet"] * mult)
-
-            # Event ×2 + boost
-            if win_amount > 0:
-                win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
-
-                set_balance(b["user_id"], win_amount)
-                pay_ref_commission(b["user_id"], win_amount)
-                log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
-                update_daily_quest(b["user_id"], "daily_win_1", 1)
+        try:
+            # 🆕 ОТСЧЁТ 15 СЕК (ОБЩИЙ для всех)
+            countdown_msg = await message.reply(
+                f"🎡 <b>СТАВКИ ПРИНЯТЫ!</b>\n"
+                f"━━━━━━━━━━━━━━\n\n"
+                f"⏱ Осталось: <b>15 сек</b>\n"
+                f"💡 Успей поставить!",
+                parse_mode="HTML"
+            )
+            
+            for i in range(14, 0, -1):
+                await asyncio.sleep(1)
+                try:
+                    await countdown_msg.edit_text(
+                        f"🎡 <b>СТАВКИ ПРИНЯТЫ!</b>\n"
+                        f"━━━━━━━━━━━━━━\n\n"
+                        f"⏱ Осталось: <b>{i} сек</b>\n"
+                        f"💡 Успей поставить!",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            
+            await asyncio.sleep(1)
+            
+            # 🆕 ОБНОВЛЯЕМ bets — могут быть новые ставки
+            bets = active_bets[chat_id]["bets"]
+            total_bank = clamp(sum(b["bet_total"] for b in bets))
+            unlimited_in = any(is_unlimited(b["user_id"]) for b in bets)
+            bank_line = "♾️" if unlimited_in else f"{fmt_num(total_bank)}"
+            
+            # Красивая анимация
+            msg = await message.reply(
+                f"🎡 <b>РУЛЕТКА</b>\n"
+                f"━━━━━━━━━━━━━━\n\n"
+                f"🎲 Крутится...\n\n"
+                f"🔴 ⚫ 🔴 ⚫ 🔴",
+                parse_mode="HTML"
+            )
+            
+            for i, frame in enumerate(ANIM_ROULETTE):
+                await asyncio.sleep(ANIM_ROULETTE_DELAYS[i] if i < len(ANIM_ROULETTE_DELAYS) else 0.3)
+                try:
+                    await msg.edit_text(
+                        f"🎡 <b>РУЛЕТКА</b>\n"
+                        f"━━━━━━━━━━━━━━\n\n"
+                        f"🎲 Крутится...\n\n"
+                        f"{frame}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            
+            result = random.randint(0, 36)
+            color_emoji = get_roulette_color(result)
+            
+            winners = []
+            losers = []
+            
+            for b in bets:
+                win_amount = 0
+                
+                if b["type"] == "red" and result in RED_NUMBERS:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["red"])
+                elif b["type"] == "black" and result in BLACK_NUMBERS:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["black"])
+                elif b["type"] == "green" and result == 0:
+                    win_amount = int(b["bet"] * ROULETTE_PAYOUTS["zero"])
+                elif b["type"] == "ranges":
+                    mult = calc_best_range_mult(b["ranges"], result)
+                    if mult > 0:
+                        win_amount = int(b["bet"] * mult)
+                
+                # Event ×2 + boost
+                if win_amount > 0:
+                    win_amount = int(win_amount * get_event_mult() * get_user_mult(b["user_id"]))
                     
-                if is_unlimited(b["user_id"]):
-                    winners.append(f"🏆 @{b['username']} — ♾️")
+                    set_balance(b["user_id"], win_amount)
+                    pay_ref_commission(b["user_id"], win_amount)
+                    log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], win_amount, f"{result} {color_emoji}")
+                    update_daily_quest(b["user_id"], "daily_win_1", 1)
+                    
+                    if is_unlimited(b["user_id"]):
+                        winners.append(f"🏆 @{b['username']} — ♾️")
+                    else:
+                        winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
                 else:
-                    winners.append(f"🏆 @{b['username']} — <b>+{fmt_num(win_amount)}</b>")
-            else:
-                log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
-                losers.append(f"😢 @{b['username']}")
+                    log_game(b["user_id"], b["username"], "рулетка", b["bet_total"], 0, f"{result} {color_emoji}")
+                    losers.append(f"😢 @{b['username']}")
             
             # Красивый результат
             result_txt = (
@@ -6328,13 +6362,17 @@ async def text_handler_group(message: Message):
             
             result_txt += f"\n━━━━━━━━━━━━━━\n💰 Банк: <b>{bank_line}</b>"
             
-            del active_bets[chat_id]
-            
             try:
                 await msg.edit_text(result_txt, parse_mode="HTML")
             except Exception:
                 await message.reply(result_txt, parse_mode="HTML")
+            
             return
+        finally:
+            # 🆕 Всегда удаляем флаг + ставки
+            countdown_active.pop(chat_id, None)
+            if chat_id in active_bets:
+                del active_bets[chat_id]
     
     # ═══════════════ СЛОТЫ ═══════════════
     
