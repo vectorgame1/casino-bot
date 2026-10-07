@@ -7007,38 +7007,36 @@ async def callback_handler(call: CallbackQuery):
         return
         # ═══════════════ ПОВТОР / УДВОЕНИЕ СВОИХ СТАВОК ═══════════════
     if data in ("roulette_replay", "roulette_double"):
-    saved = get_last_bet(user_id, max_age_minutes=60)
-    if not saved:
-        await call.answer("❌ Ставки устарели. Сделай новые.", show_alert=True)
+        saved = get_last_bet(user_id, max_age_minutes=60)
+        if not saved:
+            await call.answer("❌ Ставки устарели. Сделай новые.", show_alert=True)
+            return
+        saved_chat_id, saved_bets = saved
+        mult = 1 if data == "roulette_replay" else 2
+        total_needed = sum(b["bet_total"] for b in saved_bets) * mult
+        balance = get_balance(user_id)
+        if balance < total_needed and not is_unlimited(user_id):
+            await call.answer(f"❌ Нужно {fmt_num(total_needed)} Tokens", show_alert=True)
+            return
+        chat_id = call.message.chat.id
+        if chat_id not in active_bets:
+            active_bets[chat_id] = {"bets": []}
+        for b in saved_bets:
+            new_bet = b["bet"] * mult
+            new_bet_total = b["bet_total"] * mult
+            set_balance(user_id, -new_bet_total)
+            active_bets[chat_id]["bets"].append({
+                "user_id": user_id,
+                "username": username,
+                "type": b["type"],
+                "bet": new_bet,
+                "bet_total": new_bet_total,
+                "ranges": b.get("ranges"),
+                "ts": time.time(),
+            })
+        action = "повторены" if mult == 1 else "удвоены"
+        await call.answer(f"✅ Ставки {action}! Напиши 'го'", show_alert=True)
         return
-    saved_chat_id, saved_bets = saved
-    mult = 1 if data == "roulette_replay" else 2
-    total_needed = sum(b["bet_total"] for b in saved_bets) * mult
-    balance = get_balance(user_id)
-    if balance < total_needed and not is_unlimited(user_id):
-        await call.answer(f"❌ Нужно {fmt_num(total_needed)} Tokens", show_alert=True)
-        return
-    chat_id = call.message.chat.id
-    if chat_id not in active_bets:
-        active_bets[chat_id] = {"bets": []}
-    for b in saved_bets:
-        new_bet = b["bet"] * mult
-        new_bet_total = b["bet_total"] * mult
-        set_balance(user_id, -new_bet_total)
-        active_bets[chat_id]["bets"].append({
-            "user_id": user_id,
-            "username": username,
-            "type": b["type"],
-            "bet": new_bet,
-            "bet_total": new_bet_total,
-            "ranges": b.get("ranges"),
-            "ts": time.time(),
-        })
-    action = "повторены" if mult == 1 else "удвоены"
-    await call.answer(f"✅ Ставки {action}! Напиши 'го'", show_alert=True)
-    return
-        
-
         
 
 
