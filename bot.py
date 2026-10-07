@@ -551,7 +551,7 @@ ALL_BOT_COMMANDS = {
         ("/ban @user", "Забанить"),
         ("/unban @user", "Разбанить"),
         ("/reset_all", "Обнулить всех"),
-        ("/edit_user @user", "Управление игроком"),
+        ("/user @user", "Управление игроком + статистика"),
         ("/games on/off [игра]", "Управление играми"),
         ("/games_list", "Список игр"),
         ("/refs", "Мои рефералы"),
@@ -4850,35 +4850,84 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher()
 
 
-@dp.message(Command("userstats", "стат"))
-async def cmd_userstats(message: Message):
+
+
+
+# ═══════════════════════════════════════════════════════════════
+# ОБЪЕДИНЁННАЯ КОМАНДА /user (бывшие /edit_user + /userstats)
+# ═══════════════════════════════════════════════════════════════
+
+@dp.message(Command("user"))
+async def cmd_user(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
+    
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("Использование: <code>/userstats @username</code>", parse_mode="HTML")
+        await message.answer(
+            "👤 <b>УПРАВЛЕНИЕ ИГРОКОМ</b>\n"
+            "▬▬▬▬▬▬▬▬▬▬\n\n"
+            "Использование:\n"
+            "<code>/user @username</code>\n"
+            "<code>/user 6403424348</code>",
+            parse_mode="HTML"
+        )
         return
+    
     target = args[1]
+    uid = None
     if target.startswith('@'):
         uid = get_user_id_by_username(target[1:])
     elif target.isdigit():
         uid = int(target)
-    else:
-        await message.answer("❌ Неверный формат")
-        return
+    
     if not uid:
-        await message.answer("❌ Игрок не найден")
+        await message.answer("❌ Игрок не найден", parse_mode="HTML")
         return
-    text, kb = build_stats_summary(uid)
+    
+    user = get_user(uid)
+    if not user:
+        await message.answer("❌ Игрок не в базе", parse_mode="HTML")
+        return
+    
+    uname = user[0] or f"user_{uid}"
+    balance = get_balance(uid)
+    bank = get_bank(uid)
+    xp = get_xp(uid)
+    level = xp // 100
+    rank = get_rank_name(level)
+    stats = get_user_stats(uid)
+    
+    text = (
+        f"👤 <b>УПРАВЛЕНИЕ ИГРОКОМ</b>\n"
+        f"▬▬▬▬▬▬▬▬▬▬\n\n"
+        f"🎭 <b>{uname}</b>\n"
+        f"🆔 <code>{uid}</code>\n"
+        f"🎖 {rank}\n\n"
+        f"▬▬▬▬▬▬▬▬▬▬\n"
+        f"💰 <b>БАЛАНСЫ</b>\n"
+        f"💎 Баланс: <b>{fmt_num(balance)}</b>\n"
+        f"🏦 Банк: <b>{fmt_num(bank)}</b>\n"
+        f"📊 Всего: <b>{fmt_num(balance + bank)}</b>\n\n"
+        f"▬▬▬▬▬▬▬▬▬▬\n"
+        f"📈 <b>СТАТИСТИКА</b>\n"
+        f"🎮 Игр: <b>{stats['total_games']}</b>\n"
+        f"🏆 Побед: <b>{stats['total_wins']}</b>\n"
+        f"📈 Винрейт: <b>{stats['winrate']}%</b>\n"
+        f"🔥 Best: <b>{fmt_num(stats['best_win'])}</b>"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💰 +1000", callback_data=f"adm_add_{uid}"),
+         InlineKeyboardButton(text="💰 -1000", callback_data=f"adm_sub_{uid}")],
+        [InlineKeyboardButton(text="🔄 Обнулить баланс", callback_data=f"adm_zero_{uid}")],
+        [InlineKeyboardButton(text="📊 Обнулить статы", callback_data=f"adm_stats_{uid}")],
+        [InlineKeyboardButton(text="👥 Обнулить рефералов", callback_data=f"adm_refs_{uid}")],
+        [InlineKeyboardButton(text="🗑 Удалить игрока", callback_data=f"adm_del_{uid}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+    ])
+    
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
-
-
-@dp.message(Command("botstats", "ботстат"))
-async def cmd_botstats(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    text = build_bot_stats()
-    await message.answer(text, parse_mode="HTML")
 
 
 
@@ -6060,6 +6109,9 @@ async def text_handler_group(message: Message):
             await message.reply("❌ <b>У вас нет ставок для отмены</b>", parse_mode="HTML")
             return
         
+        # 🆕 СОХРАНЯЕМ СВОИ СТАВКИ ДЛЯ КНОПОК ПОВТОР/УДВОИТЬ (на 5 минут)
+        _cache[f"last_bet_{user_id}"] = ([dict(b) for b in user_bets], time.time() + 300)
+        
         # 🆕 Возвращаем только СВОИ ставки
         for b in user_bets:
             set_balance(b["user_id"], b["bet_total"])
@@ -6128,27 +6180,43 @@ async def text_handler_group(message: Message):
         total_bank = clamp(sum(b["bet_total"] for b in bets))
         icon = {"red": "🔴", "black": "⚫", "green": "🟢"}[bet_type]
         
-        # Красивое сообщение со спойлером
-        bets_list = ""
-        for i, b in enumerate(bets, 1):
-            if b["type"] == "ranges":
-                bi = "🎯"
-            else:
-                bi = {"red": "🔴", "black": "⚫", "green": "🟢"}.get(b["type"], "❓")
-        bets_list += f"{i}. <b>@{b['username']}</b> — {fmt_num(b['bet'])} ({bi})\n"
+        # 🆕 ГРУППИРУЕМ СТАВКИ ПО ИГРОКАМ (как в GRAM)
+        player_bets = {}
+        for b in bets:
+            uid = b["user_id"]
+            if uid not in player_bets:
+                player_bets[uid] = {"username": b["username"], "bets": []}
+            player_bets[uid]["bets"].append(b)
         
+        # 🆕 Формируем красивый список: "Имя 1000 GRAM на X"
+        bets_list = ""
+        for uid, data in player_bets.items():
+            uname = data["username"]
+            for b in data["bets"]:
+                if b["type"] == "red":
+                    bets_list += f"<b>{uname}</b> <code>{fmt_num(b['bet'])}</code> GRAM на 🔴\n"
+                elif b["type"] == "black":
+                    bets_list += f"<b>{uname}</b> <code>{fmt_num(b['bet'])}</code> GRAM на ⚫\n"
+                elif b["type"] == "green":
+                    bets_list += f"<b>{uname}</b> <code>{fmt_num(b['bet'])}</code> GRAM на 🟢\n"
+                elif b["type"] == "ranges":
+                    for (a, z) in b.get("ranges", []):
+                        rng = f"{a}-{z}" if a != z else str(a)
+                        bets_list += f"<b>{uname}</b> <code>{fmt_num(b['bet'])}</code> GRAM на {rng}\n"
+        
+        # 🆕 Красивое сообщение
         txt = (
             f"📊 <b>СТАВКИ ПРИНЯТЫ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n\n"
             f"👤 <b>@{username}</b>\n"
             f"{icon} × <b>{fmt_num(bet)}</b>\n\n"
             f"<blockquote expandable>📋 <b>ВСЕ СТАВКИ ({len(bets)})</b>\n"
             f"{bets_list}\n"
             f"💰 <b>Банк:</b> {fmt_num(total_bank)} Tokens</blockquote>\n\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n"
             f"🕐 Напиши «<code>го</code>» чтобы запустить"
         )
         
-        # Удаляем предыдущие сообщения (если есть)
         await message.reply(txt, parse_mode="HTML")
         return
     
@@ -6359,10 +6427,16 @@ async def text_handler_group(message: Message):
             
             result_txt += f"\n━━━━━━━━━━━━━━\n💰 Банк: <b>{bank_line}</b>"
             
+            # 🆕 КНОПКИ ПОВТОР/УДВОИТЬ
+            replay_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Повторить", callback_data="roulette_replay"),
+                 InlineKeyboardButton(text="✖️ Удвоить", callback_data="roulette_double")]
+            ])
+            
             try:
-                await msg.edit_text(result_txt, parse_mode="HTML")
+                await msg.edit_text(result_txt, parse_mode="HTML", reply_markup=replay_kb)
             except Exception:
-                await message.reply(result_txt, parse_mode="HTML")
+                await message.reply(result_txt, parse_mode="HTML", reply_markup=replay_kb)
             
             return
         finally:
@@ -6871,6 +6945,48 @@ async def callback_handler(call: CallbackQuery):
     
     if maintenance_on and user_id != ADMIN_ID:
         await call.answer("🛠️ Тех.работы. Попробуй позже!", show_alert=True)
+        return
+        # ═══════════════ ПОВТОР / УДВОЕНИЕ СВОИХ СТАВОК ═══════════════
+    if data in ("roulette_replay", "roulette_double"):
+        saved = _cache.get(f"last_bet_{user_id}")
+        if not saved:
+            await call.answer("❌ Ставки устарели. Сделай новые.", show_alert=True)
+            return
+        
+        saved_bets, _ = saved
+        mult = 1 if data == "roulette_replay" else 2
+        total_needed = sum(b["bet_total"] for b in saved_bets) * mult
+        balance = get_balance(user_id)
+        
+        if balance < total_needed and not is_unlimited(user_id):
+            await call.answer(
+                f"❌ Нужно {fmt_num(total_needed)} Tokens\n"
+                f"💎 У тебя: {fmt_num(balance)}",
+                show_alert=True
+            )
+            return
+        
+        # 🆕 Ставим ТОЛЬКО СВОИ ставки
+        chat_id = call.message.chat.id
+        if chat_id not in active_bets:
+            active_bets[chat_id] = {"bets": []}
+        
+        for b in saved_bets:
+            new_bet = b["bet"] * mult
+            new_bet_total = b["bet_total"] * mult
+            set_balance(user_id, -new_bet_total)
+            active_bets[chat_id]["bets"].append({
+                "user_id": user_id,
+                "username": username,
+                "type": b["type"],
+                "bet": new_bet,
+                "bet_total": new_bet_total,
+                "ranges": b.get("ranges"),
+                "ts": time.time(),
+            })
+        
+        action = "повторены" if mult == 1 else "удвоены"
+        await call.answer(f"✅ Твои ставки {action}! Напиши 'го'", show_alert=True)
         return
 
         # ═══════════════ STATS (АДМИН) ═══════════════
