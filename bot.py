@@ -4913,7 +4913,7 @@ dp = Dispatcher()
 
 
 # ═══════════════════════════════════════════════════════════════
-# ОБЪЕДИНЁННАЯ КОМАНДА /user (бывшие /edit_user + /userstats)
+# ОБЪЕДИНЁННАЯ КОМАНДА /user (управление + полная статистика)
 # ═══════════════════════════════════════════════════════════════
 
 @dp.message(Command("user"))
@@ -4957,12 +4957,48 @@ async def cmd_user(message: Message):
     rank = get_rank_name(level)
     stats = get_user_stats(uid)
     
+    # 🆕 Расширенная инфа
+    vip_tier = get_vip_tier(uid)
+    vip_str = "нет"
+    if vip_tier > 0:
+        info = get_vip_tier_info(vip_tier)
+        if info:
+            vip_str = f"{info['icon']} {info['name']}"
+    
+    title = get_main_title(uid) or "—"
+    
+    # 🆕 Приход/расход + кредиты
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT
+        COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+        COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0)
+        FROM transactions WHERE user_id = %s""", (uid,))
+    total_in, total_out = c.fetchone()
+    c.execute("SELECT COUNT(*) FROM credits WHERE user_id = %s", (uid,))
+    credits_count = c.fetchone()[0]
+    c.close()
+    release_conn(conn)
+    
+    # 🆕 Дата регистрации
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT MIN(created_at) FROM transactions WHERE user_id = %s", (uid,))
+    reg_row = c.fetchone()
+    reg_date = reg_row[0].strftime('%d.%m.%Y') if reg_row and reg_row[0] else "?"
+    c.close()
+    release_conn(conn)
+    
     text = (
         f"👤 <b>УПРАВЛЕНИЕ ИГРОКОМ</b>\n"
         f"▬▬▬▬▬▬▬▬▬▬\n\n"
         f"🎭 <b>{uname}</b>\n"
         f"🆔 <code>{uid}</code>\n"
-        f"🎖 {rank}\n\n"
+        f"📅 Регистрация: <b>{reg_date}</b>\n"
+        f"🎖 Ранг: <b>{rank}</b>\n"
+        f"⭐ XP: <b>{xp}</b> (уровень {level})\n"
+        f"👑 VIP: <b>{vip_str}</b>\n"
+        f"🏷️ Титул: <b>{title}</b>\n\n"
         f"▬▬▬▬▬▬▬▬▬▬\n"
         f"💰 <b>БАЛАНСЫ</b>\n"
         f"💎 Баланс: <b>{fmt_num(balance)}</b>\n"
@@ -4973,7 +5009,11 @@ async def cmd_user(message: Message):
         f"🎮 Игр: <b>{stats['total_games']}</b>\n"
         f"🏆 Побед: <b>{stats['total_wins']}</b>\n"
         f"📈 Винрейт: <b>{stats['winrate']}%</b>\n"
-        f"🔥 Best: <b>{fmt_num(stats['best_win'])}</b>"
+        f"🔥 Best: <b>{fmt_num(stats['best_win'])}</b>\n\n"
+        f"▬▬▬▬▬▬▬▬▬▬\n"
+        f"💰 <b>ПРИХОД:</b> +{fmt_num(total_in or 0)}\n"
+        f"📉 <b>РАСХОД:</b> {fmt_num(total_out or 0)}\n"
+        f"💳 Кредитов: <b>{credits_count}</b>"
     )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -4983,11 +5023,16 @@ async def cmd_user(message: Message):
         [InlineKeyboardButton(text="📊 Обнулить статы", callback_data=f"adm_stats_{uid}")],
         [InlineKeyboardButton(text="👥 Обнулить рефералов", callback_data=f"adm_refs_{uid}")],
         [InlineKeyboardButton(text="🗑 Удалить игрока", callback_data=f"adm_del_{uid}")],
+        [InlineKeyboardButton(text="📊 Подробнее", callback_data=f"stats_detail_{uid}"),
+         InlineKeyboardButton(text="🎮 Игры", callback_data=f"stats_games_{uid}")],
+        [InlineKeyboardButton(text="⭐ Stars", callback_data=f"stats_stars_{uid}"),
+         InlineKeyboardButton(text="📜 Транзакции", callback_data=f"stats_tx_{uid}")],
+        [InlineKeyboardButton(text="🚨 Аномалии", callback_data=f"stats_anomaly_{uid}")],
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"stats_refresh_{uid}")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
     ])
     
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
-
 
 
 
