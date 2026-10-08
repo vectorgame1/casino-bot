@@ -6355,7 +6355,9 @@ async def text_handler_group(message: Message):
         return
         
         
-    
+    # ═══════════════ МУЛЬТИ-СТАВКА (диапазоны) ═══════════════
+    bet, ranges = parse_multi_bet(text)
+    if bet and ranges:
         # 🆕 Красивое оформление мульти-ставки
         ranges_lines = ""
         for (a, z) in ranges:
