@@ -1351,9 +1351,11 @@ def get_last_bet(user_id: int, max_age_minutes: int = 60):
         chat_id, bets, created_at = row
         # Проверка свежести
         if created_at:
+            # 🆕 created_at из БД — в UTC, конвертируем в Минск
             if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=TZ_MINSK)
-            age = (datetime.now(TZ_MINSK) - created_at).total_seconds() / 60
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            created_at_minsk = created_at.astimezone(TZ_MINSK)
+            age = (datetime.now(TZ_MINSK) - created_at_minsk).total_seconds() / 60
             if age > max_age_minutes:
                 return None
         if isinstance(bets, str):
