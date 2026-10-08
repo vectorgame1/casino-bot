@@ -6213,6 +6213,7 @@ async def text_handler_group(message: Message):
         if not user_bets:
             await message.reply("❌ <b>У вас нет ставок для отмены</b>", parse_mode="HTML")
             return
+            
         
         
         # 🆕 Возвращаем только СВОИ ставки
@@ -6358,7 +6359,36 @@ async def text_handler_group(message: Message):
     # ═══════════════ МУЛЬТИ-СТАВКА (диапазоны) ═══════════════
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
-        # 🆕 Компактное оформление (с обрезкой и спойлером)
+    if bet and ranges:
+        # 🆕 Проверяем баланс и списываем
+        total_bet = bet * len(ranges)
+        bal = get_balance(user_id)
+        if bal < total_bet and not is_unlimited(user_id):
+            await message.reply(
+                f"❌ <b>Недостаточно!</b>\n\n"
+                f"💰 Нужно: <b>{fmt_num(total_bet)}</b>\n"
+                f"💎 У тебя: <b>{fmt_num(bal)}</b>",
+                parse_mode="HTML"
+            )
+            return
+        
+        # 🆕 Списываем ставку
+        set_balance(user_id, -total_bet)
+        
+        # 🆕 Сохраняем в active_bets (чтобы рулетка знала о ставке)
+        if chat_id not in active_bets:
+            active_bets[chat_id] = {"bets": []}
+        active_bets[chat_id]["bets"].append({
+            "user_id": user_id,
+            "username": username,
+            "type": "ranges",
+            "bet": bet,
+            "bet_total": total_bet,
+            "ranges": ranges,
+            "ts": time.time(),
+        })
+        
+        # 🆕 Компактное оформление
         ranges_lines = ""
         max_show = 10
         for i, (a, z) in enumerate(ranges):
@@ -6367,10 +6397,9 @@ async def text_handler_group(message: Message):
                 break
             rng = f"{a}-{z}" if a != z else str(a)
             ranges_lines += f"🎯 <code>{rng}</code>\n"
-
-        total_bet = bet * len(ranges)
+        
         total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"])
-
+        
         txt = (
             f"🎯 <b>МУЛЬТИ-СТАВКА</b>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n\n"
@@ -6378,7 +6407,7 @@ async def text_handler_group(message: Message):
             f"<blockquote expandable>🎯 <b>Диапазоны ({len(ranges)}):</b>\n"
             f"{ranges_lines}</blockquote>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n"
-            f"💰 Ставка: <b>{fmt_num(bet)}</b> × {len(ranges)} = <b>{fmt_num(total_bet)}</b>\n"
+            f"💰 Ставка: <b>{fmt_num(bet)}</b> × <b>{len(ranges)}</b> = <b>{fmt_num(total_bet)}</b>\n"
             f"📊 Банк: <b>{fmt_num(total_bank)}</b> Tokens\n\n"
             f"🕐 Напиши «<code>го</code>»"
         )
@@ -6394,21 +6423,15 @@ async def text_handler_group(message: Message):
             await send_temp(chat_id, "⏱ <b>Рулетка уже крутится! Подожди.</b>", delay=5, parse_mode="HTML")
             return
         
-        # 🆕 Очистка ставок старше 5 минут
-        if chat_id in active_bets:
-            now_ts = time.time()
-            active_bets[chat_id]["bets"] = [
-                b for b in active_bets[chat_id]["bets"]
-                if b.get("ts", now_ts) > now_ts - 300
-            ]
+
         
-        # 🆕 Собираем СВОИ ставки
+         # 🆕 Собираем СВОИ ставки (ДО очистки)
         user_bets = []
         if chat_id in active_bets:
             for b in active_bets[chat_id]["bets"]:
                 if b["user_id"] == user_id:
                     user_bets.append(b)
-        
+
         if not user_bets:
             await message.reply("❌ <b>У вас нет ставок!</b>", parse_mode="HTML")
             return
@@ -6424,12 +6447,12 @@ async def text_handler_group(message: Message):
             countdown_msg = await message.reply(
                 f"🎡 <b>СТАВКИ ПРИНЯТЫ!</b>\n"
                 f"━━━━━━━━━━━━━━\n\n"
-                f"⏱ Осталось: <b>15 сек</b>\n"
+                f"⏱ Осталось: <b>5 сек</b>\n"
                 f"💡 Успей поставить!",
                 parse_mode="HTML"
             )
             
-            for i in range(14, 0, -1):
+            for i in range(4, 0, -1):
                 await asyncio.sleep(1)
                 try:
                     await countdown_msg.edit_text(
