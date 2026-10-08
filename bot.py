@@ -6213,8 +6213,6 @@ async def text_handler_group(message: Message):
             await message.reply("❌ <b>У вас нет ставок для отмены</b>", parse_mode="HTML")
             return
         
-        # 🆕 СОХРАНЯЕМ СВОИ СТАВКИ ДЛЯ КНОПОК ПОВТОР/УДВОИТЬ (на 5 минут)
-        save_last_bet(user_id, chat_id, [dict(b) for b in user_bets])
         
         # 🆕 Возвращаем только СВОИ ставки
         for b in user_bets:
@@ -6399,6 +6397,9 @@ async def text_handler_group(message: Message):
         if not user_bets:
             await message.reply("❌ <b>У вас нет ставок!</b>", parse_mode="HTML")
             return
+        
+        # 🆕 СОХРАНЯЕМ СВОИ СТАВКИ ДЛЯ КНОПОК ПОВТОР/УДВОИТЬ
+        save_last_bet(user_id, chat_id, [dict(b) for b in user_bets])
         
         # 🆕 Ставим флаг — рулетка крутится
         countdown_active[chat_id] = user_id
