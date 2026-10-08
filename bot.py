@@ -6363,9 +6363,11 @@ async def text_handler_group(message: Message):
         for (a, z) in ranges:
             rng = f"{a}-{z}" if a != z else str(a)
             ranges_lines += f"🎯 <code>{rng}</code>\n"
-        
-        total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"])
-        
+
+        # 🆕 Считаем сумму ставки и банк
+        total_bet = bet * len(ranges)                                          
+        total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"]) 
+
         txt = (
             f"🎯 <b>МУЛЬТИ-СТАВКА</b>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n\n"
