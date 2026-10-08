@@ -6448,12 +6448,12 @@ async def text_handler_group(message: Message):
             countdown_msg = await message.reply(
                 f"🎡 <b>СТАВКИ ПРИНЯТЫ!</b>\n"
                 f"━━━━━━━━━━━━━━\n\n"
-                f"⏱ Осталось: <b>5 сек</b>\n"
+                f"⏱ Осталось: <b>3 сек</b>\n"
                 f"💡 Успей поставить!",
                 parse_mode="HTML"
             )
             
-            for i in range(4, 0, -1):
+            for i in range(2, 0, -1):
                 await asyncio.sleep(1)
                 try:
                     await countdown_msg.edit_text(
