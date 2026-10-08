@@ -6358,22 +6358,25 @@ async def text_handler_group(message: Message):
     # ═══════════════ МУЛЬТИ-СТАВКА (диапазоны) ═══════════════
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
-        # 🆕 Красивое оформление мульти-ставки
+        # 🆕 Компактное оформление (с обрезкой и спойлером)
         ranges_lines = ""
-        for (a, z) in ranges:
+        max_show = 10
+        for i, (a, z) in enumerate(ranges):
+            if i >= max_show:
+                ranges_lines += f"<i>...и ещё {len(ranges) - max_show}</i>\n"
+                break
             rng = f"{a}-{z}" if a != z else str(a)
             ranges_lines += f"🎯 <code>{rng}</code>\n"
 
-        # 🆕 Считаем сумму ставки и банк
-        total_bet = bet * len(ranges)                                          
-        total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"]) 
+        total_bet = bet * len(ranges)
+        total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"])
 
         txt = (
             f"🎯 <b>МУЛЬТИ-СТАВКА</b>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n\n"
             f"👤 <b>@{username}</b>\n\n"
-            f"🎯 <b>Диапазоны ({len(ranges)}):</b>\n"
-            f"{ranges_lines}\n"
+            f"<blockquote expandable>🎯 <b>Диапазоны ({len(ranges)}):</b>\n"
+            f"{ranges_lines}</blockquote>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n"
             f"💰 Ставка: <b>{fmt_num(bet)}</b> × {len(ranges)} = <b>{fmt_num(total_bet)}</b>\n"
             f"📊 Банк: <b>{fmt_num(total_bank)}</b> Tokens\n\n"
