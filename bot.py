@@ -6638,7 +6638,7 @@ async def text_handler_group(message: Message):
         # Крутим первый
         for _ in range(3):
             a = random.choice(SLOT_SYMBOLS)
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.3)
             try:
                 await msg.edit_text(
                     f"🎰 <b>СЛОТЫ</b>\n━━━━━━━━━━━━━━\n\n"
@@ -6663,7 +6663,7 @@ async def text_handler_group(message: Message):
         # Крутим второй
         for _ in range(3):
             b = random.choice(SLOT_SYMBOLS)
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.3)
             try:
                 await msg.edit_text(
                     f"🎰 <b>СЛОТЫ</b>\n━━━━━━━━━━━━━━\n\n"
@@ -6688,7 +6688,7 @@ async def text_handler_group(message: Message):
         # Крутим третий
         for _ in range(3):
             cc = random.choice(SLOT_SYMBOLS)
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.3)
             try:
                 await msg.edit_text(
                     f"🎰 <b>СЛОТЫ</b>\n━━━━━━━━━━━━━━\n\n"
