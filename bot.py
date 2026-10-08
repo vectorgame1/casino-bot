@@ -6359,7 +6359,6 @@ async def text_handler_group(message: Message):
     # ═══════════════ МУЛЬТИ-СТАВКА (диапазоны) ═══════════════
     bet, ranges = parse_multi_bet(text)
     if bet and ranges:
-    if bet and ranges:
         # 🆕 Проверяем баланс и списываем
         total_bet = bet * len(ranges)
         bal = get_balance(user_id)
