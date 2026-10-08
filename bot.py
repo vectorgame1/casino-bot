@@ -7123,8 +7123,24 @@ async def callback_handler(call: CallbackQuery):
                 "ranges": b.get("ranges"),
                 "ts": time.time(),
             })
+        # 🆕 Уведомление в чат
+        if data == "roulette_double":
+            header = "✖️ <b>СТАВКИ УДВОЕНЫ</b>"
+        else:
+            header = "🔄 <b>СТАВКИ ПОВТОРЕНЫ</b>"
+        
+        await call.message.reply(
+            f"{header}\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n\n"
+            f"👤 <b>@{username}</b>\n"
+            f"💰 Ставка: <b>{fmt_num(total_needed)}</b> Tokens\n\n"
+            f"🕐 Напиши «<code>го</code>» чтобы запустить",
+            parse_mode="HTML"
+        )
+        
+        # И оставляем alert
         action = "повторены" if mult == 1 else "удвоены"
-        await call.answer(f"✅ Ставки {action}! Напиши 'го'", show_alert=True)
+        await call.answer(f"✅ Ставки {action}!", show_alert=True)
         return
         
 
