@@ -274,7 +274,7 @@ ANIM_ROULETTE = [
     "🔴 ⚫ 🔴",
     "🔴",
 ]
-ANIM_ROULETTE_DELAYS = [0.3, 0.3, 0.4]
+ANIM_ROULETTE_DELAYS = [1.0, 1.0, 1.0]
 
 ANIM_COIN = ["🦅", "👑", "🦅"]
 ANIM_COIN_DELAYS = [0.2, 0.2, 0.3]
@@ -6107,6 +6107,7 @@ async def text_handler_group(message: Message):
                 txt += f"{detail}\n"
         txt += "\n━━━━━━━━━━━━━━\n📊 Последние 10 раундов"
         await message.reply(txt, parse_mode="HTML")
+        await asyncio.sleep(0.5)
         return 
     # ─── БАНК: положить / снять ───
     if len(parts) == 3 and parts[0] == "банк" and parts[1] == "положить":
@@ -6306,69 +6307,76 @@ async def text_handler_group(message: Message):
                         rng = f"{a}-{z}" if a != z else str(a)
                         bets_list += f"<b>{uname}</b> <code>{fmt_num(b['bet'])}</code> GRAM на {rng}\n"
         
+                # 🆕 Группируем ставки по игрокам (как в GRAM)
+        player_bets = {}
+        for b in bets:
+            uid = b["user_id"]
+            if uid not in player_bets:
+                player_bets[uid] = {"username": b["username"], "bets": []}
+            player_bets[uid]["bets"].append(b)
+        
+        # Формируем красивый список: каждый игрок — один блок
+        bets_list = ""
+        for uid, data in player_bets.items():
+            uname = data["username"]
+            user_lines = []
+            for b in data["bets"]:
+                if b["type"] == "red":
+                    user_lines.append(f"🔴 {fmt_num(b['bet'])} GRAM")
+                elif b["type"] == "black":
+                    user_lines.append(f"⚫ {fmt_num(b['bet'])} GRAM")
+                elif b["type"] == "green":
+                    user_lines.append(f"🟢 {fmt_num(b['bet'])} GRAM")
+                elif b["type"] == "ranges":
+                    for (a, z) in b.get("ranges", []):
+                        rng = f"{a}-{z}" if a != z else str(a)
+                        user_lines.append(f"🎯 {rng} — {fmt_num(b['bet'])} GRAM")
+            
+            # Один блок на игрока
+            bets_list += f"<b>{uname}</b>\n"
+            bets_list += "\n".join(user_lines) + "\n\n"
+        
         # 🆕 Красивое сообщение
         txt = (
             f"📊 <b>СТАВКИ ПРИНЯТЫ</b>\n"
             f"▬▬▬▬▬▬▬▬▬▬\n\n"
             f"👤 <b>@{username}</b>\n"
             f"{icon} × <b>{fmt_num(bet)}</b>\n\n"
-            f"<blockquote expandable>📋 <b>ВСЕ СТАВКИ ({len(bets)})</b>\n"
-            f"{bets_list}\n"
-            f"💰 <b>Банк:</b> {fmt_num(total_bank)} Tokens</blockquote>\n\n"
             f"▬▬▬▬▬▬▬▬▬▬\n"
+            f"<blockquote expandable>📋 <b>ВСЕ СТАВКИ ({len(bets)})</b>\n\n"
+            f"{bets_list}</blockquote>\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n"
+            f"💰 <b>Банк:</b> {fmt_num(total_bank)} Tokens\n\n"
             f"🕐 Напиши «<code>го</code>» чтобы запустить"
         )
         
         await message.reply(txt, parse_mode="HTML")
+        await asyncio.sleep(0.5)
         return
+        
+        
     
-    # ═══════════════ МУЛЬТИ-СТАВКА (диапазоны) ═══════════════
-    
-    bet, ranges = parse_multi_bet(text)
-    if bet and ranges:
-        if is_game_disabled("roulette") and user_id != ADMIN_ID:
-            await send_temp(chat_id, "⚠️ Рулетка выключена", parse_mode="HTML")
-            return
+        # 🆕 Красивое оформление мульти-ставки
+        ranges_lines = ""
+        for (a, z) in ranges:
+            rng = f"{a}-{z}" if a != z else str(a)
+            ranges_lines += f"🎯 <code>{rng}</code>\n"
         
-        if bet < 10:
-            await message.reply("❌ Мин. 10")
-            return
+        total_bank = sum(b["bet_total"] for b in active_bets[chat_id]["bets"])
         
-        total_bet = bet * len(ranges)
-        ok, err = check_bet_limit("roulette", total_bet)
-        if not ok:
-            await send_temp(chat_id, err, parse_mode="HTML")
-            return
-        
-        bal = get_balance(user_id)
-        if bal < total_bet and not is_unlimited(user_id):
-            await message.reply(f"❌ Недостаточно! Нужно {fmt_num(total_bet)}")
-            return
-        
-        set_balance(user_id, -total_bet)
-        
-        if chat_id not in active_bets:
-            active_bets[chat_id] = {"bets": []}
-        
-        active_bets[chat_id]["bets"].append({
-            "user_id": user_id, "username": username, "type": "ranges",
-            "bet": bet, "bet_total": total_bet, "ranges": ranges,
-            "ts": time.time()
-        })
-        
-        bets = active_bets[chat_id]["bets"]
-        total_bank = clamp(sum(b["bet_total"] for b in bets))
-        ranges_str = " ".join([f"{a}-{z}" if a != z else str(a) for (a, z) in ranges])
-        
-        await message.reply(
-            f"📊 <b>МУЛЬТИ-СТАВКА</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"🎯 Диапазоны: <b>{ranges_str}</b>\n"
-            f"💰 <b>{fmt_num(bet)}</b> × {len(ranges)} = <b>{fmt_num(total_bet)}</b>\n"
-            f"📈 Банк: <b>{fmt_num(total_bank)}</b>\n\n"
-            f"🕐 <code>го</code>",
-            parse_mode="HTML"
+        txt = (
+            f"🎯 <b>МУЛЬТИ-СТАВКА</b>\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n\n"
+            f"👤 <b>@{username}</b>\n\n"
+            f"🎯 <b>Диапазоны ({len(ranges)}):</b>\n"
+            f"{ranges_lines}\n"
+            f"▬▬▬▬▬▬▬▬▬▬\n"
+            f"💰 Ставка: <b>{fmt_num(bet)}</b> × {len(ranges)} = <b>{fmt_num(total_bet)}</b>\n"
+            f"📊 Банк: <b>{fmt_num(total_bank)}</b> Tokens\n\n"
+            f"🕐 Напиши «<code>го</code>»"
         )
+        await message.reply(txt, parse_mode="HTML")
+        await asyncio.sleep(0.5)
         return
     
     # ═══════════════ ЗАПУСК РУЛЕТКИ: «го» ═══════════════
@@ -6540,8 +6548,12 @@ async def text_handler_group(message: Message):
             
             try:
                 await msg.edit_text(result_txt, parse_mode="HTML", reply_markup=replay_kb)
-            except Exception:
-                await message.reply(result_txt, parse_mode="HTML", reply_markup=replay_kb)
+            except Exception as e:
+                logger.error(f"[go result] {e}")
+                try:
+                    await message.reply(result_txt, parse_mode="HTML", reply_markup=replay_kb)
+                except Exception as e2:
+                    logger.error(f"[go result reply] {e2}")
             
             return
         finally:
