@@ -158,4 +158,4 @@ def register(dp: Dispatcher):
             "Напиши:\n"
             "<code>/title @username Легенда</code>",
             parse_mode="HTML"
-        )
+        )    
