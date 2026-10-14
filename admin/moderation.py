@@ -22,11 +22,14 @@ def register(dp: Dispatcher):
         )
 
     @dp.message(lambda m: m.text == "🚫 Бан" and m.from_user.id == ADMIN_ID)
-    async def ban_hint(message: Message):
+    async def ban_start(message: Message, state: FSMContext):
+        from admin.states import BanStates
+        await state.set_state(BanStates.username)
         await message.answer(
-            "🚫 <b>БАН</b>\n\n"
-            "Ответь на сообщение:\n<code>/ban</code>\n\n"
-            "Или: <code>/ban @username</code>",
+            "🚫 <b>БАН</b>\n"
+            "▬▬▬▬▬▬▬▬▬▬\n\n"
+            "👤 Введи @username или ID:\n\n"
+            "❌ Отмена: /cancel",
             parse_mode="HTML"
         )
 

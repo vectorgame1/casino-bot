@@ -4969,6 +4969,7 @@ dp = Dispatcher()
 
 # ═══ ПОДКЛЮЧЕНИЕ МОДУЛЕЙ ═══
 from admin import scan, players, watch, bot_control, broadcast, moderation
+from admin import unban, bans_list
 from admin.menu import (
     admin_main_kb, admin_bot_kb, admin_players_kb,
     admin_games_kb, admin_economy_kb, admin_content_kb,
@@ -4982,8 +4983,11 @@ bot_control.register(dp)
 broadcast.register(dp)
 watch.register(dp)
 moderation.register(dp)
-
-
+mute.register(dp)
+warn.register(dp)
+ban.register(dp)
+unban.register(dp)
+bans_list.register(dp)
 
 # ═══════════════════════════════════════════════════════════════
 # КОМАНДА /user — МНОГОЭКРАННЫЙ ПРОФИЛЬ
