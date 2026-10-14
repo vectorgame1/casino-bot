@@ -4969,7 +4969,7 @@ dp = Dispatcher()
 
 # ═══ ПОДКЛЮЧЕНИЕ МОДУЛЕЙ ═══
 from admin import scan, players, watch, bot_control, broadcast, moderation
-from admin import unban, bans_list
+from admin import mute, warn, ban, unban, bans_list
 from admin.menu import (
     admin_main_kb, admin_bot_kb, admin_players_kb,
     admin_games_kb, admin_economy_kb, admin_content_kb,
