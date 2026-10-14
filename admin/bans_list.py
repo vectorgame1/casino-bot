@@ -27,7 +27,7 @@ def register(dp: Dispatcher):
 
         if not rows:
             await message.answer("✅ Забаненных нет")
-            return
+            return       
 
         txt = f"🚫 <b>СПИСОК БАНОВ ({len(rows)})</b>\n▬▬▬▬▬▬▬▬▬▬\n\n"
         for uid, uname in rows:
