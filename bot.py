@@ -4968,7 +4968,7 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher()
 
 # ═══ ПОДКЛЮЧЕНИЕ МОДУЛЕЙ ═══
-from admin import scan, players, bot_control, broadcast, moderation, watch
+from admin import scan, players, watch, bot_control, broadcast, moderation
 from admin.menu import (
     admin_main_kb, admin_bot_kb, admin_players_kb,
     admin_games_kb, admin_economy_kb, admin_content_kb,
@@ -4981,8 +4981,7 @@ players.register(dp)
 bot_control.register(dp)
 broadcast.register(dp)
 watch.register(dp)
-
-
+moderation.register(dp)
 
 
 
