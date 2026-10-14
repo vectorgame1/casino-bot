@@ -3898,109 +3898,109 @@ def private_url_kb(text: str = "💬 ОТКРЫТЬ ЛС БОТА") -> InlineKey
     ])
 
 
-# ═══════════════ INLINE: АДМИН-ПАНЕЛЬ ═══════════════
+# # ═══════════════ INLINE: АДМИН-ПАНЕЛЬ ═══════════════
 
-def admin_panel_inline_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_cat_players"),
-         InlineKeyboardButton(text="🎮 Игры", callback_data="admin_cat_games")],
-        [InlineKeyboardButton(text="🛒 Контент", callback_data="admin_cat_content"),
-         InlineKeyboardButton(text="💰 Экономика", callback_data="admin_cat_economy")],
-        [InlineKeyboardButton(text="📢 Связь", callback_data="admin_cat_comm"),
-         InlineKeyboardButton(text="📊 Мониторинг", callback_data="admin_cat_monitor")],
-        [InlineKeyboardButton(text="💳 Кредиты", callback_data="admin_cat_credits")],
-        [InlineKeyboardButton(text="📋 Все команды", callback_data="admin_all_commands")],
-    ])
-
-
-def admin_back_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
-    ])
+# def admin_panel_inline_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="👥 Игроки", callback_data="admin_cat_players"),
+#          InlineKeyboardButton(text="🎮 Игры", callback_data="admin_cat_games")],
+#         [InlineKeyboardButton(text="🛒 Контент", callback_data="admin_cat_content"),
+#          InlineKeyboardButton(text="💰 Экономика", callback_data="admin_cat_economy")],
+#         [InlineKeyboardButton(text="📢 Связь", callback_data="admin_cat_comm"),
+#          InlineKeyboardButton(text="📊 Мониторинг", callback_data="admin_cat_monitor")],
+#         [InlineKeyboardButton(text="💳 Кредиты", callback_data="admin_cat_credits")],
+#         [InlineKeyboardButton(text="📋 Все команды", callback_data="admin_all_commands")],
+#     ])
 
 
-def admin_players_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Профиль", callback_data="admin_pi_info")],
-        [InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban_start")],
-        [InlineKeyboardButton(text="👑 VIP", callback_data="admin_vip_start"),
-         InlineKeyboardButton(text="🏷️ Титул", callback_data="admin_title_start")],
-        [InlineKeyboardButton(text="💰 Баланс", callback_data="admin_bal_start"),
-         InlineKeyboardButton(text="📊 XP", callback_data="admin_xp_start")],
-        [InlineKeyboardButton(text="🔄 Reset игрока", callback_data="admin_reset_start")],
-        [InlineKeyboardButton(text="⚠️ ОБНУЛИТЬ ВСЕХ", callback_data="admin_reset_all_start")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_back_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+#     ])
 
 
-def admin_games_kb() -> InlineKeyboardMarkup:
-    rows = []
-    for key, name in GAME_NAMES.items():
-        if key in ("crash", "plinko"):
-            continue  # только для Mini App
-        status = "❌" if key in disabled_games else "✅"
-        rows.append([InlineKeyboardButton(
-            text=f"{status} {name}",
-            callback_data=f"admin_toggle_{key}"
-        )])
-    rows.append([InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
-                 InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+# def admin_players_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="👤 Профиль", callback_data="admin_pi_info")],
+#         [InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban_start")],
+#         [InlineKeyboardButton(text="👑 VIP", callback_data="admin_vip_start"),
+#          InlineKeyboardButton(text="🏷️ Титул", callback_data="admin_title_start")],
+#         [InlineKeyboardButton(text="💰 Баланс", callback_data="admin_bal_start"),
+#          InlineKeyboardButton(text="📊 XP", callback_data="admin_xp_start")],
+#         [InlineKeyboardButton(text="🔄 Reset игрока", callback_data="admin_reset_start")],
+#         [InlineKeyboardButton(text="⚠️ ОБНУЛИТЬ ВСЕХ", callback_data="admin_reset_all_start")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
 
 
-def admin_content_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Редактор магазина", callback_data="editshop_start")],
-        [InlineKeyboardButton(text="🎰 Редактор кейсов", callback_data="editcases_start")],
-        [InlineKeyboardButton(text="💰 Редактор Tokens-паков", callback_data="edittokens_start")],
-        [InlineKeyboardButton(text="👑 Редактор VIP", callback_data="editvip_start")],
-        [InlineKeyboardButton(text="⭐ Редактор XP", callback_data="editxp_start")],
-        [InlineKeyboardButton(text="🎯 Редактор заданий", callback_data="editquest_start")],
-        [InlineKeyboardButton(text="🏆 Редактор наград уровней", callback_data="editlevel_start")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_games_kb() -> InlineKeyboardMarkup:
+#     rows = []
+#     for key, name in GAME_NAMES.items():
+#         if key in ("crash", "plinko"):
+#             continue  # только для Mini App
+#         status = "❌" if key in disabled_games else "✅"
+#         rows.append([InlineKeyboardButton(
+#             text=f"{status} {name}",
+#             callback_data=f"admin_toggle_{key}"
+#         )])
+#     rows.append([InlineKeyboardButton(text="🎰 Event ×2", callback_data="admin_event"),
+#                  InlineKeyboardButton(text="🛠️ Тех.работы", callback_data="admin_maintenance")])
+#     rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")])
+#     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_economy_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Бонус игроку", callback_data="admin_bonus_start")],
-        [InlineKeyboardButton(text="💎 Джекпот", callback_data="admin_jackpot")],
-        [InlineKeyboardButton(text="🎁 Розыгрыш", callback_data="admin_giveaway_start")],
-        [InlineKeyboardButton(text="🏆 Турниры", callback_data="admin_tournament")],
-        [InlineKeyboardButton(text="💱 Курсы обмена", callback_data="admin_set_rates")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_content_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="🛒 Редактор магазина", callback_data="editshop_start")],
+#         [InlineKeyboardButton(text="🎰 Редактор кейсов", callback_data="editcases_start")],
+#         [InlineKeyboardButton(text="💰 Редактор Tokens-паков", callback_data="edittokens_start")],
+#         [InlineKeyboardButton(text="👑 Редактор VIP", callback_data="editvip_start")],
+#         [InlineKeyboardButton(text="⭐ Редактор XP", callback_data="editxp_start")],
+#         [InlineKeyboardButton(text="🎯 Редактор заданий", callback_data="editquest_start")],
+#         [InlineKeyboardButton(text="🏆 Редактор наград уровней", callback_data="editlevel_start")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
 
 
-def admin_comm_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast_start")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats_show")],
-        [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active_show")],
-        [InlineKeyboardButton(text="📋 Все игроки", callback_data="admin_all_players")],
-        [InlineKeyboardButton(text="📋 Покупки", callback_data="admin_purchases")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_economy_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="🎁 Бонус игроку", callback_data="admin_bonus_start")],
+#         [InlineKeyboardButton(text="💎 Джекпот", callback_data="admin_jackpot")],
+#         [InlineKeyboardButton(text="🎁 Розыгрыш", callback_data="admin_giveaway_start")],
+#         [InlineKeyboardButton(text="🏆 Турниры", callback_data="admin_tournament")],
+#         [InlineKeyboardButton(text="💱 Курсы обмена", callback_data="admin_set_rates")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
 
 
-def admin_monitor_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active_show")],
-        [InlineKeyboardButton(text="🏆 Big Wins", callback_data="admin_bigwins_show")],
-        [InlineKeyboardButton(text="📜 Логи игрока", callback_data="admin_logs_start")],
-        [InlineKeyboardButton(text="📋 Покупки", callback_data="admin_purchases")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_comm_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast_start")],
+#         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats_show")],
+#         [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active_show")],
+#         [InlineKeyboardButton(text="📋 Все игроки", callback_data="admin_all_players")],
+#         [InlineKeyboardButton(text="📋 Покупки", callback_data="admin_purchases")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
 
 
-def admin_credits_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_credits_stats")],
-        [InlineKeyboardButton(text="🚫 Должники", callback_data="admin_credits_overdue")],
-        [InlineKeyboardButton(text="🔓 Разбанить по кредиту", callback_data="admin_credits_unlock")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
-    ])
+# def admin_monitor_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="👥 Активные", callback_data="admin_active_show")],
+#         [InlineKeyboardButton(text="🏆 Big Wins", callback_data="admin_bigwins_show")],
+#         [InlineKeyboardButton(text="📜 Логи игрока", callback_data="admin_logs_start")],
+#         [InlineKeyboardButton(text="📋 Покупки", callback_data="admin_purchases")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
+
+
+# def admin_credits_kb() -> InlineKeyboardMarkup:
+#     return InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_credits_stats")],
+#         [InlineKeyboardButton(text="🚫 Должники", callback_data="admin_credits_overdue")],
+#         [InlineKeyboardButton(text="🔓 Разбанить по кредиту", callback_data="admin_credits_unlock")],
+#         [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
+#     ])
 
 
 # ═══════════════ INLINE: ВСЕ КОМАНДЫ ═══════════════
@@ -4968,8 +4968,16 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 dp = Dispatcher()
 
 # ═══ ПОДКЛЮЧЕНИЕ МОДУЛЕЙ ═══
-from admin import scan
+from admin import scan, players
+from admin.menu import (
+    admin_main_kb, admin_bot_kb, admin_players_kb,
+    admin_games_kb, admin_economy_kb, admin_content_kb,
+    admin_comm_kb, admin_monitor_kb, admin_credits_kb,
+    admin_moderation_kb, admin_commands_kb,
+)
+
 scan.register(dp)
+players.register(dp)     
 
 
 
@@ -4981,7 +4989,7 @@ scan.register(dp)
 
 @dp.message(Command("user"))
 async def cmd_user(message: Message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id != ADMIN_ID:          
         return
     
     # 🆕 Reply-режим: если ответили на сообщение игрока
@@ -6028,7 +6036,7 @@ async def text_handler_group(message: Message):
     if not message.from_user or message.from_user.is_bot:
         return
     
-    text = message.text.strip().lower()
+    text = message.text.strip().lower()       
     parts = text.split()
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
@@ -8754,51 +8762,51 @@ async def handle_admin_callback(call: CallbackQuery):
         await call.answer()
         return
     
-    # ═══════════════ КАТЕГОРИИ ═══════════════
+    # # ═══════════════ КАТЕГОРИИ ═══════════════
     
-    if data == "admin_cat_players":
-        await safe_edit(call, "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери действие:", reply_markup=admin_players_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_players":
+    #     await safe_edit(call, "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери действие:", reply_markup=admin_players_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_games":
-        await safe_edit(call, "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Включай/выключай:", reply_markup=admin_games_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_games":
+    #     await safe_edit(call, "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Включай/выключай:", reply_markup=admin_games_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_content":
-        await safe_edit(call, "🛒 <b>УПРАВЛЕНИЕ КОНТЕНТОМ</b>\n\n👇 Выбери:", reply_markup=admin_content_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_content":
+    #     await safe_edit(call, "🛒 <b>УПРАВЛЕНИЕ КОНТЕНТОМ</b>\n\n👇 Выбери:", reply_markup=admin_content_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_economy":
-        await safe_edit(call, "💰 <b>ЭКОНОМИКА</b>\n\n👇 Выбери:", reply_markup=admin_economy_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_economy":
+    #     await safe_edit(call, "💰 <b>ЭКОНОМИКА</b>\n\n👇 Выбери:", reply_markup=admin_economy_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_comm":
-        await safe_edit(call, "📢 <b>СВЯЗЬ</b>\n\n👇 Выбери:", reply_markup=admin_comm_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_comm":
+    #     await safe_edit(call, "📢 <b>СВЯЗЬ</b>\n\n👇 Выбери:", reply_markup=admin_comm_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_monitor":
-        await safe_edit(call, "📊 <b>МОНИТОРИНГ</b>\n\n👇 Выбери:", reply_markup=admin_monitor_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_monitor":
+    #     await safe_edit(call, "📊 <b>МОНИТОРИНГ</b>\n\n👇 Выбери:", reply_markup=admin_monitor_kb())
+    #     await call.answer()
+    #     return
     
-    if data == "admin_cat_credits":
-        stats = get_all_credits_stats()
-        txt = (
-            f"💳 <b>КРЕДИТЫ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"✅ Активных: <b>{stats['active_count']}</b> ({fmt_num(stats['active_sum'])})\n"
-            f"🚫 Просрочено: <b>{stats['overdue_count']}</b> ({fmt_num(stats['overdue_sum'])})\n"
-            f"📊 Всего выдано: <b>{stats['total_count']}</b> ({fmt_num(stats['total_sum'])})\n\n"
-            f"👇 Управление:"
-        )
-        await safe_edit(call, txt, reply_markup=admin_credits_kb())
-        await call.answer()
-        return
+    # if data == "admin_cat_credits":
+    #     stats = get_all_credits_stats()
+    #     txt = (
+    #         f"💳 <b>КРЕДИТЫ</b>\n"
+    #         f"━━━━━━━━━━━━━━\n\n"
+    #         f"✅ Активных: <b>{stats['active_count']}</b> ({fmt_num(stats['active_sum'])})\n"
+    #         f"🚫 Просрочено: <b>{stats['overdue_count']}</b> ({fmt_num(stats['overdue_sum'])})\n"
+    #         f"📊 Всего выдано: <b>{stats['total_count']}</b> ({fmt_num(stats['total_sum'])})\n\n"
+    #         f"👇 Управление:"
+    #     )
+    #     await safe_edit(call, txt, reply_markup=admin_credits_kb())
+    #     await call.answer()
+    #     return
     
     # ═══════════════ ВСЕ КОМАНДЫ ═══════════════
     
