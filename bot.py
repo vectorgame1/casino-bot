@@ -659,12 +659,22 @@ def init_pool():
 
 
 def get_conn():
-    """Берёт соединение из пула с восстановлением."""
     global _db_pool
     if _db_pool:
         try:
-            return _db_pool.getconn()
-        except pool.PoolError:
+            conn = _db_pool.getconn()
+            try:
+                c = conn.cursor()
+                c.execute("SELECT 1")
+                c.close()
+                return conn
+            except Exception:
+                try:
+                    _db_pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                return _db_pool.getconn()
+        except Exception:
             try:
                 _db_pool.closeall()
             except Exception:
@@ -685,8 +695,20 @@ def release_conn(conn):
 # ═══════════════ ИНИЦИАЛИЗАЦИЯ БД ═══════════════
 def init_db():
     """Создаёт все таблицы и индексы."""
-    conn = get_conn()
-    c = conn.cursor()
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            conn = get_conn()
+            c = conn.cursor()
+            # Проверка соединения
+            c.execute("SELECT 1")
+            c.fetchone()
+            break
+        except Exception as e:
+            logger.error(f"[init_db] attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(3)
 
     # ═══════════════ ОСНОВНЫЕ ТАБЛИЦЫ ═══════════════
     
@@ -12395,7 +12417,7 @@ def start_background_tasks():
         crash_loop(),
         # 🆕 МАЯЧОК
         winrate_alert_loop(),
-        rapid_growth_loop(),
+        # rapid_growth_loop(),   ← временно отключено
         birthday_alert_loop(),
         auto_ban_loop(),
     ]
@@ -12626,7 +12648,16 @@ async def main():
     
     # 2. Инициализация БД
     logger.info("🗄️ Инициализация БД...")
-    init_db()
+    for attempt in range(5):
+        try:
+            init_db()
+            break
+        except Exception as e:
+            logger.error(f"[main init_db] attempt {attempt+1}: {e}")
+            await asyncio.sleep(5)
+    else:
+        logger.error("❌ Не удалось инициализировать БД после 5 попыток")
+        return
     
     # 3. Загрузка настроек
     logger.info("⚙️ Загрузка настроек...")
