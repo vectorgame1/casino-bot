@@ -2,6 +2,7 @@
 # ЧАСТЬ 1/15 — ИМПОРТЫ, КОНСТАНТЫ, УТИЛИТЫ, КОНФИГ
 # ═══════════════════════════════════════════════════════════════
 
+# ═══ СТАНДАРТНЫЕ ═══
 import asyncio
 import logging
 import os
@@ -13,9 +14,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
+# ═══ БАЗА ДАННЫХ ═══
 import psycopg2
 from psycopg2 import pool
 
+# ═══ TELEGRAM ═══
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
@@ -28,28 +31,64 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 
+# ═══ ВЕБ ═══
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+# ═══ НАШИ МОДУЛИ ═══
+from config import (
+    BOT_TOKEN, ADMIN_ID, DATABASE_URL,
+    BOT_USERNAME, GROUP_URL, EXCHANGE_CHAT_URL, EXCHANGE_CHAT_ID,
+    MINI_APP_URL, TOURNAMENT_CHANNEL, TZ_MINSK,
+    MAX_BALANCE, MAX_BANK, MAX_TOTAL,
+    MAX_BET, MAX_WIN,
+    MAX_BANK_INTEREST, BANK_INTEREST_RATE,
+    MAX_BIGINT,
+    GAME_BET_LIMITS,
+    CREDIT_MIN, CREDIT_MAX, CREDIT_DAYS, CREDIT_PERCENT,
+    REF_BONUS_REFERRER, REF_BONUS_REFERRED, REF_COMMISSION_PERCENT,
+    START_BONUS, DAILY_BONUS,
+)
+from utils import (
+    clamp, clamp_balance, clamp_bank, cap_win,
+    fmt_num, make_xp_bar, get_rank_name, fmt_time_left,
+    send_temp, strip_html, clean_alert,
+)
+from database import (
+    init_pool, get_conn, release_conn,
+    cache_get, cache_set, cache_invalidate,
+    get_user, get_user_id_by_username, ensure_user,
+    get_balance, set_balance, set_balance_exact,
+    get_bank, set_bank,
+    is_banned, set_banned,
+    is_unlimited, set_unlimited,
+    get_xp, add_xp,
+    log_transaction, log_game,
+    get_top, get_top_xp, get_total_players,
+)
 
-# ═══════════════════════════════════════════════════════════════
-# КОНФИГ
-# ═══════════════════════════════════════════════════════════════
+# ═══ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ (временно) ═══
+disabled_games = set() 
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
-ADMIN_ID = 6403424348
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# Ссылки
-BOT_USERNAME = "gold1_casino_bot"
-GROUP_URL = "https://t.me/+xrmEcGndccs5ZGFi"
-EXCHANGE_CHAT_URL = "https://t.me/Tokenschange"
-EXCHANGE_CHAT_ID = -1004424481023 # ← реальный ID группы обмена  
-MINI_APP_URL = "https://casino-miniapp.pages.dev"
-TOURNAMENT_CHANNEL = "@TokenCasinoTournaments"
+# # ═══════════════════════════════════════════════════════════════
+# # КОНФИГ
+# # ═══════════════════════════════════════════════════════════════
+
+# BOT_TOKEN = os.environ.get("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
+# ADMIN_ID = 6403424348
+# DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+# # Ссылки
+# BOT_USERNAME = "gold1_casino_bot"
+# GROUP_URL = "https://t.me/+xrmEcGndccs5ZGFi"
+# EXCHANGE_CHAT_URL = "https://t.me/Tokenschange"
+# EXCHANGE_CHAT_ID = -1004424481023 # ← реальный ID группы обмена  
+# MINI_APP_URL = "https://casino-miniapp.pages.dev"
+# TOURNAMENT_CHANNEL = "@TokenCasinoTournaments"
 
 # Время по Минску (UTC+3)
-TZ_MINSK = timezone(timedelta(hours=3))
+# TZ_MINSK = timezone(timedelta(hours=3))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -4928,6 +4967,10 @@ def build_bot_stats() -> str:
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
+# ═══ ПОДКЛЮЧЕНИЕ МОДУЛЕЙ ═══
+from admin import scan
+scan.register(dp)
+
 
 
 
@@ -5977,7 +6020,7 @@ def is_credit_locked(user_id: int) -> bool:
 # ГЛАВНЫЙ ТЕКСТОВЫЙ ХЕНДЛЕР ДЛЯ ГРУПП
 # ═══════════════════════════════════════════════════════════════
 
-@dp.message(F.text, F.chat.type != "private")
+@dp.message(F.text, F.chat.type != "private", ~F.text.startswith("/"))
 async def text_handler_group(message: Message):
     logger.info(f"[GROUP] text={message.text!r} chat={message.chat.id}")
     if not message.text:
@@ -9673,7 +9716,7 @@ async def handle_editor_callback(call: CallbackQuery):
 # ГЛАВНЫЙ ХЕНДЛЕР ТЕКСТА В ЛС (АДМИН-ДИАЛОГИ + РЕДАКТОРЫ)
 # ═══════════════════════════════════════════════════════════════
 
-@dp.message(F.text, F.chat.type == "private")
+@dp.message(F.text, F.chat.type == "private", ~F.text.startswith("/"))
 async def text_handler_private(message: Message):
     if not message.from_user or message.from_user.is_bot:
         return
@@ -9681,8 +9724,10 @@ async def text_handler_private(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     text = message.text.strip()
-    
+
+
     # ⚠️ СНАЧАЛА обрабатываем Reply-кнопки
+
     if await handle_reply_button(message, text, user_id, username):
         return
     
