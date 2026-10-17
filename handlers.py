@@ -1,10 +1,10 @@
-# handlers.py
+import asyncio
 from aiogram import Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import Command
 
 from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID, GROUP_URL
-from keyboards import main_menu, games_menu, support_menu
+from keyboards import main_menu, games_menu, support_menu, donate_menu
 from database import (
     get_balance, get_rate, set_rate, ensure_user, 
     check_and_give_bonus, is_banned
@@ -74,13 +74,32 @@ def register(dp: Dispatcher):
 
     @dp.message(F.text == "🆘 Помощь")
     async def help_menu(message: Message):
-        # Просто вызываем функцию из support.py, чтобы не было конфликтов
-        from support import support_menu
         await send_clean(
             message,
             "🆘 <b>Поддержка</b>\n\nВыбери тему 👇",
             parse_mode="HTML",
             reply_markup=support_menu()
+        )
+
+    @dp.message(F.text == "🏪 Донат")
+    async def donate_btn(message: Message):
+        rate = get_rate("stars_rate", STARS_RATE)
+        await send_clean(
+            message,
+            "🏪 <b>Донат-магазин</b>\n\n"
+            f"💱 Курс: 1 ⭐ = {rate:,} Tokens\n\n"
+            "Выбери пакет 👇",
+            parse_mode="HTML",
+            reply_markup=donate_menu()
+        )
+
+    @dp.message(F.text == "🏆 Топ")
+    async def top_btn(message: Message):
+        await send_clean(
+            message,
+            "🏆 <b>Топ игроков</b>\n\n(в разработке)",
+            parse_mode="HTML",
+            reply_markup=main_menu()
         )
 
     @dp.message(F.text == "⬅️ Назад")
@@ -106,22 +125,3 @@ def register(dp: Dispatcher):
             await message.answer(f"✅ Новый курс: 1 ⭐ = {new_rate:,} Tokens")
         except ValueError:
             await message.answer("❌ Формат: /курс 8000")
-
-    @dp.message(F.text == "🏆 Топ")
-    async def top(message: Message):
-        await send_clean(
-            message,
-            "🏆 <b>Топ игроков</b>\n\n(в разработке)",
-            parse_mode="HTML",
-            reply_markup=main_menu()
-        )
-
-    @dp.message(F.text == "🏪 Донат")
-    async def donate_menu(message: Message):
-        from donate import donate_menu as get_donate_kb
-        await send_clean(
-            message,
-            "🏪 <b>Донат-магазин</b>\n\n💱 Курс: 1 ⭐ = 7 500 Tokens\n\nВыбери пакет 👇",
-            parse_mode="HTML",
-            reply_markup=get_donate_kb()
-        )
