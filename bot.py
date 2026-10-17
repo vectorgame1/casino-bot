@@ -9573,479 +9573,16 @@ async def text_handler_private(message: Message):
     username = message.from_user.username or message.from_user.first_name
     text = message.text.strip()
 
+    # 🆕 ВОТ ЭТА СТРОЧКА! ОНА ПРОПУСТИТ НОВЫЕ КНОПКИ В handlers.py
+    if text in ["🎰 Игры", "🏪 Донат", "🏆 Топ", "🆘 Помощь", "🆘 Поддержка"]:
+        return
 
     # ⚠️ СНАЧАЛА обрабатываем Reply-кнопки
-
     if await handle_reply_button(message, text, user_id, username):
         return
-    
-    if user_id in admin_action_state:
-        st = admin_action_state[user_id]
-        mode = st.get("mode")
-        target_uid = st.get("uid")
-        
-        if mode == "gift_cmd":
-            try:
-                amount = int(text.strip())
-            except ValueError:
-                await message.answer("❌ Введи число")
-                return
-            set_balance(target_uid, amount)
-            log_transaction(target_uid, "admin_give", amount, f"Подарок от админа")
-            admin_action_state.pop(user_id, None)
-            await message.answer(f"🎁 <b>+{fmt_num(amount)}</b> Tokens → игрок <code>{target_uid}</code>", parse_mode="HTML")
-            try:
-                await bot.send_message(target_uid,
-                    f"🎁 <b>ПОДАРОК ОТ АДМИНА!</b>\n\n+{fmt_num(amount)} Tokens",
-                    parse_mode="HTML")
-            except Exception:
-                pass
-            return
-        
-        if mode == "vip_cmd":
-            try:
-                level = int(text.strip())
-            except ValueError:
-                await message.answer("❌ Введи число 0-5")
-                return
-            if 0 <= level <= 5:
-                set_vip_tier(target_uid, level, 20)
-                admin_action_state.pop(user_id, None)
-                await message.answer(f"👑 VIP {level} установлен для <code>{target_uid}</code>", parse_mode="HTML")
-            else:
-                await message.answer("❌ VIP от 0 до 5")
-            return
-    # ═══════════════ BIRTHDAY (для обычных юзеров) ═══════════════
-    if user_id != ADMIN_ID:
-        if birthday_input_state.get(user_id):
-            parts = text.split(".")
-            if len(parts) == 2:
-                try:
-                    d, m = int(parts[0]), int(parts[1])
-                    if 1 <= d <= 31 and 1 <= m <= 12:
-                        conn = get_conn()
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET birthday = %s WHERE user_id = %s", (text, user_id))
-                        conn.commit()
-                        c.close()
-                        release_conn(conn)
-                        birthday_input_state.pop(user_id, None)
-                        await message.answer(
-                            f"✅ <b>Дата сохранена: {text}</b>\n\n🎂 Поздравим в этот день!",
-                            parse_mode="HTML",
-                            reply_markup=private_kb()
-                        )
-                        return
-                except Exception:
-                    pass
-            await message.answer(
-                "❌ Формат: <code>ДД.ММ</code>\nПример: <code>15.06</code>\n\n/profile",
-                parse_mode="HTML"
-            )
-            return
-        
-        # Для обычных юзеров — ничего дальше
-        return
-    
-    # ═══════════════ БАНК: ВВОД СУММЫ ═══════════════
-    if user_id in bank_input_state:
-        st = bank_input_state[user_id]
-        mode = st.get("mode")
-        try:
-            amount = int(text)
-        except ValueError:
-            await message.answer("❌ Введи число:", parse_mode="HTML")
-            return
-        
-        if amount < 1:
-            await message.answer("❌ Минимум 1", parse_mode="HTML")
-            return
-        
-        if mode == "deposit":
-            bal = get_balance(user_id)
-            if bal < amount and not is_unlimited(user_id):
-                bank_input_state.pop(user_id, None)
-                await message.answer(
-                    f"❌ Недостаточно! Баланс: {fmt_num(bal)}",
-                    parse_mode="HTML",
-                    reply_markup=private_kb()
-                )
-                return
-            set_balance(user_id, -amount)
-            new_bank = set_bank(user_id, amount)
-            new_bal = get_balance(user_id)
-            bank_input_state.pop(user_id, None)
-            await message.answer(
-                f"🏦 <b>ПОЛОЖЕНО В БАНК</b>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"💰 +<b>{fmt_num(amount)}</b>\n"
-                f"💎 Баланс: <b>{fmt_num(new_bal)}</b>\n"
-                f"🏦 Банк: <b>{fmt_num(new_bank)}</b>",
-                parse_mode="HTML",
-                reply_markup=private_kb()
-            )
-            return
-        
-        if mode == "withdraw":
-            bank = get_bank(user_id)
-            if bank < amount:
-                bank_input_state.pop(user_id, None)
-                await message.answer(
-                    f"❌ В банке {fmt_num(bank)}",
-                    parse_mode="HTML",
-                    reply_markup=private_kb()
-                )
-                return
-            set_bank(user_id, -amount)
-            new_bal = set_balance(user_id, amount)
-            new_bank = get_bank(user_id)
-            bank_input_state.pop(user_id, None)
-            await message.answer(
-                f"🏦 <b>СНЯТО ИЗ БАНКА</b>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"💰 +<b>{fmt_num(amount)}</b>\n"
-                f"💎 Баланс: <b>{fmt_num(new_bal)}</b>\n"
-                f"🏦 Банк: <b>{fmt_num(new_bank)}</b>",
-                parse_mode="HTML",
-                reply_markup=private_kb()
-            )
-            return
-        
-        bank_input_state.pop(user_id, None)
-        return
-    
-    # ═══════════════ КРЕДИТ: ВВОД СВОЕЙ СУММЫ ═══════════════
-    if user_id in credit_input_state:
-        st = credit_input_state[user_id]
-        if st.get("mode") == "custom_amount":
-            try:
-                amount = int(text)
-            except ValueError:
-                await message.answer("❌ Введи число:", parse_mode="HTML")
-                return
-            
-            if amount < CREDIT_MIN:
-                await message.answer(f"❌ Минимум: <b>{fmt_num(CREDIT_MIN)}</b>", parse_mode="HTML")
-                return
-            if amount > CREDIT_MAX:
-                await message.answer(f"❌ Максимум: <b>{fmt_num(CREDIT_MAX)}</b>", parse_mode="HTML")
-                return
-            
-            credit_input_state.pop(user_id, None)
-            await message.answer(
-                f"⚠️ <b>ПОДТВЕРЖДЕНИЕ</b>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"💰 Сумма: <b>{fmt_num(amount)}</b> Tokens\n"
-                f"⏱ Вернуть: <b>{CREDIT_DAYS} дня</b>\n"
-                f"📈 Процент: <b>0%</b>\n\n"
-                f"❗ Если не вернёшь вовремя —\n"
-                f"аккаунт будет <b>заблокирован</b>",
-                parse_mode="HTML",
-                reply_markup=credit_confirm_kb(amount)
-            )
-            return
-        # ═══════════════ РЕДАКТОР TOKENS (ВВОД) ═══════════════
-    
-    if user_id in edit_tokens_state:
-        st = edit_tokens_state[user_id]
-        mode = st.get("mode")
-        
-        if mode == "edit_tokens":
-            idx = st["idx"]
-            field = st["field"]
-            packs = get_tokens_packs()
-            if idx < 0 or idx >= len(packs):
-                edit_tokens_state.pop(user_id, None)
-                await message.answer("❌ Пакет не найден", parse_mode="HTML")
-                return
-            try:
-                num = int(text.strip())
-            except ValueError:
-                await message.answer("❌ Введи число:", parse_mode="HTML")
-                return
-            if num < 1:
-                await message.answer("❌ Минимум 1", parse_mode="HTML")
-                return
-            packs[idx][field] = num
-            save_tokens_packs(packs)
-            edit_tokens_state.pop(user_id, None)
-            await message.answer("✅ Обновлено! /admin", parse_mode="HTML")
-            return
-        
-        if mode == "new_tokens":
-            step = st.get("step")
-            if step == "amount":
-                try:
-                    num = int(text.strip())
-                except ValueError:
-                    await message.answer("❌ Введи число:", parse_mode="HTML")
-                    return
-                if num < 1:
-                    await message.answer("❌ Минимум 1", parse_mode="HTML")
-                    return
-                st["amount"] = num
-                st["step"] = "stars"
-                edit_tokens_state[user_id] = st
-                await message.answer("Введи цену в Stars:", parse_mode="HTML")
-                return
-            
-            if step == "stars":
-                try:
-                    num = int(text.strip())
-                except ValueError:
-                    await message.answer("❌ Введи число:", parse_mode="HTML")
-                    return
-                if num < 1:
-                    await message.answer("❌ Минимум 1", parse_mode="HTML")
-                    return
-                
-                packs = get_tokens_packs()
-                packs.append({
-                    "id": f"tokens_{st['amount']}_{int(time.time())}",
-                    "amount": st["amount"],
-                    "stars": num,
-                    "active": True,
-                })
-                save_tokens_packs(packs)
-                edit_tokens_state.pop(user_id, None)
-                await message.answer("✅ Пакет добавлен! /admin", parse_mode="HTML")
-                return
-    
-    # ═══════════════ РЕДАКТОР МАГАЗИНА: ЦЕНА ЛОТА ═══════════════
-    if user_id in edit_shop_state:
-        st = edit_shop_state[user_id]
-        
-        if st.get("mode") == "sell_price":
-            inv_id = st.get("inv_id")
-            item = find_inventory_item(user_id, inv_id)
-            if not item:
-                edit_shop_state.pop(user_id, None)
-                await message.answer("❌ Предмет не найден", parse_mode="HTML")
-                return
-            try:
-                price = int(text)
-            except ValueError:
-                await message.answer("❌ Введи число:", parse_mode="HTML")
-                return
-            if price < 10_000:
-                await message.answer("❌ Минимум 10 000", parse_mode="HTML")
-                return
-            if price > MAX_BALANCE:
-                await message.answer(f"❌ Максимум {fmt_num(MAX_BALANCE)}", parse_mode="HTML")
-                return
-            
-            remove_from_inventory(user_id, inv_id)
-            add_market_lot(user_id, username, item, price)
-            edit_shop_state.pop(user_id, None)
-            await message.answer(
-                f"✅ <b>ЛОТ ВЫСТАВЛЕН!</b>\n\n"
-                f"💰 Цена: <b>{fmt_num(price)}</b> Tokens\n\n"
-                f"🏪 /market",
-                parse_mode="HTML",
-                reply_markup=private_kb()
-            )
-            return
-        
-        # Редактор товара магазина
-        if st.get("mode") == "edit_shop":
-            idx = st["idx"]
-            field = st["field"]
-            items = get_shop_items()
-            if idx < 0 or idx >= len(items):
-                edit_shop_state.pop(user_id, None)
-                await message.answer("❌ Товар не найден", parse_mode="HTML")
-                return
-            
-            if field == "name":
-                items[idx]["name"] = text
-            elif field == "desc":
-                items[idx]["desc"] = text
-            elif field in ("stars", "tokens"):
-                try:
-                    num = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                items[idx][field] = num if num > 0 else None
-            elif field in ("mult", "minutes", "vip_level"):
-                try:
-                    num = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                items[idx][field] = num
-            elif field == "title":
-                items[idx]["title"] = text
-            
-            save_shop_items(items)
-            edit_shop_state.pop(user_id, None)
-            await message.answer("✅ Обновлено! /editshop", parse_mode="HTML")
-            return
-    
-    # ═══════════════ РЕДАКТОР КЕЙСОВ ═══════════════
-    if user_id in edit_case_state:
-        st = edit_case_state[user_id]
-        
-        if st.get("mode") == "add_reward":
-            step = st.get("step")
-            case_idx = st.get("case_idx")
-            new_type = st.get("new_type")
-            cases = get_cases()
-            
-            if case_idx is None or case_idx < 0 or case_idx >= len(cases):
-                edit_case_state.pop(user_id, None)
-                await message.answer("❌ Кейс не найден", parse_mode="HTML")
-                return
-            
-            if step == "amount" and new_type == "tokens":
-                try:
-                    amount = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                st["amount"] = amount
-                st["step"] = "chance"
-                edit_case_state[user_id] = st
-                await message.answer("🎲 Введи шанс % (0-100):", parse_mode="HTML")
-                return
-            
-            if step == "value" and new_type == "boost":
-                try:
-                    val = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                st["mult"] = val
-                st["step"] = "minutes"
-                edit_case_state[user_id] = st
-                await message.answer("⏱ Введи минуты:", parse_mode="HTML")
-                return
-            
-            if step == "minutes":
-                try:
-                    val = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                st["minutes"] = val
-                st["step"] = "chance"
-                edit_case_state[user_id] = st
-                await message.answer("🎲 Введи шанс %:", parse_mode="HTML")
-                return
-            
-            if step == "value" and new_type == "title":
-                st["title"] = text
-                st["step"] = "chance"
-                edit_case_state[user_id] = st
-                await message.answer("🎲 Введи шанс %:", parse_mode="HTML")
-                return
-            
-            if step == "value" and new_type == "vip":
-                try:
-                    val = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                st["vip_level"] = val
-                st["step"] = "chance"
-                edit_case_state[user_id] = st
-                await message.answer("🎲 Введи шанс %:", parse_mode="HTML")
-                return
-            
-            if step == "chance":
-                try:
-                    chance = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-                
-                reward = {"type": new_type, "chance": chance}
-                if new_type == "tokens":
-                    reward["amount"] = st["amount"]
-                elif new_type == "boost":
-                    reward["mult"] = st["mult"]
-                    reward["minutes"] = st["minutes"]
-                elif new_type == "title":
-                    reward["title"] = st["title"]
-                elif new_type == "vip":
-                    reward["vip_level"] = st["vip_level"]
-                
-                cases[case_idx].setdefault("rewards", []).append(reward)
-                save_cases(cases)
-                edit_case_state.pop(user_id, None)
-                await message.answer("✅ Награда добавлена! /editcases", parse_mode="HTML")
-                return
-        
-        if st.get("mode") == "editcase":
-            idx = st["idx"]
-            field = st["field"]
-            cases = get_cases()
-            if idx < 0 or idx >= len(cases):
-                edit_case_state.pop(user_id, None)
-                await message.answer("❌", parse_mode="HTML")
-                return
-            
-            if field == "name":
-                cases[idx]["name"] = text
-            elif field == "desc":
-                cases[idx]["desc"] = text
-            elif field == "stars":
-                try:
-                    cases[idx]["stars"] = int(text)
-                except ValueError:
-                    await message.answer("❌ Число", parse_mode="HTML")
-                    return
-            
-            save_cases(cases)
-            edit_case_state.pop(user_id, None)
-            await message.answer("✅ /editcases", parse_mode="HTML")
-            return
-    
-    # ═══════════════ КУРСЫ ═══════════════
-    if user_id in rates_input_state:
-        st = rates_input_state[user_id]
-        step = st.get("step")
-        
-        if step == "gram":
-            try:
-                gram = int(text)
-            except ValueError:
-                await message.answer("❌ Число:", parse_mode="HTML")
-                return
-            st["gram"] = gram
-            st["step"] = "star"
-            rates_input_state[user_id] = st
-            await message.answer(
-                "⭐ Сколько <b>Star</b> за 150 000 Tokens?\n"
-                "Пример: <code>15</code>\n\n"
-                "❌ /admin",
-                parse_mode="HTML"
-            )
-            return
-        
-        if step == "star":
-            try:
-                star = int(text)
-            except ValueError:
-                await message.answer("❌ Число:", parse_mode="HTML")
-                return
-            
-            gram = st.get("gram", 1000)
-            rates_input_state.pop(user_id, None)
-            
-            rates_msg = (
-                f"💱 <b>ДЕЙСТВУЮЩИЕ ЦЕНЫ НА ОБМЕН:</b>\n"
-                f"• {gram} Gram = 10 000 токенов\n"
-                f"• {star} Star = 150k токенов\n\n"
-                f"(цены обновляются — актуальные всегда в закрепе группы)"
-            )
-            
-            try:
-                await bot.send_message(EXCHANGE_CHAT_ID, rates_msg, parse_mode="HTML")
-                await message.answer("✅ Курсы отправлены в чат обмена!", parse_mode="HTML")
-            except Exception as e:
-                await message.answer(f"❌ Ошибка: {e}", parse_mode="HTML")
-            return
+    ...
+
+
     
     # ═══════════════ АДМИН-ДЕЙСТВИЯ ═══════════════
     if user_id in admin_action_state:
@@ -13177,6 +12714,53 @@ async def cmd_help(message: Message):
     ])
     
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def handle_reply_button(message: Message, text: str, user_id: int, username: str) -> bool:
+    """Обработка всех Reply-кнопок в ЛС."""
+    
+    # Игрок
+    if text == "💰 Баланс":
+        await cmd_balance(message)
+        return True
+    
+    if text == "👤 Профиль":
+        await cmd_profile(message)
+        return True
+    
+    # Админ
+    if user_id != ADMIN_ID:
+        return False
+
+    if text == "👥 Игроки":
+        await message.answer("👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_players_kb())
+        return True
+    
+    if text == "🎮 Игры":
+        await message.answer("🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Включай/выключай:", parse_mode="HTML", reply_markup=admin_games_kb())
+        return True
+        
+    if text == "🛒 Контент":
+        await message.answer("🛒 <b>КОНТЕНТ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_content_kb())
+        return True
+        
+    if text == "💰 Экономика":
+        await message.answer("💰 <b>ЭКОНОМИКА</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_economy_kb())
+        return True
+        
+    if text == "📢 Связь":
+        await message.answer("📢 <b>СВЯЗЬ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_comm_kb())
+        return True
+        
+    if text == "📊 Мониторинг":
+        await message.answer("📊 <b>МОНИТОРИНГ</b>\n\n👇 Выбери:", parse_mode="HTML", reply_markup=admin_monitor_kb())
+        return True
+        
+    if text == "📋 Все команды":
+        await message.answer(all_commands_text(), parse_mode="HTML", reply_markup=all_commands_kb())
+        return True
+
+    return False
 
 # ═══════════════ ТОЧКА ВХОДА ═══════════════
 
