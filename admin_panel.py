@@ -120,7 +120,7 @@ def register(dp: Dispatcher):
             f"🏆 <b>Выиграл:</b> {fmt_num(won)}\n"
             f"💸 <b>Проиграл:</b> {fmt_num(lost)}"
         )
-
+      
         quick_kb = ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="🚫 Забанить его"), KeyboardButton(text="✅ Разбанить его")],
@@ -291,11 +291,62 @@ def register(dp: Dispatcher):
             
         await state.clear()
 
-    # ═══ ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ РАЗДЕЛОВ ═══
-    @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
-    async def placeholders(message: Message):
+        # ═══ РАЗДЕЛ: ИГРЫ ═══
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games_menu(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, f"🛠 <b>Раздел «{message.text}»</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+        await send_clean(
+            message,
+            "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "✅ Все игры включены (в разработке)\n"
+            "👇 Скоро здесь появятся кнопки вкл/выкл.",
+            parse_mode="HTML",
+            reply_markup=admin_panel_kb()
+        )
+
+    # ═══ РАЗДЕЛ: ЭКОНОМИКА ═══
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(
+            message,
+            "💰 <b>ЭКОНОМИКА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "📊 Текущий курс: 1 ⭐ = 7 500 Tokens\n"
+            "👇 Скоро здесь появятся кнопки изменения курса.",
+            parse_mode="HTML",
+            reply_markup=admin_panel_kb()
+        )
+
+    # ═══ РАЗДЕЛ: КОНТЕНТ ═══
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: МОНИТОРИНГ ═══
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📊 <b>МОНИТОРИНГ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: ВСЕ КОМАНДЫ ═══
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_all_commands(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(
+            message,
+            "📋 <b>ВСЕ КОМАНДЫ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "<code>/admin</code> — меню\n"
+            "<code>/give @user сумма</code> — выдать\n"
+            "<code>/ban @user</code> — забанить\n"
+            "<code>/unban @user</code> — разбанить\n"
+            "<code>/курс 8000</code> — изменить курс",
+            parse_mode="HTML",
+            reply_markup=admin_panel_kb()
+        )
 
     # ═══ КНОПКА НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад в админку")
