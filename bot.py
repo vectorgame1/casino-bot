@@ -1,10 +1,12 @@
-# bot.py — ТОЧКА ВХОДА (v2)
+# bot.py — ТОЧКА ВХОДА (v2 + Web Server)
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiohttp import web
 
 from config import BOT_TOKEN
 from database import init_pool, init_db
@@ -17,6 +19,24 @@ import handlers
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
+# ═══════════════ ВЕБ-СЕРВЕР ДЛЯ RENDER ═══════════════
+async def start_web_server():
+    """Мини-сервер, чтобы Render видел открытый порт и не убивал бота."""
+    async def health(request):
+        return web.Response(text="OK")
+    
+    app = web.Application()
+    app.router.add_get('/', health)
+    app.router.add_get('/health', health)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"🌐 Веб-сервер запущен на порту {port}")
+
+# ═══════════════ ЗАПУСК БОТА ═══════════════
 async def main():
     logger.info("📊 Инициализация пула...")
     init_pool()
@@ -28,17 +48,21 @@ async def main():
     dp = Dispatcher()
 
     # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
-    # Сначала поддержка и админка, чтобы они перехватывали свои кнопки
     support.register(dp)
     admin_panel.register(dp)
-    # В самом конце — базовые обработчики (Старт, Баланс, Профиль и т.д.)
     handlers.register(dp)
 
     logger.info("🎰 Запуск polling...")
     await dp.start_polling(bot)
 
+async def main_wrapper():
+    # Запускаем веб-сервер в фоне (чтобы Render был счастлив)
+    asyncio.create_task(start_web_server())
+    # Запускаем самого бота
+    await main()
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(main_wrapper())
     except (KeyboardInterrupt, SystemExit):
         logger.info("👋 Бот выключен")

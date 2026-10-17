@@ -6,13 +6,11 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import ADMIN_ID, BOT_NAME, SUPPORT_USERNAME
 from keyboards import support_menu, main_menu
+from utils import send_clean  # <-- ДОБАВИЛИ ИМПОРТ
 
-# Стейт для ожидания вопроса от игрока
 class SupportStates(StatesGroup):
     waiting_question = State()
 
-# Словарь для связи сообщения админа и ID игрока
-# {message_id_у_админа: user_id_игрока}
 admin_replies = {}
 
 def register(dp: Dispatcher):
@@ -20,7 +18,8 @@ def register(dp: Dispatcher):
     # ═══ ГЛАВНОЕ МЕНЮ ПОДДЕРЖКИ ═══
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message):
-        await message.answer(
+        await send_clean(
+            message,
             "🆘 <b>Поддержка</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             "Выбери тему — я сразу отвечу.\n"
@@ -45,7 +44,7 @@ def register(dp: Dispatcher):
             "• Примерное время\n\n"
             "Мы всё вернём! 🙏"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
     @dp.message(F.text == "🎮 Что-то сломалось в игре")
     async def game_broken(message: Message):
@@ -59,7 +58,7 @@ def register(dp: Dispatcher):
             "• Что пошло не так\n\n"
             "Если есть скриншот — пришли его сюда. Это ускорит починку! 🛠️"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
     @dp.message(F.text == "💳 Вопрос по оплате")
     async def payment_q(message: Message):
@@ -72,7 +71,7 @@ def register(dp: Dispatcher):
             "• Возврат средств возможен только через поддержку Telegram (в настройках платежей).\n\n"
             "Если что-то неясно — напиши свой вопрос ниже. ✍️"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
     @dp.message(F.text == "🚫 Бан или мут")
     async def ban_mute(message: Message):
@@ -86,7 +85,7 @@ def register(dp: Dispatcher):
             "• Примерное время, когда это случилось\n\n"
             "Мы проверим логи и снимем бан, если он был выдан по ошибке. 🤝"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
     @dp.message(F.text == "🐞 Нашёл баг")
     async def bug_found(message: Message):
@@ -100,7 +99,7 @@ def register(dp: Dispatcher):
             "3️⃣ Что случилось на самом деле\n\n"
             "Пришли скриншот или текст ошибки. За подтверждённый баг — бонус Tokens! 🎁"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
     @dp.message(F.text == "📜 Правила бота")
     async def rules(message: Message):
@@ -114,12 +113,13 @@ def register(dp: Dispatcher):
             "5. Донат — это добровольная поддержка проекта, а не инвестиция.\n\n"
             "Нарушение правил ведет к бану без предупреждения. 🚫"
         )
-        await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
-    # ═══ СВОЙ ВОПРОС (ПЕРЕСЫЛКА АДМИНУ) ═══
+    # ═══ СВОЙ ВОПРОС ═══
     @dp.message(F.text == "✍️ Свой вопрос")
     async def own_question(message: Message, state: FSMContext):
-        await message.answer(
+        await send_clean(
+            message,
             "✍️ <b>Свой вопрос</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             "Напиши свой вопрос одним сообщением.\n"
@@ -132,7 +132,6 @@ def register(dp: Dispatcher):
     async def forward_to_admin(message: Message, state: FSMContext):
         username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
         
-        # Отправляем сообщение тебе (Админу)
         admin_msg = await message.bot.send_message(
             ADMIN_ID,
             f"📩 <b>Новое сообщение в поддержку</b>\n"
@@ -143,10 +142,10 @@ def register(dp: Dispatcher):
             parse_mode="HTML"
         )
         
-        # Запоминаем, что этот message_id принадлежит этому игроку
         admin_replies[admin_msg.message_id] = message.from_user.id
         
-        await message.answer(
+        await send_clean(
+            message,
             "✅ <b>Вопрос отправлен!</b>\n\nОператор ответит тебе сюда в ближайшее время.",
             parse_mode="HTML",
             reply_markup=main_menu()
@@ -156,12 +155,11 @@ def register(dp: Dispatcher):
     # ═══ ОТВЕТ ОТ АДМИНА ИГРОКУ ═══
     @dp.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
     async def admin_reply(message: Message):
-        # Проверяем, есть ли ID сообщения в словаре
         reply_id = message.reply_to_message.message_id
         user_id = admin_replies.get(reply_id)
         
         if not user_id:
-            return # Если это просто ответ на обычное сообщение, игнорируем
+            return
             
         try:
             await message.bot.send_message(
@@ -179,4 +177,4 @@ def register(dp: Dispatcher):
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад")
     async def back(message: Message):
-        await message.answer("Главное меню 👇", reply_markup=main_menu())
+        await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
