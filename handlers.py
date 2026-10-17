@@ -1,12 +1,25 @@
+# handlers.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
+from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
 from config import BOT_NAME, START_BONUS, STARS_RATE, GROUP_URL, ADMIN_ID
 from keyboards import main_menu, games_menu, donate_menu, admin_panel_kb
-from database import get_balance, get_rate, ensure_user, check_and_give_bonus, is_banned, get_top, get_xp, set_balance
+from database import (
+    get_balance, get_rate, ensure_user, 
+    check_and_give_bonus, is_banned, get_top, get_xp, set_balance
+)
 from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
 
+# Стейт для ожидания ввода своей суммы
+class DonateStates(StatesGroup):
+    waiting_custom_stars = State()
+
 def register(dp: Dispatcher):
+
+    # ═══ СТАРТ ═══
     @dp.message(Command("start"))
     async def start(message: Message):
         user_id = message.from_user.id
@@ -19,11 +32,13 @@ def register(dp: Dispatcher):
         bonus_text = f"🎁 Твой стартовый бонус: <b>+{START_BONUS:,} Tokens</b>\n\n" if is_new else ""
         await send_clean(message, f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В {BOT_NAME.upper()}</b>\n━━━━━━━━━━━━━━\n\n💎 Здесь только виртуальные Tokens.\n🎰 Реальных ставок нет (18+).\n\n{bonus_text}✨ Выбери, с чего начнём 👇", parse_mode="HTML", reply_markup=main_menu())
 
+    # ═══ БАЛАНС ═══
     @dp.message(F.text == "💰 Баланс")
     async def balance(message: Message):
         bal = get_balance(message.from_user.id)
         await send_clean(message, f"💎 <b>ТВОЙ БАЛАНС</b>\n━━━━━━━━━━━━━━\n\n💰 Tokens: <b>{fmt_num(bal)}</b>\n\n✨ Пополни в Донате!", parse_mode="HTML", reply_markup=main_menu())
 
+    # ═══ ПРОФИЛЬ ═══
     @dp.message(F.text == "👤 Профиль")
     async def profile(message: Message):
         user_id = message.from_user.id
@@ -32,6 +47,7 @@ def register(dp: Dispatcher):
         rank, bar = get_rank_name(level), make_xp_bar(xp)
         await send_clean(message, f"👤 <b>ПРОФИЛЬ</b>\n━━━━━━━━━━━━━━\n\n🎖 <b>Ранг:</b> {rank}\n📊 <b>Опыт:</b> {xp} / {(level+1)*100} XP\n<code>{bar}</code>\n\n💎 <b>Баланс:</b> {fmt_num(bal)} Tokens", parse_mode="HTML", reply_markup=main_menu())
 
+    # ═══ ТОП ═══
     @dp.message(F.text == "🏆 Топ")
     async def top(message: Message):
         rows = get_top(10)
@@ -42,6 +58,7 @@ def register(dp: Dispatcher):
             txt += f"{medal} <b>{uname or f'user_{uid}'}</b> — {fmt_num(bal)} Tokens\n"
         await send_clean(message, txt, parse_mode="HTML", reply_markup=main_menu())
 
+    # ═══ ИГРЫ ═══
     @dp.message(F.text == "🎰 Игры")
     async def games(message: Message):
         if message.chat.type == "private":
@@ -49,16 +66,13 @@ def register(dp: Dispatcher):
         else:
             await send_clean(message, "🎰 <b>Выбирай:</b>", parse_mode="HTML", reply_markup=games_menu())
 
+    # ═══ ДОНАТ ═══
     @dp.message(F.text == "🏪 Донат")
     async def donate_btn(message: Message):
         rate = get_rate("stars_rate", STARS_RATE)
         await send_clean(message, f"🏪 <b>ДОНАТ</b>\n━━━━━━━━━━━━━━\n\n💱 Курс: <b>1 ⭐ = {rate:,} Tokens</b>\n\n✨ Выбери пакет 👇", parse_mode="HTML", reply_markup=donate_menu())
 
-    @dp.message(F.text == "⬅️ Назад")
-    async def back(message: Message):
-        await send_clean(message, "✨ Главное меню 👇", reply_markup=main_menu())
-
-    # ═══ ОПЛАТА ═══
+    # ═══ ПОКУПКА ПАКЕТОВ (ГОТОВЫЕ) ═══
     @dp.message(F.text == "💎 50 000 Tokens — 7 ⭐")
     async def buy_50k(message: Message):
         await message.answer_invoice(title="50 000 Tokens", description="Покупка Tokens", payload="donate_50k", provider_token="", currency="XTR", prices=[LabeledPrice(label="50 000 Tokens", amount=7)])
@@ -79,6 +93,70 @@ def register(dp: Dispatcher):
     async def buy_2m(message: Message):
         await message.answer_invoice(title="2 000 000 Tokens", description="Покупка Tokens", payload="donate_2m", provider_token="", currency="XTR", prices=[LabeledPrice(label="2 000 000 Tokens", amount=265)])
 
+    # ═══ СВОЯ СУММА ═══
+    @dp.message(F.text == "💎 Своя сумма")
+    async def custom_sum_start(message: Message, state: FSMContext):
+        rate = get_rate("stars_rate", STARS_RATE)
+        await send_clean(
+            message,
+            "💳 <b>СВОЯ СУММА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Введи количество Stars от 1 до 10000.\n"
+            f"Курс: <b>1 ⭐ = {rate:,} Tokens</b>.\n\n"
+            "Пример: <code>10</code> ⭐ = <b>75 000</b> Tokens.",
+            parse_mode="HTML"
+        )
+        await state.set_state(DonateStates.waiting_custom_stars)
+
+    @dp.message(DonateStates.waiting_custom_stars)
+    async def custom_sum_process(message: Message, state: FSMContext):
+        try:
+            stars = int(message.text)
+            if stars < 1 or stars > 10000:
+                await send_clean(message, "❌ Введи число от 1 до 10000.")
+                return
+            
+            rate = get_rate("stars_rate", STARS_RATE)
+            tokens = stars * rate
+            
+            await send_clean(
+                message,
+                f"💎 <b>ПОДТВЕРЖДЕНИЕ</b>\n"
+                "━━━━━━━━━━━━━━\n\n"
+                f"⭐ Stars: <b>{stars}</b>\n"
+                f"💰 Tokens: <b>{fmt_num(tokens)}</b>\n\n"
+                "👇 Нажми на кнопку ниже, чтобы оплатить:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Оплатить", callback_data=f"pay_custom_{stars}_{tokens}")]
+                ])
+            )
+            await state.clear()
+        except ValueError:
+            await send_clean(message, "❌ Введи число от 1 до 10000.")
+
+    @dp.callback_query(F.data.startswith("pay_custom_"))
+    async def pay_custom_callback(call: CallbackQuery):
+        parts = call.data.split("_")
+        stars = int(parts[2])
+        tokens = int(parts[3])
+        
+        await call.message.answer_invoice(
+            title=f"{fmt_num(tokens)} Tokens",
+            description=f"Покупка {fmt_num(tokens)} Tokens за {stars} Stars",
+            payload=f"custom_{stars}_{tokens}",
+            provider_token="",
+            currency="XTR",
+            prices=[LabeledPrice(label=f"{fmt_num(tokens)} Tokens", amount=stars)]
+        )
+        await call.answer()
+
+    # ═══ НАЗАД ═══
+    @dp.message(F.text == "⬅️ Назад")
+    async def back(message: Message):
+        await send_clean(message, "✨ Главное меню 👇", reply_markup=main_menu())
+
+    # ═══ ОПЛАТА (УСПЕШНАЯ) ═══
     @dp.pre_checkout_query()
     async def pre_checkout(query: PreCheckoutQuery):
         await query.answer(ok=True)
@@ -86,7 +164,26 @@ def register(dp: Dispatcher):
     @dp.message(F.successful_payment)
     async def success_pay(message: Message):
         payload = message.successful_payment.invoice_payload
-        amount = {"donate_50k": 50000, "donate_150k": 150000, "donate_300k": 300000, "donate_1m": 1000000, "donate_2m": 2000000}.get(payload, 0)
+        
+        # Если это кастомная оплата (custom_10_75000)
+        if payload.startswith("custom_"):
+            parts = payload.split("_")
+            amount = int(parts[2])
+        else:
+            amount = {
+                "donate_50k": 50000, 
+                "donate_150k": 150000, 
+                "donate_300k": 300000, 
+                "donate_1m": 1000000, 
+                "donate_2m": 2000000
+            }.get(payload, 0)
+            
         if amount > 0:
             set_balance(message.from_user.id, amount)
-            await message.answer(f"✅ <b>ОПЛАТА УСПЕШНА!</b>\n\nЗачислено <b>+{fmt_num(amount)} Tokens</b>", parse_mode="HTML")
+            await message.answer(
+                f"✅ <b>ОПЛАТА УСПЕШНА!</b>\n"
+                "━━━━━━━━━━━━━━\n\n"
+                f"💰 Зачислено: <b>+{fmt_num(amount)} Tokens</b>\n\n"
+                "✨ Спасибо за поддержку! 🖤",
+                parse_mode="HTML"
+            )
