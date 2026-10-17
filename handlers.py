@@ -1,22 +1,15 @@
 # handlers.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message, LabeledPrice
+from aiogram.types import Message
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 
-from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID, GROUP_URL, SUPPORT_USERNAME
-from keyboards import main_menu, games_menu, donate_menu, support_menu
+from config import BOT_NAME, START_BONUS, STARS_RATE, GROUP_URL
+from keyboards import main_menu, games_menu, donate_menu
 from database import (
-    get_balance, get_rate, set_rate, ensure_user, 
+    get_balance, get_rate, ensure_user, 
     check_and_give_bonus, is_banned, get_top, get_xp
 )
 from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
-
-class SupportStates(StatesGroup):
-    waiting_question = State()
-
-admin_replies = {}
 
 def register(dp: Dispatcher):
 
@@ -124,66 +117,7 @@ def register(dp: Dispatcher):
             reply_markup=donate_menu()
         )
 
-    # ═══ ПОДДЕРЖКА ═══
-    @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
-    async def help_menu(message: Message):
-        await send_clean(
-            message,
-            "🆘 <b>Поддержка</b>\n\nВыбери тему 👇",
-            parse_mode="HTML",
-            reply_markup=support_menu()
-        )
-
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад")
     async def back(message: Message):
         await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
-
-    # ═══ АДМИН: КУРС ═══
-    @dp.message(Command("курс"))
-    async def change_rate(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        args = message.text.split()
-        if len(args) == 1:
-            rate = get_rate("stars_rate", STARS_RATE)
-            await message.answer(f"💱 Текущий курс: 1 ⭐ = {rate:,} Tokens\n\nИзменить: <code>/курс 8000</code>", parse_mode="HTML")
-            return
-        try:
-            new_rate = int(args[1])
-            set_rate("stars_rate", new_rate)
-            await message.answer(f"✅ Новый курс: 1 ⭐ = {new_rate:,} Tokens")
-        except ValueError:
-            await message.answer("❌ Формат: /курс 8000")
-
-    # ═══ ПОДДЕРЖКА: СВОЙ ВОПРОС ═══
-    @dp.message(F.text == "✍️ Свой вопрос")
-    async def own_question(message: Message, state: FSMContext):
-        await message.answer("✍️ <b>Свой вопрос</b>\n\nНапиши свой вопрос одним сообщением.", parse_mode="HTML")
-        await state.set_state(SupportStates.waiting_question)
-
-    @dp.message(SupportStates.waiting_question)
-    async def forward_to_admin(message: Message, state: FSMContext):
-        username = f"@{message.from_user.username}" if message.from_user.username else "без username"
-        admin_msg = await message.bot.send_message(
-            ADMIN_ID,
-            f"📩 <b>Новое сообщение в поддержку</b>\n\n"
-            f"👤 {username} (ID: <code>{message.from_user.id}</code>)\n\n"
-            f"💬 Сообщение:\n«{message.text}»\n\n"
-            f"↩️ Ответить: reply на это сообщение.",
-            parse_mode="HTML"
-        )
-        admin_replies[admin_msg.message_id] = message.from_user.id
-        await message.answer("✅ Передал оператору. Ответ придёт сюда.", reply_markup=main_menu())
-        await state.clear()
-
-    @dp.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
-    async def admin_reply(message: Message):
-        reply_id = message.reply_to_message.message_id
-        user_id = admin_replies.get(reply_id)
-        if not user_id: return
-        await message.bot.send_message(
-            user_id,
-            f"📩 <b>Ответ поддержки:</b>\n\n«{message.text}»\n\n— Команда {BOT_NAME}",
-            parse_mode="HTML"
-        )
-        await message.answer("✅ Отправлено игроку.")
