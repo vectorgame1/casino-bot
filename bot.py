@@ -8,8 +8,11 @@ from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
 from database import init_pool, init_db
-import handlers
+
+# ═══ ИМПОРТЫ МОДУЛЕЙ ═══
+import support
 import admin_panel
+import handlers
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
@@ -24,9 +27,12 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # Подключаем наши новые обработчики
-    handlers.register(dp)
+    # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
+    # Сначала поддержка и админка, чтобы они перехватывали свои кнопки
+    support.register(dp)
     admin_panel.register(dp)
+    # В самом конце — базовые обработчики (Старт, Баланс, Профиль и т.д.)
+    handlers.register(dp)
 
     logger.info("🎰 Запуск polling...")
     await dp.start_polling(bot)
