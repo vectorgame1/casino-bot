@@ -15,6 +15,8 @@ from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
 class DonateStates(StatesGroup):
     waiting_custom_stars = State()
 
+def register(dp: Dispatcher):
+
 
 
     # ═══ СТАРТ ═══
@@ -98,7 +100,18 @@ class DonateStates(StatesGroup):
     @dp.message(F.text == "🎰 Игры")
     async def games(message: Message):
         if message.chat.type == "private":
-            await send_clean(message, f"🎰 <b>ИГРЫ В ГРУППЕ</b>\n\n👇 Переходи: {GROUP_URL}", parse_mode="HTML", reply_markup=main_menu())
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🎮 ПЕРЕЙТИ В ГРУППУ", url=GROUP_URL)]
+            ])
+            await send_clean(
+                message,
+                "🎰 <b>ИГРОВОЙ ЗАЛ</b>\n"
+                "━━━━━━━━━━━━━━\n\n"
+                "Игры доступны только в нашей группе!\n"
+                "👇 Нажми на кнопку ниже:",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
         else:
             await send_clean(message, "🎰 <b>Выбирай:</b>", parse_mode="HTML", reply_markup=games_menu())
 

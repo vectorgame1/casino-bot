@@ -18,7 +18,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 # ═══════════════════════════════════════════════════════════════
 
 BOT_USERNAME       = "gold1_casino_bot"
-GROUP_URL          = "https://t.me/+xrMcEcGndccs5ZGFi"
+GROUP_URL = "https://t.me/tokenplays"
 EXCHANGE_CHAT_URL  = "https://t.me/TokensChange"
 EXCHANGE_CHAT_ID   = -1004424481023
 MINI_APP_URL       = "https://casino-miniapp.pages.dev"
