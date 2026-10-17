@@ -1,6 +1,6 @@
 # handlers.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -13,7 +13,6 @@ from database import (
 )
 from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
 
-# Стейт для ожидания ввода своей суммы
 class DonateStates(StatesGroup):
     waiting_custom_stars = State()
 
@@ -24,13 +23,51 @@ def register(dp: Dispatcher):
     async def start(message: Message):
         user_id = message.from_user.id
         username = message.from_user.username or message.from_user.first_name
+        
         ensure_user(user_id, username)
+        
         if is_banned(user_id):
             await send_clean(message, "🚫 <b>ДОСТУП ЗАКРЫТ</b>\n\nОбратитесь в поддержку: @vctorw", parse_mode="HTML")
             return
+            
         is_new = check_and_give_bonus(user_id, START_BONUS)
-        bonus_text = f"🎁 Твой стартовый бонус: <b>+{START_BONUS:,} Tokens</b>\n\n" if is_new else ""
-        await send_clean(message, f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В {BOT_NAME.upper()}</b>\n━━━━━━━━━━━━━━\n\n💎 Здесь только виртуальные Tokens.\n🎰 Реальных ставок нет (18+).\n\n{bonus_text}✨ Выбери, с чего начнём 👇", parse_mode="HTML", reply_markup=main_menu())
+        
+        # 🆕 АДМИН ВИДИТ СРАЗУ АДМИНКУ
+        if user_id == ADMIN_ID:
+            await send_clean(
+                message,
+                "👑 <b>ПАНЕЛЬ УПРАВЛЕНИЯ</b>\n"
+                "━━━━━━━━━━━━━━\n\n"
+                "Добро пожаловать, Босс. 👇 Выбери раздел:",
+                parse_mode="HTML",
+                reply_markup=admin_panel_kb()
+            )
+            return
+            
+        # 🆕 КРАСИВЫЙ СТАРТ ДЛЯ ИГРОКОВ
+        if is_new:
+            bonus_block = "🎁 <b>ТВОЙ СТАРТОВЫЙ БОНУС:</b>\n💰 <b>+5 000 Tokens</b>\n\n"
+        else:
+            bonus_block = ""
+            
+        txt = (
+            f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В {BOT_NAME.upper()}</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            f"👋 Привет, <b>{username}</b>!\n"
+            "Ты попал в элитный игровой клуб.\n\n"
+            "💎 Здесь только виртуальные Tokens.\n"
+            "🎰 Реальных ставок нет (18+).\n\n"
+            f"{bonus_block}"
+            "✨ <b>Выбери, с чего начнём:</b>\n"
+            "👇 Жми на кнопки ниже!"
+        )
+        
+        # Отправка с картинкой (если файла нет - отправит текст)
+        try:
+            photo = FSInputFile("welcome.jpg") 
+            await message.answer_photo(photo=photo, caption=txt, parse_mode="HTML", reply_markup=main_menu())
+        except Exception:
+            await message.answer(txt, parse_mode="HTML", reply_markup=main_menu())
 
     # ═══ БАЛАНС ═══
     @dp.message(F.text == "💰 Баланс")
@@ -72,7 +109,7 @@ def register(dp: Dispatcher):
         rate = get_rate("stars_rate", STARS_RATE)
         await send_clean(message, f"🏪 <b>ДОНАТ</b>\n━━━━━━━━━━━━━━\n\n💱 Курс: <b>1 ⭐ = {rate:,} Tokens</b>\n\n✨ Выбери пакет 👇", parse_mode="HTML", reply_markup=donate_menu())
 
-    # ═══ ПОКУПКА ПАКЕТОВ (ГОТОВЫЕ) ═══
+    # ═══ ПОКУПКА ПАКЕТОВ ═══
     @dp.message(F.text == "💎 50 000 Tokens — 7 ⭐")
     async def buy_50k(message: Message):
         await message.answer_invoice(title="50 000 Tokens", description="Покупка Tokens", payload="donate_50k", provider_token="", currency="XTR", prices=[LabeledPrice(label="50 000 Tokens", amount=7)])
@@ -99,8 +136,7 @@ def register(dp: Dispatcher):
         rate = get_rate("stars_rate", STARS_RATE)
         await send_clean(
             message,
-            "💳 <b>СВОЯ СУММА</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
+            "💳 <b>СВОЯ СУММА</b>\n━━━━━━━━━━━━━━\n\n"
             "Введи количество Stars от 1 до 10000.\n"
             f"Курс: <b>1 ⭐ = {rate:,} Tokens</b>.\n\n"
             "Пример: <code>10</code> ⭐ = <b>75 000</b> Tokens.",
@@ -121,8 +157,7 @@ def register(dp: Dispatcher):
             
             await send_clean(
                 message,
-                f"💎 <b>ПОДТВЕРЖДЕНИЕ</b>\n"
-                "━━━━━━━━━━━━━━\n\n"
+                f"💎 <b>ПОДТВЕРЖДЕНИЕ</b>\n━━━━━━━━━━━━━━\n\n"
                 f"⭐ Stars: <b>{stars}</b>\n"
                 f"💰 Tokens: <b>{fmt_num(tokens)}</b>\n\n"
                 "👇 Нажми на кнопку ниже, чтобы оплатить:",
@@ -156,7 +191,7 @@ def register(dp: Dispatcher):
     async def back(message: Message):
         await send_clean(message, "✨ Главное меню 👇", reply_markup=main_menu())
 
-    # ═══ ОПЛАТА (УСПЕШНАЯ) ═══
+    # ═══ ОПЛАТА ═══
     @dp.pre_checkout_query()
     async def pre_checkout(query: PreCheckoutQuery):
         await query.answer(ok=True)
@@ -165,7 +200,6 @@ def register(dp: Dispatcher):
     async def success_pay(message: Message):
         payload = message.successful_payment.invoice_payload
         
-        # Если это кастомная оплата (custom_10_75000)
         if payload.startswith("custom_"):
             parts = payload.split("_")
             amount = int(parts[2])
@@ -181,8 +215,7 @@ def register(dp: Dispatcher):
         if amount > 0:
             set_balance(message.from_user.id, amount)
             await message.answer(
-                f"✅ <b>ОПЛАТА УСПЕШНА!</b>\n"
-                "━━━━━━━━━━━━━━\n\n"
+                f"✅ <b>ОПЛАТА УСПЕШНА!</b>\n━━━━━━━━━━━━━━\n\n"
                 f"💰 Зачислено: <b>+{fmt_num(amount)} Tokens</b>\n\n"
                 "✨ Спасибо за поддержку! 🖤",
                 parse_mode="HTML"
