@@ -3,10 +3,13 @@ import asyncio
 import logging
 import os
 
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import F
 
 from config import BOT_TOKEN
 from database import init_pool, init_db
@@ -46,6 +49,32 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+
+    # 🆕 ЭКСТРЕННЫЙ ПЕРЕХВАТ КНОПОК АДМИНКИ
+    @dp.message(F.text == "👥 Игроки")
+    async def bot_admin_players(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        from keyboards import admin_panel_kb
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🔍 Скан игрока")],
+                [KeyboardButton(text="💰 Выдать баланс"), KeyboardButton(text="💸 Забрать баланс")],
+                [KeyboardButton(text="🚫 Забанить"), KeyboardButton(text="✅ Разбанить")],
+                [KeyboardButton(text="⬅️ Назад в админку")]
+            ],
+            resize_keyboard=True
+        )
+        await message.answer("👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери действие:", parse_mode="HTML", reply_markup=kb)
+
+    @dp.message(F.text == "🎮 Игры")
+    async def bot_admin_games(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer("🎮 <b>ИГРЫ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "💰 Экономика")
+    async def bot_admin_economy(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer("💰 <b>ЭКОНОМИКА</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
 
     # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
     # 1. Админка (перехватывает кнопки админа)
