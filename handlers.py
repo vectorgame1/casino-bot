@@ -2,38 +2,45 @@
 from aiogram import Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 
-# Все импорты строго вверху файла!
-from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID
+from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID, GROUP_URL
 from keyboards import main_menu, games_menu
 from database import (
     get_balance, get_rate, set_rate, ensure_user, 
     check_and_give_bonus, is_banned
 )
-from utils import send_clean
 
+# ═══ АВТОУДАЛЕНИЕ (встроено) ═══
+last_bot_message = {}
 
-# ═══ ФУНКЦИЯ ДЛЯ ПОДКЛЮЧЕНИЯ ═══
+async def send_clean(message, text: str, **kwargs):
+    chat_id = message.chat.id
+    old_id = last_bot_message.get(chat_id)
+    if old_id:
+        try:
+            await message.bot.delete_message(chat_id, old_id)
+        except Exception:
+            pass
+    sent = await message.answer(text, **kwargs)
+    last_bot_message[chat_id] = sent.message_id
+    return sent
+
+# ═══ РЕГИСТРАЦИЯ ═══
 def register(dp: Dispatcher):
 
-    # ── СТАРТ ──
     @dp.message(Command("start"))
     async def start(message: Message):
         user_id = message.from_user.id
         username = message.from_user.username or ""
         
-        # 1. Создаем юзера (если его нет)
         ensure_user(user_id, username)
         
-        # 2. Проверяем бан
         if is_banned(user_id):
             await send_clean(message, "🚫 <b>Вы заблокированы</b>\nОбратитесь к @vctorw", parse_mode="HTML")
             return
             
-        # 3. Выдаем бонус (только если новый)
         is_new = check_and_give_bonus(user_id, START_BONUS)
-        
-        # 4. Формируем текст
         bonus_text = f"🎁 Тебе подарок: <b>{START_BONUS:,} Tokens</b>\n\n" if is_new else ""
         
         await send_clean(
@@ -49,17 +56,24 @@ def register(dp: Dispatcher):
             reply_markup=main_menu()
         )
 
-    # ── ИГРЫ ──
     @dp.message(F.text == "🎰 Игры")
     async def games(message: Message):
-        await send_clean(
-            message,
-            "🎰 <b>Игры</b>\n\nВыбери игру 👇",
-            parse_mode="HTML",
-            reply_markup=games_menu()
-        )
+        # Проверка на ЛС
+        if message.chat.type == "private":
+            await send_clean(
+                message,
+                f"🎰 <b>Игры доступны только в группе!</b>\n\n👇 Переходи и играй: {GROUP_URL}",
+                parse_mode="HTML",
+                reply_markup=main_menu()
+            )
+        else:
+            await send_clean(
+                message,
+                "🎰 <b>Игры</b>\n\nВыбери игру 👇",
+                parse_mode="HTML",
+                reply_markup=games_menu()
+            )
 
-    # ── БАЛАНС ──
     @dp.message(F.text == "💰 Баланс")
     async def balance(message: Message):
         bal = get_balance(message.from_user.id)
@@ -70,7 +84,6 @@ def register(dp: Dispatcher):
             reply_markup=main_menu()
         )
 
-    # ── НАЗАД ──
     @dp.message(F.text == "⬅️ Назад")
     async def back(message: Message):
         await send_clean(
@@ -79,7 +92,6 @@ def register(dp: Dispatcher):
             reply_markup=main_menu()
         )
 
-    # ── КУРС (АДМИН) ──
     @dp.message(Command("курс"))
     async def change_rate(message: Message):
         if message.from_user.id != ADMIN_ID:
