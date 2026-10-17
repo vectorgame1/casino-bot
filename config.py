@@ -66,3 +66,5 @@ TOKENS_PACKS = [
 
 SUPPORT_USERNAME = "@vctorw"
 BOT_NAME         = "Gold Casino"   # ← можешь поменять
+
+MAX_BANK = 1_000_000_000  # Лимит банка (поставь то значение, которое было раньше, если помнишь, или это)
