@@ -1,7 +1,11 @@
+# ═══════════════════════════════════════════════════════════════
+# keyboards.py — REPLY-КЛАВИАТУРЫ (v2)
+# ═══════════════════════════════════════════════════════════════
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def main_menu() -> ReplyKeyboardMarkup:
-    """Главное меню (ТОЛЬКО РЕПЛАЙ)."""
+    """Главное меню."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
@@ -12,7 +16,7 @@ def main_menu() -> ReplyKeyboardMarkup:
     )
 
 def games_menu() -> ReplyKeyboardMarkup:
-    """Меню игр."""
+    """Меню игр (для групп)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎰 Рулетка"),  KeyboardButton(text="🎲 Кости")],
