@@ -15,14 +15,15 @@ from database import (
 from utils import fmt_num
 
 class AdminStates(StatesGroup):
+    waiting_scan = State()
     waiting_give = State()
     waiting_take = State()
     waiting_ban = State()
     waiting_unban = State()
-    waiting_scan = State()
-    waiting_broadcast_all = State()
-    waiting_broadcast_text = State()
-    waiting_broadcast_target = State()
+    waiting_amount = State()  # Для быстрых действий
+
+# Запоминаем, кого последним сканировали
+last_scanned_user = {}
 
 def register(dp: Dispatcher):
 
@@ -59,7 +60,7 @@ def register(dp: Dispatcher):
             reply_markup=kb
         )
 
-    # ═══ СКАН ИГРОКА ═══
+    # ═══ СКАН ИГРОКА (с кнопками действий) ═══
     @dp.message(F.text == "🔍 Скан игрока")
     async def scan_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -82,11 +83,17 @@ def register(dp: Dispatcher):
             await state.clear()
             return
 
-        # Собираем инфу
+        last_scanned_user[message.from_user.id] = uid
+
         conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT username, balance, bank, xp, banned, total_won, total_lost FROM users WHERE user_id = %s", (uid,))
         row = c.fetchone()
+        
+        c.execute("""SELECT game, bet, win, detail, time FROM game_log 
+                     WHERE user_id = %s ORDER BY id DESC LIMIT 5""", (uid,))
+        recent_games = c.fetchall()
+        
         c.close()
         release_conn(conn)
 
@@ -109,12 +116,109 @@ def register(dp: Dispatcher):
             f"🏦 <b>Банк:</b> {fmt_num(bank)}\n"
             f"⭐ <b>XP:</b> {xp} (Уровень {lvl})\n\n"
             f"🏆 <b>Выиграл:</b> {fmt_num(won)}\n"
-            f"💸 <b>Проиграл:</b> {fmt_num(lost)}"
+            f"💸 <b>Проиграл:</b> {fmt_num(lost)}\n\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"🎮 <b>ПОСЛЕДНИЕ ИГРЫ:</b>\n"
         )
-        await message.answer(txt, parse_mode="HTML")
+        
+        if not recent_games:
+            txt += "Нет истории игр.\n"
+        else:
+            for g in recent_games:
+                game_name, bet, win, detail, time_str = g
+                emoji = "🟢" if win > 0 else "🔴"
+                txt += f"{emoji} {game_name} | Ставка: {fmt_num(bet)} | Выигрыш: {fmt_num(win)}\n"
+                txt += f"   <i>{detail} ({time_str})</i>\n"
+
+        # Кнопки для быстрого действия
+        quick_kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🚫 Забанить его"), KeyboardButton(text="✅ Разбанить его")],
+                [KeyboardButton(text="💰 Выдать ему"), KeyboardButton(text="💸 Забрать у него")],
+                [KeyboardButton(text="⬅️ В меню игроков")]
+            ],
+            resize_keyboard=True
+        )
+
+        await message.answer(txt, parse_mode="HTML", reply_markup=quick_kb)
         await state.clear()
 
-    # ═══ ВЫДАТЬ БАЛАНС ═══
+    # ═══ БЫСТРОЕ ДЕЙСТВИЕ: ЗАБАНИТЬ ═══
+    @dp.message(F.text == "🚫 Забанить его")
+    async def quick_ban(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        uid = last_scanned_user.get(message.from_user.id)
+        if not uid:
+            await message.answer("❌ Сначала просканируй игрока.")
+            return
+        set_banned(uid, True)
+        await message.answer("🚫 <b>Игрок забанен!</b>", parse_mode="HTML")
+
+    # ═══ БЫСТРОЕ ДЕЙСТВИЕ: РАЗБАНИТЬ ═══
+    @dp.message(F.text == "✅ Разбанить его")
+    async def quick_unban(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        uid = last_scanned_user.get(message.from_user.id)
+        if not uid:
+            await message.answer("❌ Сначала просканируй игрока.")
+            return
+        set_banned(uid, False)
+        await message.answer("✅ <b>Игрок разбанен!</b>", parse_mode="HTML")
+
+    # ═══ БЫСТРОЕ ДЕЙСТВИЕ: ВЫДАТЬ ═══
+    @dp.message(F.text == "💰 Выдать ему")
+    async def quick_give_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        uid = last_scanned_user.get(message.from_user.id)
+        if not uid:
+            await message.answer("❌ Сначала просканируй игрока.")
+            return
+        await message.answer("💰 Введи сумму, которую нужно выдать:")
+        await state.set_state(AdminStates.waiting_amount)
+        await state.update_data(action="give")
+
+    # ═══ БЫСТРОЕ ДЕЙСТВИЕ: ЗАБРАТЬ ═══
+    @dp.message(F.text == "💸 Забрать у него")
+    async def quick_take_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        uid = last_scanned_user.get(message.from_user.id)
+        if not uid:
+            await message.answer("❌ Сначала просканируй игрока.")
+            return
+        await message.answer("💸 Введи сумму, которую нужно забрать:")
+        await state.set_state(AdminStates.waiting_amount)
+        await state.update_data(action="take")
+
+    @dp.message(AdminStates.waiting_amount)
+    async def quick_amount_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        uid = last_scanned_user.get(message.from_user.id)
+        data = await state.get_data()
+        action = data.get("action")
+        
+        try:
+            amount = int(message.text)
+        except ValueError:
+            await message.answer("❌ Введи число.")
+            return
+            
+        if action == "give":
+            set_balance(uid, amount)
+            await message.answer(f"✅ Выдано <b>{fmt_num(amount)}</b> Tokens.", parse_mode="HTML")
+        elif action == "take":
+            set_balance(uid, -amount)
+            await message.answer(f"✅ Списано <b>{fmt_num(amount)}</b> Tokens.", parse_mode="HTML")
+            
+        await state.clear()
+
+    # ═══ ВОЗВРАТ В МЕНЮ ИГРОКОВ ═══
+    @dp.message(F.text == "⬅️ В меню игроков")
+    async def back_to_players(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await admin_players_menu(message)
+
+    # ═══ СТАРЫЕ КОМАНДЫ (ВЫДАТЬ / ЗАБРАТЬ / БАН / РАЗБАН) ═══
+    # (Оставляем для совместимости, они работают через ввод @username)
     @dp.message(F.text == "💰 Выдать баланс")
     async def give_balance_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -142,7 +246,6 @@ def register(dp: Dispatcher):
         await message.answer(f"✅ Выдано <b>{fmt_num(amount)}</b> игроку @{target}", parse_mode="HTML")
         await state.clear()
 
-    # ═══ ЗАБРАТЬ БАЛАНС ═══
     @dp.message(F.text == "💸 Забрать баланс")
     async def take_balance_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -170,7 +273,6 @@ def register(dp: Dispatcher):
         await message.answer(f"✅ Списано <b>{fmt_num(amount)}</b> у игрока @{target}", parse_mode="HTML")
         await state.clear()
 
-    # ═══ БАН / РАЗБАН ═══
     @dp.message(F.text == "🚫 Забанить")
     async def ban_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -253,11 +355,11 @@ def register(dp: Dispatcher):
                 
         await message.answer(f"✅ Рассылка завершена!\nУспешно: {sent}\nОшибок: {failed}", parse_mode="HTML")
 
-    # ═══ ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ РАЗДЕЛОВ ═══
+    # ═══ ЗАГЛУШКИ ═══
     @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
     async def placeholders(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        await message.answer(f"🛠 <b>Раздел «{message.text}»</b>\n\nВ разработке. Скоро здесь появятся команды.", parse_mode="HTML")
+        await message.answer(f"🛠 <b>Раздел «{message.text}»</b>\n\nВ разработке.", parse_mode="HTML")
 
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад в админку")
