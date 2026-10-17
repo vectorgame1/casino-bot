@@ -1,13 +1,13 @@
 # handlers.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import Command
 
-from config import BOT_NAME, START_BONUS, STARS_RATE, GROUP_URL
-from keyboards import main_menu, games_menu, donate_menu
+from config import BOT_NAME, START_BONUS, STARS_RATE, GROUP_URL, ADMIN_ID
+from keyboards import main_menu, games_menu, donate_menu, admin_panel_kb
 from database import (
     get_balance, get_rate, ensure_user, 
-    check_and_give_bonus, is_banned, get_top, get_xp
+    check_and_give_bonus, is_banned, get_top, get_xp, set_balance
 )
 from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
 
@@ -117,7 +117,89 @@ def register(dp: Dispatcher):
             reply_markup=donate_menu()
         )
 
+    # ═══ ПОКУПКА ПАКЕТОВ ═══
+    @dp.message(F.text == "💎 50 000 Tokens — 7 ⭐")
+    async def buy_50k(message: Message):
+        await message.answer_invoice(
+            title="💎 50 000 Tokens", description="Покупка 50 000 Tokens",
+            payload="donate_50k", provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="50 000 Tokens", amount=7)]
+        )
+
+    @dp.message(F.text == "💎 150 000 Tokens — 20 ⭐")
+    async def buy_150k(message: Message):
+        await message.answer_invoice(
+            title="💎 150 000 Tokens", description="Покупка 150 000 Tokens",
+            payload="donate_150k", provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="150 000 Tokens", amount=20)]
+        )
+
+    @dp.message(F.text == "💎 300 000 Tokens — 40 ⭐")
+    async def buy_300k(message: Message):
+        await message.answer_invoice(
+            title="💎 300 000 Tokens", description="Покупка 300 000 Tokens",
+            payload="donate_300k", provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="300 000 Tokens", amount=40)]
+        )
+
+    @dp.message(F.text == "💎 1 000 000 Tokens — 125 ⭐")
+    async def buy_1m(message: Message):
+        await message.answer_invoice(
+            title="💎 1 000 000 Tokens", description="Покупка 1 000 000 Tokens",
+            payload="donate_1m", provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="1 000 000 Tokens", amount=125)]
+        )
+
+    @dp.message(F.text == "💎 2 000 000 Tokens — 265 ⭐")
+    async def buy_2m(message: Message):
+        await message.answer_invoice(
+            title="💎 2 000 000 Tokens", description="Покупка 2 000 000 Tokens",
+            payload="donate_2m", provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="2 000 000 Tokens", amount=265)]
+        )
+
+    @dp.message(F.text == "💎 Своя сумма")
+    async def custom_sum(message: Message):
+        await send_clean(
+            message,
+            "💳 <b>Своя сумма</b>\n\nВведи количество Stars от 1 до 10000.\nКурс: 1 ⭐ = 7 500 Tokens.\n\nПример: <code>10</code> ⭐ = <b>75 000</b> Tokens.",
+            parse_mode="HTML"
+        )
+
+    # ═══ АДМИН-ПАНЕЛЬ (Reply) ═══
+    @dp.message(Command("admin"))
+    async def cmd_admin(message: Message):
+        if message.from_user.id != ADMIN_ID:
+            return
+        await send_clean(
+            message,
+            "👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "👇 Выбери раздел:",
+            parse_mode="HTML",
+            reply_markup=admin_panel_kb()
+        )
+
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад")
     async def back(message: Message):
         await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
+
+    # ═══ ОПЛАТА (PRE-CHECKOUT И УСПЕШНАЯ ОПЛАТА) ═══
+    @dp.pre_checkout_query()
+    async def pre_checkout(query: PreCheckoutQuery):
+        await query.answer(ok=True)
+
+    @dp.message(F.successful_payment)
+    async def successful_payment(message: Message):
+        payload = message.successful_payment.invoice_payload
+        amount = 0
+        if payload == "donate_50k": amount = 50_000
+        elif payload == "donate_150k": amount = 150_000
+        elif payload == "donate_300k": amount = 300_000
+        elif payload == "donate_1m": amount = 1_000_000
+        elif payload == "donate_2m": amount = 2_000_000
+        
+        if amount > 0:
+            set_balance(message.from_user.id, amount)
+            await message.answer(f"✅ <b>Оплата прошла!</b>\n\nЗачислено <b>{fmt_num(amount)}</b> Tokens.", parse_mode="HTML")

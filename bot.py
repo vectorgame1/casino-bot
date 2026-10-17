@@ -48,6 +48,7 @@ async def main():
     dp = Dispatcher()
 
     # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
+    # Сначала поддержка, потом админка, потом всё остальное
     support.register(dp)
     admin_panel.register(dp)
     handlers.register(dp)
