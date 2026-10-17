@@ -18,16 +18,18 @@ class AdminStates(StatesGroup):
     waiting_scan = State()
     waiting_amount = State()
     waiting_broadcast_all = State()
+    waiting_broadcast_target = State()
+    waiting_broadcast_text = State()
 
 last_scanned_user = {}
+broadcast_target = {}
 
 def register(dp: Dispatcher):
 
-    # ═══ ГЛОБАЛЬНЫЙ СБРОС СОСТОЯНИЙ ═══
+    # ═══ СБРОС СОСТОЯНИЙ ПРИ НАЖАТИИ НАВИГАЦИИ ═══
     @dp.message(F.text.in_({"⬅️ Назад в админку", "⬅️ В меню игроков", "👥 Игроки", "🎮 Игры", "🛒 Контент", "💰 Экономика", "📢 Связь", "📊 Мониторинг", "📋 Все команды", "🔍 Скан игрока", "❌ Отмена"}))
     async def cancel_any_state(message: Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state is not None:
+        if await state.get_state() is not None:
             await state.clear()
 
     # ═══ ГЛАВНАЯ АДМИНКА ═══
@@ -40,17 +42,6 @@ def register(dp: Dispatcher):
             "━━━━━━━━━━━━━━\n\n"
             "👇 Выбери раздел:",
             parse_mode="HTML",
-            reply_markup=admin_panel_kb()
-        )
-
-    # ═══ КНОПКА ОТМЕНА ═══
-    @dp.message(F.text == "❌ Отмена")
-    async def cancel_action(message: Message, state: FSMContext):
-        if message.from_user.id != ADMIN_ID: return
-        await state.clear()
-        await send_clean(
-            message,
-            "❌ Действие отменено.\n\nВозврат в админ-меню 👇",
             reply_markup=admin_panel_kb()
         )
 
@@ -199,20 +190,30 @@ def register(dp: Dispatcher):
         kb = ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="📢 Всем игрокам")],
+                [KeyboardButton(text="🎯 По @username")],
+                [KeyboardButton(text="🆔 По ID")],
                 [KeyboardButton(text="⬅️ Назад в админку")]
             ],
             resize_keyboard=True
         )
-        await send_clean(message, "📢 <b>РАССЫЛКА</b>\n\nКому отправить?", parse_mode="HTML", reply_markup=kb)
+        await send_clean(
+            message,
+            "📢 <b>РАССЫЛКА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Выбери, кому отправить сообщение:",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
 
+    # ═══ РАССЫЛКА ВСЕМ ═══
     @dp.message(F.text == "📢 Всем игрокам")
-    async def broadcast_start(message: Message, state: FSMContext):
+    async def broadcast_all_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "📢 Напиши текст для рассылки всем игрокам:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await send_clean(message, "📢 Напиши текст сообщения для всех игроков:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
         await state.set_state(AdminStates.waiting_broadcast_all)
 
     @dp.message(AdminStates.waiting_broadcast_all)
-    async def broadcast_process(message: Message, state: FSMContext):
+    async def broadcast_all_process(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await state.clear()
         text = message.text
@@ -226,7 +227,7 @@ def register(dp: Dispatcher):
         
         sent = 0
         failed = 0
-        await send_clean(message, f"⏳ Рассылка на {len(users)} игроков...")
+        await send_clean(message, f"⏳ Начинаю рассылку на {len(users)} игроков...")
         
         for (uid,) in users:
             try:
@@ -238,13 +239,65 @@ def register(dp: Dispatcher):
                 
         await send_clean(message, f"✅ <b>Рассылка завершена!</b>\n\nУспешно: {sent}\nОшибок: {failed}", parse_mode="HTML", reply_markup=admin_panel_kb())
 
-    # ═══ ЗАГЛУШКИ ═══
+    # ═══ РАССЫЛКА ПО @USERNAME ═══
+    @dp.message(F.text == "🎯 По @username")
+    async def broadcast_user_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🎯 Введи @username игрока для рассылки:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await state.set_state(AdminStates.waiting_broadcast_target)
+
+    @dp.message(AdminStates.waiting_broadcast_target)
+    async def broadcast_target_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        target = message.text.replace("@", "")
+        uid = get_user_id_by_username(target)
+        if not uid:
+            await send_clean(message, "❌ Игрок не найден.")
+            await state.clear()
+            return
+        
+        broadcast_target[message.from_user.id] = uid
+        await send_clean(message, "✍️ Теперь напиши текст сообщения для этого игрока:")
+        await state.set_state(AdminStates.waiting_broadcast_text)
+
+    # ═══ РАССЫЛКА ПО ID ═══
+    @dp.message(F.text == "🆔 По ID")
+    async def broadcast_id_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🆔 Введи ID игрока (цифры):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await state.set_state(AdminStates.waiting_broadcast_target)
+
+    # ═══ ОТПРАВКА ТЕКСТА КОНКРЕТНОМУ ИГРОКУ ═══
+    @dp.message(AdminStates.waiting_broadcast_text)
+    async def broadcast_text_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        uid = broadcast_target.get(message.from_user.id)
+        if not uid:
+            await send_clean(message, "❌ Ошибка: игрок не найден.")
+            await state.clear()
+            return
+            
+        try:
+            await message.bot.send_message(
+                uid,
+                f"📢 <b>СООБЩЕНИЕ ОТ АДМИНИСТРАЦИИ</b>\n"
+                f"━━━━━━━━━━━━━━\n\n"
+                f"{message.text}",
+                parse_mode="HTML"
+            )
+            await send_clean(message, "✅ Сообщение успешно отправлено!", reply_markup=admin_panel_kb())
+        except Exception as e:
+            await send_clean(message, f"❌ Ошибка: {e}", reply_markup=admin_panel_kb())
+            
+        await state.clear()
+
+    # ═══ ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ РАЗДЕЛОВ ═══
     @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
     async def placeholders(message: Message):
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, f"🛠 <b>Раздел «{message.text}»</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
 
-    # ═══ НАЗАД В АДМИНКУ ═══
+    # ═══ КНОПКА НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад в админку")
     async def back_admin(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -263,5 +316,4 @@ def register(dp: Dispatcher):
     async def back_players(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await state.clear()
-        # Вызываем функцию меню игроков
         await admin_players_menu(message)
