@@ -569,3 +569,34 @@ def get_total_players() -> int:
     c.close()
     release_conn(conn)
     return row[0] if row else 0
+
+# ═══════════════════════════════════════════════════════════════
+# settings — курс (PostgreSQL)
+# ═══════════════════════════════════════════════════════════════
+
+def get_rate(key: str, default: int) -> int:
+    """Получить курс из БД (или default)."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = %s", (key,))
+    row = c.fetchone()
+    c.close()
+    release_conn(conn)
+    
+    if row:
+        return int(row[0])
+    return default
+
+
+def set_rate(key: str, value: int):
+    """Установить курс."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO settings (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = %s",
+        (key, str(value), str(value))
+    )
+    conn.commit()
+    c.close()
+    release_conn(conn)
