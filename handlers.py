@@ -16,10 +16,57 @@ class DonateStates(StatesGroup):
     waiting_custom_stars = State()
 
 def register(dp: Dispatcher):
-    # 🆕 ПРОПУСКАЕМ ВСЕ КНОПКИ АДМИНКИ, ЧТОБЫ ОНИ ДОШЛИ ДО admin_panel.py
-    @dp.message(F.text.in_({"👥 Игроки", "🎮 Игры", "🛒 Контент", "💰 Экономика", "📢 Связь", "📊 Мониторинг", "📋 Все команды", "❌ Отмена", "⬅️ Назад в админку", "⬅️ В меню игроков", "🔍 Скан игрока", "🚫 Забанить его", "✅ Разбанить его", "💰 Выдать ему", "💸 Забрать у него", "🚫 Забанить", "✅ Разбанить", "💰 Выдать баланс", "💸 Забрать баланс", "📢 Всем игрокам"}))
-    async def skip_admin_buttons(message: Message):
-        pass
+    # ═══ ОБРАБОТКА ВСЕХ КНОПОК АДМИНКИ ═══
+    @dp.message(F.text == "👥 Игроки")
+    async def admin_players_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🔍 Скан игрока")],
+                [KeyboardButton(text="💰 Выдать баланс"), KeyboardButton(text="💸 Забрать баланс")],
+                [KeyboardButton(text="🚫 Забанить"), KeyboardButton(text="✅ Разбанить")],
+                [KeyboardButton(text="⬅️ Назад в админку")]
+            ],
+            resize_keyboard=True
+        )
+        await send_clean(message, "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n━━━━━━━━━━━━━━\n\n👇 Выбери действие:", parse_mode="HTML", reply_markup=kb)
+
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🎮 <b>ИГРЫ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "💰 <b>ЭКОНОМИКА</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📊 <b>МОНИТОРИНГ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_commands(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📋 <b>КОМАНДЫ</b>\n\n/admin\n/give @user сумма\n/ban @user", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📢 Связь")
+    async def admin_comm_menu(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📢 Всем игрокам")],
+                [KeyboardButton(text="⬅️ Назад в админку")]
+            ],
+            resize_keyboard=True
+        )
+        await send_clean(message, "📢 <b>РАССЫЛКА</b>\n\nКому отправить?", parse_mode="HTML", reply_markup=kb)
 
 
 
