@@ -1,4 +1,3 @@
-# handlers.py
 from aiogram import Dispatcher, F
 from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.filters import Command
@@ -16,7 +15,7 @@ from utils import send_clean, fmt_num, make_xp_bar, get_rank_name
 class DonateStates(StatesGroup):
     waiting_custom_stars = State()
 
-def register(dp: Dispatcher):
+
 
     # ═══ СТАРТ ═══
     @dp.message(Command("start"))
