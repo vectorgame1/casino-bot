@@ -72,3 +72,40 @@ TOKENS_PACKS = [
 
 SUPPORT_USERNAME = "@vctorw"
 BOT_NAME         = "Gold Casino"
+
+# ═══════════════════════════════════════════════════════════════
+# ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ИГР И БАНКА
+# ═══════════════════════════════════════════════════════════════
+
+MAX_WIN = 10_000_000
+MAX_BIGINT = 9223372036854775807
+
+# Банк
+MAX_BANK_INTEREST = 5_000_000
+BANK_INTEREST_RATE = 0.05  # 5%
+
+# Кредиты
+CREDIT_MIN = 10_000
+CREDIT_MAX = 1_000_000
+CREDIT_DAYS = 7
+CREDIT_PERCENT = 10
+
+# Рефералка
+REF_BONUS_REFERRER = 5000
+REF_BONUS_REFERRED = 2500
+REF_COMMISSION_PERCENT = 5
+
+# Ежедневный бонус
+DAILY_BONUS = 1000
+
+# Лимиты для игр (ставки) — ТВОИ ЗНАЧЕНИЯ
+GAME_BET_LIMITS = {
+    "roulette": 25_000_000,
+    "slots": 500_000,
+    "coin": 25_000_000,
+    "mines": 2_500_000,
+    "bj": 25_000_000,
+    "duel": 25_000_000,
+    "crash": 500_000,
+    "plinko": 500_000,
+}
