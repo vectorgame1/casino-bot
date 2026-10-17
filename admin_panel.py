@@ -1,97 +1,102 @@
 # admin_panel.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 from config import ADMIN_ID, BOT_NAME
-from database import set_balance, get_user_id_by_username, get_balance, set_banned
-from utils import send_clean, fmt_num
+from keyboards import admin_panel_kb
+from database import get_user_id_by_username, set_balance, set_banned, get_balance
+from utils import fmt_num
 
 def register(dp: Dispatcher):
 
+    # ═══ КОМАНДА /admin ═══
     @dp.message(Command("admin"))
     async def cmd_admin(message: Message):
         if message.from_user.id != ADMIN_ID:
             return
         await message.answer(
-            f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"💎 Бот: <b>{BOT_NAME}</b>\n"
-            f"👇 Доступные команды:\n\n"
-            f"<code>/give @user 1000</code> — выдать токены\n"
-            f"<code>/ban @user</code> — забанить\n"
-            f"<code>/unban @user</code> — разбанить\n"
-            f"<code>/курс 8000</code> — изменить курс доната\n",
-            parse_mode="HTML"
+            "👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "👇 Выбери раздел:",
+            parse_mode="HTML",
+            reply_markup=admin_panel_kb()
         )
 
-    @dp.message(Command("give"))
-    async def cmd_give(message: Message):
-        if message.from_user.id != ADMIN_ID:
-            return
-        
-        args = message.text.split()
-        if len(args) < 3:
-            await message.answer("❌ Использование: <code>/give @username 1000</code>", parse_mode="HTML")
-            return
-
-        target_username = args[1].replace("@", "")
-        try:
-            amount = int(args[2])
-        except ValueError:
-            await message.answer("❌ Сумма должна быть числом.")
-            return
-
-        target_uid = get_user_id_by_username(target_username)
-        if not target_uid:
-            await message.answer(f"❌ Игрок @{target_username} не найден в базе.")
-            return
-
-        new_bal = set_balance(target_uid, amount)
+    # ═══ РАЗДЕЛ: ИГРОКИ ═══
+    @dp.message(F.text == "👥 Игроки")
+    async def admin_players(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        # Здесь мы будем выводить инлайн-кнопки для управления
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👤 Найти игрока", callback_data="admin_find_player")],
+            [InlineKeyboardButton(text="🚫 Бан / Разбан", callback_data="admin_ban_start")],
+            [InlineKeyboardButton(text="💰 Выдать баланс", callback_data="admin_give_start")],
+        ])
         await message.answer(
-            f"✅ <b>Выдано!</b>\n\n"
-            f"👤 Игрок: @{target_username}\n"
-            f"💰 Сумма: <b>+{fmt_num(amount)}</b> Tokens\n"
-            f"💎 Новый баланс: <b>{fmt_num(new_bal)}</b>",
+            "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "👇 Выбери действие:",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+    # ═══ РАЗДЕЛ: ИГРЫ ═══
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer(
+            "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "✅ Все игры включены (в разработке)\n"
+            "👇 Скоро здесь появятся кнопки отключения.",
             parse_mode="HTML"
         )
 
-    @dp.message(Command("ban"))
-    async def cmd_ban(message: Message):
-        if message.from_user.id != ADMIN_ID:
-            return
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("❌ Использование: <code>/ban @username</code>", parse_mode="HTML")
-            return
+    # ═══ РАЗДЕЛ: ЭКОНОМИКА ═══
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer(
+            "💰 <b>ЭКОНОМИКА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "📊 Статистика:\n"
+            "• Курс Stars: 1 ⭐ = 7 500 Tokens\n"
+            "• Курс Gram: 1 Gram = 10 000 Tokens\n\n"
+            "👇 Скоро здесь появятся кнопки изменения курса.",
+            parse_mode="HTML"
+        )
 
-        target_username = args[1].replace("@", "")
-        target_uid = get_user_id_by_username(target_username)
-        
-        if not target_uid:
-            await message.answer(f"❌ Игрок @{target_username} не найден.")
-            return
+    # ═══ РАЗДЕЛ: КОНТЕНТ ═══
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer("🛒 <b>УПРАВЛЕНИЕ КОНТЕНТОМ</b>\n\n(в разработке)", parse_mode="HTML")
 
-        set_banned(target_uid, True)
-        await message.answer(f"🚫 Игрок @{target_username} забанен.", parse_mode="HTML")
+    # ═══ РАЗДЕЛ: СВЯЗЬ ═══
+    @dp.message(F.text == "📢 Связь")
+    async def admin_comm(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer("📢 <b>РАССЫЛКА</b>\n\n(в разработке)", parse_mode="HTML")
 
-    @dp.message(Command("unban"))
-    async def cmd_unban(message: Message):
-        if message.from_user.id != ADMIN_ID:
-            return
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("❌ Использование: <code>/unban @username</code>", parse_mode="HTML")
-            return
+    # ═══ РАЗДЕЛ: МОНИТОРИНГ ═══
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await message.answer("📊 <b>МОНИТОРИНГ</b>\n\n(в разработке)", parse_mode="HTML")
 
-        target_username = args[1].replace("@", "")
-        target_uid = get_user_id_by_username(target_username)
-        
-        if not target_uid:
-            await message.answer(f"❌ Игрок @{target_username} не найден.")
-            return
-
-        set_banned(target_uid, False)
-        await message.answer(f"✅ Игрок @{target_username} разбанен.", parse_mode="HTML")
+    # ═══ РАЗДЕЛ: ВСЕ КОМАНДЫ ═══
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_commands(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        txt = (
+            "📋 <b>ВСЕ КОМАНДЫ АДМИНА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "<b>Основные:</b>\n"
+            "/admin — это меню\n"
+            "/give @user 1000 — выдать баланс\n"
+            "/ban @user — забанить\n"
+            "/unban @user — разбанить\n"
+            "/курс 8000 — изменить курс Stars\n"
+        )
+        await message.answer(txt, parse_mode="HTML")

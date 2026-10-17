@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import ADMIN_ID, BOT_NAME, SUPPORT_USERNAME
 from keyboards import support_menu, main_menu
-from utils import send_clean  # <-- ДОБАВИЛИ ИМПОРТ
+from utils import send_clean
 
 class SupportStates(StatesGroup):
     waiting_question = State()
@@ -38,10 +38,8 @@ def register(dp: Dispatcher):
             "1️⃣ Проверь, прошла ли оплата (зайди в настройки Telegram -> Мои подарки).\n"
             "2️⃣ Подожди 5 минут (иногда бывает задержка).\n"
             "3️⃣ Перезапусти бота командой /start.\n\n"
-            "Если токены всё равно не пришли — напиши в поддержку сюда:\n"
-            "• Скриншот оплаты\n"
-            "• Сколько звезд отправил\n"
-            "• Примерное время\n\n"
+            f"📩 <b>Если токены всё равно не пришли — напиши сюда:</b> {SUPPORT_USERNAME}\n"
+            "Пришли скриншот оплаты, сколько звезд отправил и время.\n\n"
             "Мы всё вернём! 🙏"
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
@@ -56,7 +54,8 @@ def register(dp: Dispatcher):
             "• В какой игре произошла ошибка\n"
             "• Что ты делал (какую команду вводил)\n"
             "• Что пошло не так\n\n"
-            "Если есть скриншот — пришли его сюда. Это ускорит починку! 🛠️"
+            f"📩 <b>Отправь скриншот сюда:</b> {SUPPORT_USERNAME}\n"
+            "Это ускорит починку! 🛠️"
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
@@ -69,7 +68,7 @@ def register(dp: Dispatcher):
             "• Токены зачисляются автоматически.\n"
             "• Если что-то не пришло — см. пункт «Tokens не пришли».\n"
             "• Возврат средств возможен только через поддержку Telegram (в настройках платежей).\n\n"
-            "Если что-то неясно — напиши свой вопрос ниже. ✍️"
+            f"📩 <b>Если что-то неясно — пиши:</b> {SUPPORT_USERNAME} ✍️"
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
@@ -83,6 +82,7 @@ def register(dp: Dispatcher):
             "• Твой @username\n"
             "• Причину блокировки (если знаешь)\n"
             "• Примерное время, когда это случилось\n\n"
+            f"📩 <b>Отправь это сюда:</b> {SUPPORT_USERNAME}\n\n"
             "Мы проверим логи и снимем бан, если он был выдан по ошибке. 🤝"
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
@@ -97,7 +97,8 @@ def register(dp: Dispatcher):
             "1️⃣ Что ты делал (по шагам)\n"
             "2️⃣ Что ожидал увидеть\n"
             "3️⃣ Что случилось на самом деле\n\n"
-            "Пришли скриншот или текст ошибки. За подтверждённый баг — бонус Tokens! 🎁"
+            f"📩 <b>Пришли скриншот или текст сюда:</b> {SUPPORT_USERNAME}\n"
+            "За подтверждённый баг — бонус Tokens! 🎁"
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
@@ -115,7 +116,7 @@ def register(dp: Dispatcher):
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
-    # ═══ СВОЙ ВОПРОС ═══
+    # ═══ СВОЙ ВОПРОС (ПЕРЕСЫЛКА АДМИНУ) ═══
     @dp.message(F.text == "✍️ Свой вопрос")
     async def own_question(message: Message, state: FSMContext):
         await send_clean(
