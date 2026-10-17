@@ -2,7 +2,6 @@
 from aiogram import Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
 
 from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID, GROUP_URL
 from keyboards import main_menu, games_menu
@@ -11,7 +10,7 @@ from database import (
     check_and_give_bonus, is_banned
 )
 
-# ═══ АВТОУДАЛЕНИЕ (встроено) ═══
+# ═══ АВТОУДАЛЕНИЕ ═══
 last_bot_message = {}
 
 async def send_clean(message, text: str, **kwargs):
@@ -58,7 +57,6 @@ def register(dp: Dispatcher):
 
     @dp.message(F.text == "🎰 Игры")
     async def games(message: Message):
-        # Проверка на ЛС
         if message.chat.type == "private":
             await send_clean(
                 message,
@@ -80,6 +78,25 @@ def register(dp: Dispatcher):
         await send_clean(
             message,
             f"💰 <b>Баланс</b>\n\n💎 Tokens: <b>{bal:,}</b>",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+
+    @dp.message(F.text == "👤 Профиль")
+    async def profile(message: Message):
+        bal = get_balance(message.from_user.id)
+        await send_clean(
+            message,
+            f"👤 <b>Профиль</b>\n\n💎 Tokens: <b>{bal:,}</b>",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+
+    @dp.message(F.text == "🏆 Топ")
+    async def top(message: Message):
+        await send_clean(
+            message,
+            "🏆 <b>Топ игроков</b>\n\n(в разработке)",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
