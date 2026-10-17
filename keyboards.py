@@ -61,6 +61,7 @@ def admin_panel_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="🛒 Контент"), KeyboardButton(text="💰 Экономика")],
             [KeyboardButton(text="📢 Связь"), KeyboardButton(text="📊 Мониторинг")],
             [KeyboardButton(text="📋 Все команды")],
+            [KeyboardButton(text="❌ Отмена")], # <-- ВОТ ОНА
         ],
         resize_keyboard=True
     )
