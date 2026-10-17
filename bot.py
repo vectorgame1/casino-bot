@@ -11,6 +11,9 @@ import random
 import re
 import json
 import time
+import support
+import donate
+import handlers
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
@@ -5174,190 +5177,7 @@ def all_commands_text() -> str:
 
 
 
-# ═══════════════ /start ═══════════════
 
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    if not message.from_user or message.from_user.is_bot:
-        return
-    
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    
-    # 🔒 Проверка: новый ли игрок?
-    existing_user = get_user(user_id)
-    is_new_user = existing_user is None
-    
-    ensure_user(user_id, username)
-    
-    if is_banned(user_id):
-        await message.answer("🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>\n\nОбратитесь к @vctorw", parse_mode="HTML")
-        return
-    
-    # ─── Рефералка (только для новых) ───
-    args = message.text.split()
-    if is_new_user and len(args) >= 2 and args[1].startswith("ref_"):
-        try:
-            referrer_id = int(args[1].replace("ref_", ""))
-            if referrer_id != user_id:
-                ok = set_referrer(user_id, referrer_id)
-                if ok:
-                    await message.answer(
-                        f"🎉 <b>Ты пришёл по приглашению!</b>\n\n"
-                        f"💰 Тебе начислено <b>+{fmt_num(REF_BONUS_REFERRED)}</b> Tokens\n"
-                        f"👤 Пригласивший тоже получил бонус",
-                        parse_mode="HTML"
-                    )
-                    # Уведомление рефереру в тот же чат
-                    try:
-                        ref_user = get_user(referrer_id)
-                        ref_name = ref_user[0] if ref_user else f"user_{referrer_id}"
-                        await message.answer(
-                            f"🎉 <b>НОВЫЙ РЕФЕРАЛ!</b>\n"
-                            f"━━━━━━━━━━━━━━\n\n"
-                            f"👤 Игрок: <b>{username}</b>\n"
-                            f"💰 Ты получил: <b>+{fmt_num(REF_BONUS_REFERRER)}</b> Tokens\n\n"
-                            f"📊 Всего рефералов: <b>{get_ref_stats(referrer_id)[0]}</b>",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.error(f"[ref start] {e}")
-    
-    # ─── Уведомление админу о новом игроке ───
-    if is_new_user:
-        try:
-            total_players = get_total_players()
-            now = datetime.now(TZ_MINSK).strftime("%d.%m %H:%M")
-            
-            # Источник
-            source = "Прямая ссылка"
-            if len(args) >= 2 and args[1].startswith("ref_"):
-                source = f"Реферал от {args[1].replace('ref_', '')}"
-            elif message.chat.type != "private":
-                source = f"Из группы «{message.chat.title}»"
-            
-            admin_text = (
-                f"🎉 <b>НОВЫЙ ИГРОК!</b>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"👤 Имя: <b>{message.from_user.full_name}</b>\n"
-                f"🔗 Username: @{message.from_user.username or 'нет'}\n"
-                f"🆔 ID: <code>{user_id}</code>\n"
-                f"🕐 Время: <b>{now}</b>\n\n"
-                f"📍 Источник: <b>{source}</b>\n"
-                f"💰 Стартовый бонус: <b>+{fmt_num(START_BONUS)} Tokens</b>\n\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"📊 Всего игроков: <b>{total_players}</b>"
-            )
-            await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"[notify admin new] {e}")
-    
-    # ─── Ежедневный вход (streak) ───
-    streak, bonus = check_daily_login(user_id)
-    if bonus > 0:
-        await message.answer(
-            f"🔥 <b>7 дней подряд!</b>\n\n"
-            f"🎁 Жирный бонус: <b>+{fmt_num(bonus)}</b> Tokens",
-            parse_mode="HTML"
-        )
-    
-    # ─── Бонус новичка ───
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
-    row = c.fetchone()
-    got_bonus = row[0] if row and row[0] else False
-    c.close()
-    release_conn(conn)
-    
-    bonus_text = ""
-    if not got_bonus:
-        set_balance(user_id, START_BONUS)
-        # 🆕 Лог в transactions
-        log_transaction(user_id, "bonus_start", START_BONUS, "Бонус новичка")
-        
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("UPDATE users SET got_start_bonus = TRUE WHERE user_id = %s", (user_id,))
-        conn.commit()
-        c.close()
-        release_conn(conn)
-        bonus_text = f"\n\n🎁 <b>БОНУС НОВИЧКА: +{fmt_num(START_BONUS)} Tokens!</b>"
-    
-    balance = get_balance(user_id)
-    bank = get_bank(user_id)
-    xp = get_xp(user_id)
-    level = xp // 100
-    rank = get_rank_name(level)
-    title = get_main_title(user_id)
-    title_line = f"\n🏷️ <b>{title}</b>" if title else ""
-    
-    vip_tier = get_vip_tier(user_id)
-    vip_line = ""
-    if vip_tier > 0:
-        info = get_vip_tier_info(vip_tier)
-        if info:
-            vip_line = f"\n{info['icon']} <b>VIP {info['id']} — {info['name']}</b>"
-    
-    if is_unlimited(user_id):
-        bal_line = "♾️ <b>БЕЗЛИМИТ</b>"
-    else:
-        bal_line = f"💎 <b>{fmt_num(balance)}</b> Tokens"
-    
-    is_private = message.chat.type == "private"
-    
-    # ─── Админ в ЛС ───
-    if is_private and user_id == ADMIN_ID:
-        txt = (
-            f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"👤 <b>{username}</b>\n"
-            f"💎 Баланс: <b>{fmt_num(balance)}</b> Tokens\n"
-            f"🏦 Банк: <b>{fmt_num(bank)}</b> Tokens\n\n"
-            f"👇 Выбери раздел:"
-        )
-        await message.answer(txt, parse_mode="HTML", reply_markup=admin_panel_kb())
-        return
-    
-    # ─── ЛС игрока ───
-    if is_private:
-        txt = (
-            f"🎰 <b>Tokens</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"👋 Привет, <b>{username}</b>!\n\n"
-            f"🎖 {rank}{vip_line}{title_line}\n"
-            f"{bal_line}\n"
-            f"🏦 Банк: <b>{fmt_num(bank)}</b>{bonus_text}\n\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"🎮 Игры · 💳 Кредиты · 🎰 Кейсы\n"
-            f"🛒 Магазин · 🎒 Инвентарь · 🏪 Рынок\n"
-            f"👑 VIP · 🎯 Задания · 🔗 Рефералка\n\n"
-            f"💡 Играй в группе или Mini App 👇"
-        )
-        await message.answer(txt, parse_mode="HTML", reply_markup=private_kb())
-        
-        # Inline-кнопка «Играть в группе»
-        await message.answer(
-            "👇 <b>Играть в группе:</b>",
-            parse_mode="HTML",
-            reply_markup=group_url_kb()
-        )
-    # ─── В группе ───
-    else:
-        await message.reply(
-            f"🎰 <b>Tokens</b>\n\n"
-            f"👋 Привет, <b>{username}</b>!\n"
-            f"{bal_line}\n\n"
-            f"💡 Играй командами:\n"
-            f"<code>к 1000</code> — красное\n"
-            f"<code>ч 1000</code> — чёрное\n"
-            f"<code>спин 1000</code> — слоты\n"
-            f"<code>мины 1000</code> — мины\n"
-            f"<code>го</code> — запуск",
-            parse_mode="HTML"
-        )
 
 
 # ═══════════════ /admin ═══════════════
@@ -12669,6 +12489,14 @@ async def main():
     
     # 5. On startup
     await on_startup(bot)
+
+    # Подключаем новые модули
+    support.register(dp)
+    donate.register(dp)
+    handlers.register(dp)
+
+
+
     
     # 6. Запуск polling
     logger.info("🎰 Запуск polling...")
