@@ -135,6 +135,17 @@ def ensure_user(user_id: int, username: str):
     release_conn(conn)
     cache_invalidate(f"user_{user_id}")
 
+def get_user_id_by_username(username: str):
+    if username.startswith('@'):
+        username = username[1:]
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE username = %s", (username,))
+    row = c.fetchone()
+    c.close()
+    release_conn(conn)
+    return row[0] if row else None
+
 def get_balance(user_id: int) -> int:
     cache_key = f"user_{user_id}"
     cached = cache_get(cache_key, ttl=5)
@@ -200,6 +211,19 @@ def is_banned(user_id: int) -> bool:
     release_conn(conn)
     return bool(row[0]) if row else False
 
+def set_banned(user_id: int, banned: bool = True):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO users (user_id, banned) VALUES (%s, %s) "
+        "ON CONFLICT (user_id) DO UPDATE SET banned = %s",
+        (user_id, banned, banned)
+    )
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    cache_invalidate(f"user_{user_id}")
+
 # ═══════════════ НАСТРОЙКИ (КУРС) ═══════════════
 def get_rate(key: str, default: int) -> int:
     conn = get_conn()
@@ -231,6 +255,12 @@ def log_game(user_id: int, username: str, game: str, bet: int, win: int, detail:
     c.execute("""INSERT INTO game_log (user_id, username, game, bet, win, detail, time)
                  VALUES (%s, %s, %s, %s, %s, %s, %s)""",
               (user_id, username, game, bet, win, detail, datetime.now(TZ_MINSK).strftime("%H:%M:%S")))
+    
+    if win > 0:
+        c.execute("UPDATE users SET total_won = total_won + %s WHERE user_id = %s", (win, user_id))
+    else:
+        c.execute("UPDATE users SET total_lost = total_lost + %s WHERE user_id = %s", (bet, user_id))
+        
     conn.commit()
     c.close()
     release_conn(conn)
