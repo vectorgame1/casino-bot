@@ -48,9 +48,11 @@ async def main():
     dp = Dispatcher()
 
     # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
-    # Сначала поддержка, потом админка, потом всё остальное
-    support.register(dp)
+    # 1. Админка (перехватывает кнопки админа)
     admin_panel.register(dp)
+    # 2. Поддержка (перехватывает кнопки поддержки)
+    support.register(dp)
+    # 3. Игрок (Старт, Баланс, Профиль и т.д.)
     handlers.register(dp)
 
     logger.info("🎰 Запуск polling...")
