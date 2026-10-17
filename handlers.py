@@ -106,3 +106,22 @@ def register(dp: Dispatcher):
             await message.answer(f"✅ Новый курс: 1 ⭐ = {new_rate:,} Tokens")
         except ValueError:
             await message.answer("❌ Формат: /курс 8000")
+
+    @dp.message(F.text == "🏆 Топ")
+    async def top(message: Message):
+        await send_clean(
+            message,
+            "🏆 <b>Топ игроков</b>\n\n(в разработке)",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+
+    @dp.message(F.text == "🏪 Донат")
+    async def donate_menu(message: Message):
+        from donate import donate_menu as get_donate_kb
+        await send_clean(
+            message,
+            "🏪 <b>Донат-магазин</b>\n\n💱 Курс: 1 ⭐ = 7 500 Tokens\n\nВыбери пакет 👇",
+            parse_mode="HTML",
+            reply_markup=get_donate_kb()
+        )
