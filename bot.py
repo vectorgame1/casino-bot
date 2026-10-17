@@ -12762,6 +12762,40 @@ async def handle_reply_button(message: Message, text: str, user_id: int, usernam
 
     return False
 
+
+# ═══ ЭКСТРЕННЫЙ ПЕРЕХВАТ КНОПОК ═══
+from keyboards import main_menu, donate_menu, games_menu, support_menu
+from donate import donate_menu as get_donate_kb
+from support import support_menu
+
+@dp.message(F.text == "🏪 Донат")
+async def force_donate(message: Message):
+    rate = get_rate("stars_rate", 7500)
+    await message.answer(
+        "🏪 <b>Донат-магазин</b>\n\n"
+        f"💱 Курс: 1 ⭐ = {rate:,} Tokens\n\n"
+        "Выбери пакет 👇",
+        parse_mode="HTML",
+        reply_markup=donate_menu()
+    )
+
+@dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
+async def force_help(message: Message):
+    await message.answer(
+        "🆘 <b>Поддержка</b>\n\nВыбери тему 👇",
+        parse_mode="HTML",
+        reply_markup=support_menu()
+    )
+
+@dp.message(F.text == "🏆 Топ")
+async def force_top(message: Message):
+    await message.answer(
+        "🏆 <b>Топ игроков</b>\n\n(в разработке)",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
+    
+# ═══════════════════════════════════════
 # ═══════════════ ТОЧКА ВХОДА ═══════════════
 
 if __name__ == "__main__":
