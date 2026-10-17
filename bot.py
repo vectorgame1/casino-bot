@@ -3331,22 +3331,14 @@ def get_purchases(limit: int = 20) -> list:
 # ═══════════════ REPLY-КЛАВИАТУРЫ ═══════════════
 
 def private_kb() -> ReplyKeyboardMarkup:
-    """Основное меню игрока (Reply)."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎮 Игры"), KeyboardButton(text="💰 Баланс")],
-            [KeyboardButton(text="🏦 Банк"), KeyboardButton(text="💳 Кредиты")],
-            [KeyboardButton(text="👤 Профиль"), KeyboardButton(text="🎁 Бонус")],
-            [KeyboardButton(text="🛒 Магазин"), KeyboardButton(text="🎒 Инвентарь")],
-            [KeyboardButton(text="🏪 Рынок"), KeyboardButton(text="🎯 Задания")],
-            [KeyboardButton(text="🏆 Турнир"), KeyboardButton(text="🔗 Рефералка")],
-            [KeyboardButton(text="🌐 WebApp")],
-            [KeyboardButton(text="🎮 ИГРАТЬ В ГРУППЕ")],
+            [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
+            [KeyboardButton(text="🏪 Донат"),    KeyboardButton(text="👤 Профиль")],
+            [KeyboardButton(text="🏆 Топ"),      KeyboardButton(text="🆘 Помощь")],
         ],
         resize_keyboard=True,
-        is_persistent=True,
     )
-
 
 def admin_panel_kb() -> ReplyKeyboardMarkup:
     """Админ-панель (Reply)."""
@@ -10285,8 +10277,7 @@ async def text_handler_private(message: Message):
 # ОБРАБОТКА REPLY-КНОПОК
 # ═══════════════════════════════════════════════════════════════
 
-async def handle_reply_button(message: Message, text: str, user_id: int, username: str) -> bool:
-    """Обработка всех Reply-кнопок в ЛС."""
+    return False  # ⬅️ ВОТ ЭТА СТРОЧКА УБЬЕТ СТАРЫЕ КНОПКИ
     
     # ═══════════════ ИГРОК ═══════════════
     
