@@ -1,9 +1,7 @@
-# keyboards.py
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-
 def main_menu() -> ReplyKeyboardMarkup:
-    """Главное меню."""
+    """Главное меню (ТОЛЬКО РЕПЛАЙ)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
@@ -12,7 +10,6 @@ def main_menu() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True
     )
-
 
 def games_menu() -> ReplyKeyboardMarkup:
     """Меню игр."""
@@ -27,9 +24,8 @@ def games_menu() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-
 def donate_menu() -> ReplyKeyboardMarkup:
-    """Донат-магазин."""
+    """Донат-магазин (только токены)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="💎 50 000 Tokens — 7 ⭐")],
@@ -43,9 +39,8 @@ def donate_menu() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-
 def support_menu() -> ReplyKeyboardMarkup:
-    """Меню поддержки."""
+    """Поддержка."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="💎 Tokens не пришли"), KeyboardButton(text="🎮 Что-то сломалось в игре")],
