@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from config import BOT_TOKEN
 from database import init_pool, init_db
 import handlers
+import admin_panel
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ async def main():
 
     # Подключаем наши новые обработчики
     handlers.register(dp)
+    admin_panel.register(dp)
 
     logger.info("🎰 Запуск polling...")
     await dp.start_polling(bot)
