@@ -1,11 +1,8 @@
-# ═══════════════════════════════════════════════════════════════
-# keyboards.py — REPLY-КЛАВИАТУРЫ (v2)
-# ═══════════════════════════════════════════════════════════════
-
+# keyboards.py
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def main_menu() -> ReplyKeyboardMarkup:
-    """Главное меню."""
+    """Главное меню (игрок)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
@@ -52,6 +49,18 @@ def support_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="🐞 Нашёл баг"),        KeyboardButton(text="📜 Правила бота")],
             [KeyboardButton(text="✍️ Свой вопрос")],
             [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+
+def admin_panel_kb() -> ReplyKeyboardMarkup:
+    """Админ-панель (Reply)."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👥 Игроки"), KeyboardButton(text="🎮 Игры")],
+            [KeyboardButton(text="🛒 Контент"), KeyboardButton(text="💰 Экономика")],
+            [KeyboardButton(text="📢 Связь"), KeyboardButton(text="📊 Мониторинг")],
+            [KeyboardButton(text="📋 Все команды")],
         ],
         resize_keyboard=True
     )
