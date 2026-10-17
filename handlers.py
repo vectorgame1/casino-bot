@@ -4,7 +4,7 @@ from aiogram.types import Message
 from aiogram.filters import Command
 
 from config import BOT_NAME, START_BONUS, STARS_RATE, ADMIN_ID, GROUP_URL
-from keyboards import main_menu, games_menu
+from keyboards import main_menu, games_menu, support_menu
 from database import (
     get_balance, get_rate, set_rate, ensure_user, 
     check_and_give_bonus, is_banned
@@ -72,33 +72,13 @@ def register(dp: Dispatcher):
                 reply_markup=games_menu()
             )
 
-    @dp.message(F.text == "💰 Баланс")
-    async def balance(message: Message):
-        bal = get_balance(message.from_user.id)
+    @dp.message(F.text == "🆘 Помощь")
+    async def help_menu(message: Message):
         await send_clean(
             message,
-            f"💰 <b>Баланс</b>\n\n💎 Tokens: <b>{bal:,}</b>",
+            "🆘 <b>Поддержка</b>\n\nВыбери тему — отвечу сразу.\nЕсли не найдёшь ответ — напиши вопрос, передам оператору.",
             parse_mode="HTML",
-            reply_markup=main_menu()
-        )
-
-    @dp.message(F.text == "👤 Профиль")
-    async def profile(message: Message):
-        bal = get_balance(message.from_user.id)
-        await send_clean(
-            message,
-            f"👤 <b>Профиль</b>\n\n💎 Tokens: <b>{bal:,}</b>",
-            parse_mode="HTML",
-            reply_markup=main_menu()
-        )
-
-    @dp.message(F.text == "🏆 Топ")
-    async def top(message: Message):
-        await send_clean(
-            message,
-            "🏆 <b>Топ игроков</b>\n\n(в разработке)",
-            parse_mode="HTML",
-            reply_markup=main_menu()
+            reply_markup=support_menu()
         )
 
     @dp.message(F.text == "⬅️ Назад")

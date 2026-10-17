@@ -1,7 +1,4 @@
-# ═══════════════════════════════════════════════════════════════
-# keyboards.py — ВСЕ REPLY-КЛАВИАТУРЫ
-# ═══════════════════════════════════════════════════════════════
-
+# keyboards.py
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 
@@ -11,7 +8,7 @@ def main_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
             [KeyboardButton(text="🏪 Донат"),    KeyboardButton(text="👤 Профиль")],
-            [KeyboardButton(text="🏆 Топ"),      KeyboardButton(text="🆘 Поддержка")],
+            [KeyboardButton(text="🏆 Топ"),      KeyboardButton(text="🆘 Помощь")],
         ],
         resize_keyboard=True
     )
@@ -32,7 +29,7 @@ def games_menu() -> ReplyKeyboardMarkup:
 
 
 def donate_menu() -> ReplyKeyboardMarkup:
-    """Донат-магазин — только Tokens."""
+    """Донат-магазин."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="💎 50 000 Tokens — 7 ⭐")],
@@ -57,13 +54,5 @@ def support_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="✍️ Свой вопрос")],
             [KeyboardButton(text="⬅️ Назад")],
         ],
-        resize_keyboard=True
-    )
-
-
-def back_menu() -> ReplyKeyboardMarkup:
-    """Только назад."""
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="⬅️ Назад")]],
         resize_keyboard=True
     )
