@@ -1,4 +1,7 @@
-# utils.py
+# ═══════════════════════════════════════════════════════════════
+# АВТОУДАЛЕНИЕ СООБЩЕНИЙ
+# ═══════════════════════════════════════════════════════════════
+
 last_bot_message = {}
 
 async def send_clean(message, text: str, **kwargs):
@@ -12,4 +15,4 @@ async def send_clean(message, text: str, **kwargs):
             pass
     sent = await message.answer(text, **kwargs)
     last_bot_message[chat_id] = sent.message_id
-    return sent
+    return sent   
