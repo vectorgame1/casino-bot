@@ -74,9 +74,11 @@ def register(dp: Dispatcher):
 
     @dp.message(F.text == "🆘 Помощь")
     async def help_menu(message: Message):
+        # Просто вызываем функцию из support.py, чтобы не было конфликтов
+        from support import support_menu
         await send_clean(
             message,
-            "🆘 <b>Поддержка</b>\n\nВыбери тему — отвечу сразу.\nЕсли не найдёшь ответ — напиши вопрос, передам оператору.",
+            "🆘 <b>Поддержка</b>\n\nВыбери тему 👇",
             parse_mode="HTML",
             reply_markup=support_menu()
         )

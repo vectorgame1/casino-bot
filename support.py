@@ -14,24 +14,15 @@ admin_replies = {}
 
 def register(dp: Dispatcher):
 
-    # Вызывается из handlers.py
-    async def open_support(message: Message):
-        await message.answer(
-            "🆘 <b>Поддержка</b>\n\nВыбери тему 👇",
-            parse_mode="HTML",
-            reply_markup=support_menu()
-        )
-
     @dp.message(F.text == "💎 Tokens не пришли")
     async def tokens_lost(message: Message):
         await message.answer(
             "💎 <b>Tokens не пришли</b>\n\n"
             "Спокойно, сейчас разберёмся.\n\n"
-            "Проверь:\n"
             "1. Оплата точно прошла?\n"
             "2. Прошло больше 5 минут?\n"
-            "3. Перезапусти бота командой /start\n\n"
-            f"Если нет — напиши оператору: {SUPPORT_USERNAME}",
+            "3. Перезапусти бота /start\n\n"
+            f"Если нет — пиши: {SUPPORT_USERNAME}",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
@@ -40,8 +31,7 @@ def register(dp: Dispatcher):
     async def game_broken(message: Message):
         await message.answer(
             "🎮 <b>Что-то сломалось в игре</b>\n\n"
-            "Опиши:\n1. Какая игра\n2. Что делал\n3. Что пошло не так\n\n"
-            "Передам разработчику.",
+            "Опиши проблему: какая игра, что делал, что случилось.",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
@@ -50,9 +40,7 @@ def register(dp: Dispatcher):
     async def payment_q(message: Message):
         await message.answer(
             "💳 <b>Вопрос по оплате</b>\n\n"
-            "• Оплата через Telegram Stars\n"
-            "• Tokens зачисляются автоматически\n"
-            "• Возврат — через поддержку Telegram\n\n"
+            "Оплата проходит через Telegram Stars.\n"
             f"Вопросы: {SUPPORT_USERNAME}",
             parse_mode="HTML",
             reply_markup=main_menu()
@@ -62,8 +50,7 @@ def register(dp: Dispatcher):
     async def ban_mute(message: Message):
         await message.answer(
             "🚫 <b>Бан или мут</b>\n\n"
-            "Если считаешь наказание ошибкой:\n"
-            "• @username\n• Причина\n• Когда случилось",
+            "Напиши свой @username и причину, если считаешь наказание ошибкой.",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
@@ -72,7 +59,7 @@ def register(dp: Dispatcher):
     async def bug_found(message: Message):
         await message.answer(
             "🐞 <b>Нашёл баг</b>\n\n"
-            "Опиши:\n1. Что делал\n2. Что случилось\n3. Скрин",
+            "Опиши баг. За реальный баг — бонус Tokens.",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
@@ -83,8 +70,7 @@ def register(dp: Dispatcher):
             f"📜 <b>Правила {BOT_NAME}</b>\n\n"
             "1. Бот только игровой\n"
             "2. Tokens не выводятся\n"
-            "3. 18+\n"
-            "4. Мультиаккаунты запрещены",
+            "3. 18+",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
