@@ -20,7 +20,10 @@ class AdminStates(StatesGroup):
     waiting_take = State()
     waiting_ban = State()
     waiting_unban = State()
-    waiting_amount = State()  # Для быстрых действий
+    waiting_amount = State()
+    waiting_broadcast_all = State()
+    waiting_broadcast_target = State()
+    waiting_broadcast_text = State()  # Для быстрых действий
 
 # Запоминаем, кого последним сканировали
 last_scanned_user = {}
