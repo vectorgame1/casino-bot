@@ -11,7 +11,7 @@ from aiohttp import web
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram import F
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_ID
 from database import init_pool, init_db
 
 # ═══ ИМПОРТЫ МОДУЛЕЙ ═══
