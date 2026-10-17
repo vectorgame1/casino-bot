@@ -600,3 +600,54 @@ def set_rate(key: str, value: int):
     conn.commit()
     c.close()
     release_conn(conn)
+
+# ═══════════════════════════════════════════════════════════════
+# НОВЫЕ ФУНКЦИИ ДЛЯ БОНУСА И КУРСА
+# ═══════════════════════════════════════════════════════════════
+
+def check_and_give_bonus(user_id: int, bonus_amount: int) -> bool:
+    """Проверяет, получал ли юзер бонус. Если нет - начисляет."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT got_start_bonus FROM users WHERE user_id = %s", (user_id,))
+    row = c.fetchone()
+    
+    if row and row[0] is True:
+        c.close()
+        release_conn(conn)
+        return False  # Уже получал
+        
+    # Если не получал — выдаем
+    c.execute("UPDATE users SET got_start_bonus = TRUE, balance = balance + %s WHERE user_id = %s", (bonus_amount, user_id))
+    conn.commit()
+    c.close()
+    release_conn(conn)
+    cache_invalidate(f"user_{user_id}")
+    return True
+
+
+def get_rate(key: str, default: int) -> int:
+    """Получить курс из БД (или default)."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = %s", (key,))
+    row = c.fetchone()
+    c.close()
+    release_conn(conn)
+    if row:
+        return int(row[0])
+    return default
+
+
+def set_rate(key: str, value: int):
+    """Установить курс."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO settings (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = %s",
+        (key, str(value), str(value))
+    )
+    conn.commit()
+    c.close()
+    release_conn(conn)
