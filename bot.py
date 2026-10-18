@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v22)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v24)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -31,7 +31,6 @@ class BotStates(StatesGroup):
     waiting_amount = State()
     waiting_question = State()
     waiting_custom_stars = State()
-    waiting_broadcast = State()
     waiting_broadcast_target = State()
     waiting_broadcast_text = State()
 
@@ -118,17 +117,21 @@ async def main():
             "• <code>к 1000</code> — Красное (x1.95)\n"
             "• <code>ч 1000</code> — Чёрное (x1.95)\n"
             "• <code>з 1000</code> — Зеро (x35)\n"
-            "• <code>1000 1-18 20-36</code> — Диапазоны\n"
+            "• <code>1000 1-18 20-36</code> — Диапазоны (умный кэф)\n"
             "• <code>го</code> — Запустить\n\n"
             "🎲 <b>2. КОСТИ</b>\n"
             "• <code>кости 1000</code> — Ставка на кубик\n"
             "• Выигрыш, если выпадет <b>4, 5 или 6</b> (x1.95)\n\n"
             "🎰 <b>3. СЛОТЫ</b>\n"
             "• <code>спин 1000</code> — Крутить слоты\n"
-            "• Три одинаковых — <b>ДЖЕКПОТ</b> (до x90)\n"
+            "• Три одинаковых символа — <b>ДЖЕКПОТ</b> (до x90)\n"
             "• Два одинаковых — <b>x1.8</b>\n\n"
             "━━━━━━━━━━━━━━\n"
-            "📊 <b>Общие:</b> <code>ставки</code>, <code>отмена</code>, <code>лог</code>, <code>б</code>"
+            "📊 <b>Общие команды:</b>\n"
+            "• <code>ставки</code> — Твои текущие ставки\n"
+            "• <code>отмена</code> — Отменить ставки (возврат)\n"
+            "• <code>лог</code> — История рулетки\n\n"
+            "💸 <b>Баланс:</b> <code>б</code> или <code>баланс</code>"
         )
         await message.reply(txt)
 
@@ -216,6 +219,7 @@ async def main():
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
         if "-" not in message.text: return
+        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")): return
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
         if len(parts) < 2: return
@@ -476,19 +480,14 @@ async def main():
     @dp.message(F.text == "📢 Связь")
     async def admin_comm(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        kb = ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="📢 Всем игрокам")],
-            [KeyboardButton(text="🎯 По @username")],
-            [KeyboardButton(text="🆔 По ID")],
-            [KeyboardButton(text="⬅️ Назад в админку")]
-        ], resize_keyboard=True)
+        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📢 Всем игрокам")],[KeyboardButton(text="🎯 По @username")],[KeyboardButton(text="🆔 По ID")],[KeyboardButton(text="⬅️ Назад в админку")]], resize_keyboard=True)
         await send_clean(message, "📢 <b>РАССЫЛКА</b>\n\nКому отправить?", reply_markup=kb)
 
     @dp.message(F.text == "📢 Всем игрокам")
     async def broadcast_all_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📢 Напиши текст для всех:")
-        await state.set_state(BotStates.waiting_broadcast)
+        await state.set_state(BotStates.waiting_broadcast_text)
         await state.update_data(target="all")
 
     @dp.message(F.text == "🎯 По @username")
@@ -501,7 +500,7 @@ async def main():
     @dp.message(F.text == "🆔 По ID")
     async def broadcast_id_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🆔 Введи ID игрока (цифры):")
+        await send_clean(message, "🆔 Введи ID игрока:")
         await state.set_state(BotStates.waiting_broadcast_target)
         await state.update_data(mode="id")
 
