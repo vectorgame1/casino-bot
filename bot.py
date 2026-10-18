@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v16)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v19)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -31,6 +31,7 @@ class BotStates(StatesGroup):
     waiting_amount = State()
     waiting_question = State()
     waiting_custom_stars = State()
+    waiting_broadcast = State()
 
 active_bets, admin_replies = {}, {}
 RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
@@ -52,12 +53,7 @@ async def start_web_server():
 
 async def main():
     asyncio.create_task(start_web_server())
-    
-    logger.info("📊 Инициализация пула...")
-    init_pool()
-    logger.info("🗄️ Инициализация БД...")
-    init_db()
-
+    init_pool(); init_db()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
@@ -195,17 +191,12 @@ async def main():
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
         if "-" not in message.text: return
-            
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
         if len(parts) < 2: return
-            
         try: bet = int(parts[0])
         except ValueError: return
-            
-        if bet < 10 or get_balance(uid) < bet:
-            return await message.reply("❌ Недостаточно или < 10.")
-            
+        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
         ranges = []
         for p in parts[1:]:
             if "-" in p:
@@ -218,13 +209,9 @@ async def main():
                     num = int(p)
                     if 0 <= num <= 36: ranges.append((num, num))
                 except: pass
-                    
         if not ranges: return await message.reply("❌ Ошибка в формате.")
-            
         set_balance(uid, -bet)
-        active_bets.setdefault(chat_id, {"bets": []})["bets"].append({
-            "user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet
-        })
+        active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} на диапазоны принята!")
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "ставки")
@@ -308,17 +295,24 @@ async def main():
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "👑 <b>АДМИН-ПАНЕЛЬ</b>", reply_markup=admin_panel_kb())
 
+    @dp.message(F.text == "🔍 Скан игрока")
+    async def adm_scan_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🔍 Введи @username или ID игрока:")
+        await state.set_state(BotStates.waiting_scan)
+        await state.update_data(action="scan")
+
     @dp.message(F.text == "💰 Выдать баланс")
     async def adm_give(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "💰 @username и сумму:")
+        await send_clean(message, "💰 @username (или ID) и сумму:")
         await state.set_state(BotStates.waiting_amount)
         await state.update_data(action="give")
 
     @dp.message(F.text == "💸 Забрать баланс")
     async def adm_take(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "💸 @username и сумму:")
+        await send_clean(message, "💸 @username (или ID) и сумму:")
         await state.set_state(BotStates.waiting_amount)
         await state.update_data(action="take")
 
@@ -327,7 +321,9 @@ async def main():
         if message.from_user.id != ADMIN_ID: return
         data = await state.get_data(); parts = message.text.split()
         if len(parts) != 2: return await send_clean(message, "❌ Формат: @user сумма")
-        uid = get_user_id_by_username(parts[0].replace("@", ""))
+        target = parts[0].replace("@", "")
+        if target.isdigit(): uid = int(target)
+        else: uid = get_user_id_by_username(target)
         if not uid: return await send_clean(message, "❌ Не найден.")
         try: amount = int(parts[1])
         except: return await send_clean(message, "❌ Число.")
@@ -338,14 +334,14 @@ async def main():
     @dp.message(F.text == "🚫 Забанить")
     async def adm_ban(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🚫 @username:")
+        await send_clean(message, "🚫 @username (или ID):")
         await state.set_state(BotStates.waiting_scan)
         await state.update_data(action="ban")
 
     @dp.message(F.text == "✅ Разбанить")
     async def adm_unban(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "✅ @username:")
+        await send_clean(message, "✅ @username (или ID):")
         await state.set_state(BotStates.waiting_scan)
         await state.update_data(action="unban")
 
@@ -353,19 +349,57 @@ async def main():
     async def adm_scan(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         data = await state.get_data(); target = message.text.replace("@", "").strip()
-        uid = get_user_id_by_username(target)
+        if target.isdigit(): uid = int(target)
+        else: uid = get_user_id_by_username(target)
         if not uid:
             await state.clear()
             return await send_clean(message, "❌ Не найден.")
+            
         if data.get("action")=="ban": 
             set_banned(uid, True)
             await send_clean(message, "🚫 Забанен.")
         elif data.get("action")=="unban": 
             set_banned(uid, False)
             await send_clean(message, "✅ Разбанен.")
+        elif data.get("action")=="scan":
+            conn = get_conn(); c = conn.cursor()
+            c.execute("SELECT balance, xp, banned FROM users WHERE user_id=%s",(uid,))
+            row=c.fetchone(); c.close(); release_conn(conn)
+            if row: 
+                await send_clean(message, f"🕵️ @{target}\n💎 {fmt_num(row[0])}\n⭐ {row[1]}\n📊 {'🚫' if row[2] else '✅'}")
+        await state.clear()
+
+    @dp.message(Command("отмена"))
+    async def cmd_cancel(message: Message, state: FSMContext):
+        await state.clear()
+        await send_clean(message, "❌ Действие отменено.", reply_markup=admin_panel_kb() if message.from_user.id == ADMIN_ID else main_menu())
+
+    # 🆕 РАССЫЛКА
+    @dp.message(Command("рассылка"))
+    async def adm_broadcast_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📢 Введи @username (или ID, или 'all' для всех):")
+        await state.set_state(BotStates.waiting_broadcast)
+
+    @dp.message(BotStates.waiting_broadcast)
+    async def adm_broadcast_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        target = message.text.strip()
+        
+        if target.lower() == "all":
+            conn = get_conn(); c = conn.cursor(); c.execute("SELECT user_id FROM users"); users = c.fetchall(); c.close(); release_conn(conn)
+            sent = 0
+            await send_clean(message, f"⏳ Рассылка на {len(users)}...")
+            for (uid,) in users:
+                try: await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}", parse_mode="HTML"); sent += 1; await asyncio.sleep(0.05)
+                except: pass
+            await send_clean(message, f"✅ Отправлено: {sent}")
         else:
-            conn = get_conn(); c = conn.cursor(); c.execute("SELECT balance, xp, banned FROM users WHERE user_id=%s",(uid,)); row=c.fetchone(); c.close(); release_conn(conn)
-            if row: await send_clean(message, f"🕵️ @{target}\n💎 {fmt_num(row[0])}\n⭐ {row[1]}\n📊 {'🚫' if row[2] else '✅'}")
+            if target.isdigit(): uid = int(target)
+            else: uid = get_user_id_by_username(target.replace("@", ""))
+            if not uid: return await send_clean(message, "❌ Не найден.")
+            await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}", parse_mode="HTML")
+            await send_clean(message, "✅ Отправлено!")
         await state.clear()
 
     # ═══ РАЗДЕЛ: ИГРЫ (АДМИН) ═══
@@ -411,11 +445,7 @@ async def main():
     async def admin_content_menu(message: Message, state: FSMContext):
         await state.clear()
         if message.from_user.id != ADMIN_ID: return
-        txt = (
-            f"🛒 <b>КОНТЕНТ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"📦 Редактор магазина и кейсов появится в следующем обновлении."
-        )
+        txt = f"🛒 <b>КОНТЕНТ</b>\n━━━━━━━━━━━━━━\n\n📦 Редактор магазина и кейсов появится в следующем обновлении."
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
     # ═══ РАЗДЕЛ: МОНИТОРИНГ (АДМИН) ═══
@@ -450,7 +480,8 @@ async def main():
             "/admin — меню\n"
             "/give @user сумма — выдать\n"
             "/ban @user — забанить\n"
-            "/unban @user — разбанить"
+            "/unban @user — разбанить\n"
+            "/рассылка — отправить сообщение (по @user, ID или 'all')"
         )
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
