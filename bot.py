@@ -45,14 +45,23 @@ async def start_web_server():
     app = web.Application()
     app.router.add_get('/', health); app.router.add_get('/health', health)
     runner = web.AppRunner(app); await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+    logger.info(f"🌐 Веб-сервер запущен на порту {port}")
 
 async def main():
+    # СНАЧАЛА ЗАПУСКАЕМ ВЕБ-СЕРВЕР (чтобы Render видел порт)
     asyncio.create_task(start_web_server())
-    init_pool(); init_db()
+    
+    logger.info("📊 Инициализация пула...")
+    init_pool()
+    logger.info("🗄️ Инициализация БД...")
+    init_db()
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    # ... остальной код ...
 
     # ================= ИГРОК =================
     @dp.message(Command("start"))
