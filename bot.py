@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v29)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v32)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -58,7 +58,7 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # ================= КНОПКА НАЗАД (ГЛОБАЛЬНАЯ) =================
+    # ================= КНОПКА НАЗАД =================
     @dp.message(F.text == "⬅️ Назад")
     async def btn_back(message: Message, state: FSMContext):
         await state.clear()
@@ -123,21 +123,19 @@ async def main():
             "• <code>к 1000</code> — Красное (x1.95)\n"
             "• <code>ч 1000</code> — Чёрное (x1.95)\n"
             "• <code>з 1000</code> — Зеро (x35)\n"
-            "• <code>1000 1-18 20-36</code> — Диапазоны (умный кэф)\n"
+            "• <code>1000 1-18 20-36</code> — Диапазоны\n"
             "• <code>го</code> — Запустить\n\n"
             "🎲 <b>2. КОСТИ</b>\n"
             "• <code>кости 1000</code> — Ставка на кубик\n"
             "• Выигрыш, если выпадет <b>4, 5 или 6</b> (x1.95)\n\n"
             "🎰 <b>3. СЛОТЫ</b>\n"
             "• <code>спин 1000</code> — Крутить слоты\n"
-            "• Три одинаковых символа — <b>ДЖЕКПОТ</b> (до x90)\n"
-            "• Два одинаковых — <b>x1.8</b>\n\n"
+            "• Шанс выигрыша 50% (x1.8)\n\n"
             "━━━━━━━━━━━━━━\n"
             "📊 <b>Общие команды:</b>\n"
             "• <code>ставки</code> — Твои ставки\n"
             "• <code>отмена</code> — Отменить ставки\n"
-            "• <code>лог</code> — История\n\n"
-            "💸 <b>Баланс:</b> <code>б</code> или <code>баланс</code>"
+            "• <code>лог</code> — История"
         )
         await message.reply(txt)
 
@@ -216,7 +214,7 @@ async def main():
 
     # ================= ИГРЫ =================
     
-    # 🎲 КОСТИ (ЧЕРЕЗ СТИКЕР TELEGRAM)
+    # 🎲 КОСТИ (СТИКЕР TELEGRAM)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("кости ", "кубик ", "дайс ")))
     async def play_dice(message: Message):
         uid = message.from_user.id
@@ -229,11 +227,10 @@ async def main():
         
         set_balance(uid, -bet)
         
-        # 🆕 ОТПРАВЛЯЕМ СТИКЕР КУБИКА
         sent = await message.answer_dice(emoji="🎲")
-        await asyncio.sleep(2.5) # Ждем анимацию
+        await asyncio.sleep(2.5)
         
-        result = sent.dice.value # От 1 до 6
+        result = sent.dice.value
         
         if result >= 4:
             win_amount = int(bet * 1.95)
@@ -246,7 +243,7 @@ async def main():
             
         await message.reply(txt)
 
-    # 🎰 СЛОТЫ (ЧЕРЕЗ СТИКЕР TELEGRAM)
+    # 🎰 СЛОТЫ (СТИКЕР TELEGRAM)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("спин ", "слот ")))
     async def play_slots(message: Message):
         uid = message.from_user.id
@@ -259,22 +256,21 @@ async def main():
         
         set_balance(uid, -bet)
         
-        # 🆕 ОТПРАВЛЯЕМ СТИКЕР СЛОТОВ
         sent = await message.answer_dice(emoji="🎰")
         await asyncio.sleep(2.5)
         
-        result = sent.dice.value # От 1 до 64
+        result = sent.dice.value
         
-        if result == 64:
-            win_amount = int(bet * 90)
-            set_balance(uid, win_amount)
-            log_game(uid, username, "слоты", bet, win_amount, str(result))
-            txt = f"🎰 <b>ДЖЕКПОТ (777)!</b>\n\n🔥 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x90)"
-        elif result >= 32:
+        if result >= 32:
             win_amount = int(bet * 1.8)
             set_balance(uid, win_amount)
             log_game(uid, username, "слоты", bet, win_amount, str(result))
             txt = f"🎰 <b>Выигрыш!</b>\n\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.8)"
+        elif result >= 10:
+            win_amount = int(bet * 1.2)
+            set_balance(uid, win_amount)
+            log_game(uid, username, "слоты", bet, win_amount, str(result))
+            txt = f"🎰 <b>Маленький выигрыш</b>\n\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.2)"
         else:
             log_game(uid, username, "слоты", bet, 0, str(result))
             txt = f"🎰 <b>Проигрыш</b>\n\n😢 Потеряно: <b>-{fmt_num(bet)}</b>"
@@ -297,7 +293,8 @@ async def main():
     # 🎡 РУЛЕТКА: ДИАПАЗОНЫ
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
-        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ", "го", "ставки", "отмена")): return
+        if message.text.lower() in ("го", "ставки", "отмена"): return
+        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")): return
         if "-" not in message.text: return
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
