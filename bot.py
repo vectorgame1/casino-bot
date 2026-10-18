@@ -218,6 +218,11 @@ async def main():
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
+        # 🆕 Пропускаем игры, чтобы они не ломались
+        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")):
+            return
+        if "-" not in message.text: return
+        # ... остальной код ...
         if "-" not in message.text: return
         if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")): return
         uid = message.from_user.id; chat_id = message.chat.id
