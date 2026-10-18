@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v25)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v26)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -118,7 +118,8 @@ async def main():
             "• <code>ч 1000</code> — Чёрное (x1.95)\n"
             "• <code>з 1000</code> — Зеро (x35)\n"
             "• <code>1000 1-18 20-36</code> — Диапазоны (умный кэф)\n"
-            "• <code>го</code> — Запустить\n\n"
+            "• <code>го</code> — Запустить\n"
+            "• <code>отмена</code> — Отменить свои ставки\n\n"
             "🎲 <b>2. КОСТИ</b>\n"
             "• <code>кости 1000</code> — Ставка на кубик\n"
             "• Выигрыш, если выпадет <b>4, 5 или 6</b> (x1.95)\n\n"
@@ -129,7 +130,6 @@ async def main():
             "━━━━━━━━━━━━━━\n"
             "📊 <b>Общие команды:</b>\n"
             "• <code>ставки</code> — Твои текущие ставки\n"
-            "• <code>отмена</code> — Отменить ставки (возврат)\n"
             "• <code>лог</code> — История рулетки\n\n"
             "💸 <b>Баланс:</b> <code>б</code> или <code>баланс</code>"
         )
@@ -159,12 +159,19 @@ async def main():
         for i, r in enumerate(rows): txt += f"{['🥇','🥈','🥉'][i] if i<3 else i+1}. {r[1] or 'user'} — {fmt_num(r[2])}\n"
         await send_clean(message, txt, reply_markup=main_menu())
 
+    # 🆕 ДОНАТ С КАРТИНКОЙ
     @dp.message(F.chat.type == "private", F.text.lower().in_({"донат", "магазин"}))
     @dp.message(F.text == "🏪 Донат")
     async def cmd_don(message: Message, state: FSMContext):
         await state.clear()
         rate = get_rate("stars_rate", STARS_RATE)
-        await send_clean(message, f"💳 <b>ПОКУПКА TOKENS</b>\n\n💱 Курс: 1 ⭐ = {rate:,} Tokens\n\nВведи количество Stars от 1 до 10000:")
+        txt = f"💳 <b>ПОКУПКА TOKENS</b>\n\n💱 Курс: 1 ⭐ = {rate:,} Tokens\n\nВведи количество Stars от 1 до 10000:"
+        
+        try:
+            await message.answer_photo(photo=FSInputFile("powertext_ru_1792346951926.png"), caption=txt, reply_markup=donate_menu())
+        except Exception:
+            await send_clean(message, txt, reply_markup=donate_menu())
+            
         await state.set_state(BotStates.waiting_custom_stars)
 
     @dp.message(BotStates.waiting_custom_stars)
@@ -205,7 +212,7 @@ async def main():
 
     # ================= ИГРЫ =================
     
-    # 🎲 КОСТИ (СТАВИМ ПЕРВЫМИ, ЧТОБЫ НЕ ПЕРЕХВАТЫВАЛИСЬ)
+    # 🎲 КОСТИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("кости ", "кубик ", "дайс ")))
     async def play_dice(message: Message):
         uid = message.from_user.id
@@ -234,7 +241,7 @@ async def main():
         try: await msg.delete()
         except: pass
 
-    # 🎰 СЛОТЫ (ВТОРЫМИ)
+    # 🎰 СЛОТЫ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("спин ", "слот ")))
     async def play_slots(message: Message):
         uid = message.from_user.id
@@ -271,7 +278,7 @@ async def main():
         try: await msg.delete()
         except: pass
 
-    # 🎡 РУЛЕТКА (СТАВКИ)
+    # 🎡 РУЛЕТКА: СТАВКИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("к ", "ч ", "з ", "чёт ", "нечет ")))
     async def place_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
@@ -284,9 +291,10 @@ async def main():
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} принята!")
 
+    # 🎡 РУЛЕТКА: ДИАПАЗОНЫ
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
-        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")): return
+        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ", "го", "ставки", "отмена")): return
         if "-" not in message.text: return
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
@@ -318,14 +326,27 @@ async def main():
         txt = "📊 <b>СТАВКИ</b>\n\n" + "\n".join([f"@{b['username']}: {fmt_num(b['bet'])}" for b in active_bets[chat_id]["bets"]])
         await message.reply(txt)
 
+    # 🎡 РУЛЕТКА: ОТМЕНА
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
+    async def cancel_bets(message: Message):
+        chat_id = message.chat.id; uid = message.from_user.id
+        if chat_id in active_bets:
+            my = [b for b in active_bets[chat_id]["bets"] if b["user_id"]==uid]
+            if my:
+                set_balance(uid, sum(b["bet"] for b in my))
+                active_bets[chat_id]["bets"] = [b for b in active_bets[chat_id]["bets"] if b["user_id"]!=uid]
+                await message.reply("❌ Твои ставки отменены, токены возвращены.")
+                return
+        await message.reply("📊 У тебя нет активных ставок.")
+
+    # 🎡 РУЛЕТКА: ЗАПУСК
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
         chat_id = message.chat.id
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]: return await message.reply("❌ Нет ставок!")
         bets = active_bets[chat_id]["bets"]; total = sum(b["bet"] for b in bets)
-        cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_roulette")]])
-        try: msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 Крутится... Банк: {fmt_num(total)}", reply_markup=cancel_kb)
-        except: msg = await message.reply(f"🎡 Крутится... Банк: {fmt_num(total)}", reply_markup=cancel_kb)
+        try: msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 Крутится... Банк: {fmt_num(total)}")
+        except: msg = await message.reply(f"🎡 Крутится... Банк: {fmt_num(total)}")
         await asyncio.sleep(2.5)
         res = random.randint(0, 36); color = get_color(res); win, lose = [], []
         for b in bets:
@@ -345,24 +366,12 @@ async def main():
             if w > 0: set_balance(b["user_id"], w); win.append(f"🏆 @{b['username']} +{fmt_num(w)}")
             else: lose.append(f"😢 @{b['username']}")
         txt = f"🎡 <b>ВЫПАЛО: {color} {res}</b>\n\n" + ("🎉 <b>Победители:</b>\n"+"\n".join(win) if win else "") + ("\n\n💔 <b>Проиграли:</b>\n"+"\n".join(lose) if lose else "")
-        try: await msg.edit_caption(caption=txt, reply_markup=None)
-        except: await msg.edit_text(txt, reply_markup=None)
+        try: await msg.edit_caption(caption=txt)
+        except: await msg.edit_text(txt)
         await asyncio.sleep(30)
         try: await msg.delete()
         except: pass
         del active_bets[chat_id]
-
-    @dp.callback_query(F.data == "cancel_roulette")
-    async def cancel_roulette_callback(call: CallbackQuery):
-        chat_id = call.message.chat.id; uid = call.from_user.id
-        if chat_id in active_bets:
-            my = [b for b in active_bets[chat_id]["bets"] if b["user_id"]==uid]
-            if my:
-                set_balance(uid, sum(b["bet"] for b in my))
-                active_bets[chat_id]["bets"] = [b for b in active_bets[chat_id]["bets"] if b["user_id"]!=uid]
-                await call.answer("❌ Ставки отменены, токены возвращены.")
-                return
-        await call.answer("❌ Нет ваших ставок.", show_alert=True)
 
     # ================= ОПЛАТА =================
     @dp.pre_checkout_query()
