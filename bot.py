@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v19)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v20)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -221,13 +221,21 @@ async def main():
         txt = "📊 <b>СТАВКИ</b>\n\n" + "\n".join([f"@{b['username']}: {fmt_num(b['bet'])}" for b in active_bets[chat_id]["bets"]])
         await message.reply(txt)
 
+    # 🆕 КНОПКА ОТМЕНА (ИНЛАЙН)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
         chat_id = message.chat.id
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]: return await message.reply("❌ Нет ставок!")
         bets = active_bets[chat_id]["bets"]; total = sum(b["bet"] for b in bets)
-        try: msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 Крутится... Банк: {fmt_num(total)}")
-        except: msg = await message.reply(f"🎡 Крутится... Банк: {fmt_num(total)}")
+        
+        # Кнопка отмены
+        cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_roulette")]
+        ])
+        
+        try: msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 Крутится... Банк: {fmt_num(total)}", reply_markup=cancel_kb)
+        except: msg = await message.reply(f"🎡 Крутится... Банк: {fmt_num(total)}", reply_markup=cancel_kb)
+        
         await asyncio.sleep(2.5)
         res = random.randint(0, 36); color = get_color(res); win, lose = [], []
         for b in bets:
@@ -247,22 +255,24 @@ async def main():
             if w > 0: set_balance(b["user_id"], w); win.append(f"🏆 @{b['username']} +{fmt_num(w)}")
             else: lose.append(f"😢 @{b['username']}")
         txt = f"🎡 <b>ВЫПАЛО: {color} {res}</b>\n\n" + ("🎉 <b>Победители:</b>\n"+"\n".join(win) if win else "") + ("\n\n💔 <b>Проиграли:</b>\n"+"\n".join(lose) if lose else "")
-        try: await msg.edit_caption(caption=txt)
-        except: await msg.edit_text(txt)
+        try: await msg.edit_caption(caption=txt, reply_markup=None)
+        except: await msg.edit_text(txt, reply_markup=None)
         await asyncio.sleep(30)
         try: await msg.delete()
         except: pass
         del active_bets[chat_id]
 
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
-    async def cancel_bets(message: Message):
-        chat_id = message.chat.id; uid = message.from_user.id
+    @dp.callback_query(F.data == "cancel_roulette")
+    async def cancel_roulette_callback(call: CallbackQuery):
+        chat_id = call.message.chat.id; uid = call.from_user.id
         if chat_id in active_bets:
             my = [b for b in active_bets[chat_id]["bets"] if b["user_id"]==uid]
             if my:
                 set_balance(uid, sum(b["bet"] for b in my))
                 active_bets[chat_id]["bets"] = [b for b in active_bets[chat_id]["bets"] if b["user_id"]!=uid]
-                await message.reply("❌ Отменено.")
+                await call.answer("❌ Ставки отменены, токены возвращены.")
+                return
+        await call.answer("❌ Нет ваших ставок.", show_alert=True)
 
     # ================= ОПЛАТА =================
     @dp.pre_checkout_query()
@@ -368,6 +378,55 @@ async def main():
             if row: 
                 await send_clean(message, f"🕵️ @{target}\n💎 {fmt_num(row[0])}\n⭐ {row[1]}\n📊 {'🚫' if row[2] else '✅'}")
         await state.clear()
+
+    # 🆕 КОМАНДЫ /give /take /ban /unban
+    @dp.message(Command("give"))
+    async def cmd_give(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        args = message.text.split()
+        if len(args) < 3: return await send_clean(message, "❌ /give @user 5000")
+        target = args[1].replace("@", "")
+        uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+        if not uid: return await send_clean(message, "❌ Не найден.")
+        try: amount = int(args[2])
+        except: return await send_clean(message, "❌ Число.")
+        set_balance(uid, amount)
+        await send_clean(message, f"✅ Выдано {fmt_num(amount)} игроку @{target}.")
+
+    @dp.message(Command("take"))
+    async def cmd_take(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        args = message.text.split()
+        if len(args) < 3: return await send_clean(message, "❌ /take @user 5000")
+        target = args[1].replace("@", "")
+        uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+        if not uid: return await send_clean(message, "❌ Не найден.")
+        try: amount = int(args[2])
+        except: return await send_clean(message, "❌ Число.")
+        set_balance(uid, -amount)
+        await send_clean(message, f"✅ Забрано {fmt_num(amount)} у @{target}.")
+
+    @dp.message(Command("ban"))
+    async def cmd_ban(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        args = message.text.split()
+        if len(args) < 2: return await send_clean(message, "❌ /ban @user")
+        target = args[1].replace("@", "")
+        uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+        if not uid: return await send_clean(message, "❌ Не найден.")
+        set_banned(uid, True)
+        await send_clean(message, f"🚫 Забанен @{target}.")
+
+    @dp.message(Command("unban"))
+    async def cmd_unban(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        args = message.text.split()
+        if len(args) < 2: return await send_clean(message, "❌ /unban @user")
+        target = args[1].replace("@", "")
+        uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+        if not uid: return await send_clean(message, "❌ Не найден.")
+        set_banned(uid, False)
+        await send_clean(message, f"✅ Разбанен @{target}.")
 
     @dp.message(Command("отмена"))
     async def cmd_cancel(message: Message, state: FSMContext):
@@ -479,9 +538,10 @@ async def main():
             "━━━━━━━━━━━━━━\n\n"
             "/admin — меню\n"
             "/give @user сумма — выдать\n"
+            "/take @user сумма — забрать\n"
             "/ban @user — забанить\n"
             "/unban @user — разбанить\n"
-            "/рассылка — отправить сообщение (по @user, ID или 'all')"
+            "/рассылка — отправить сообщение"
         )
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
