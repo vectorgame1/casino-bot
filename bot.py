@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v15)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v16)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -51,7 +51,6 @@ async def start_web_server():
     logger.info(f"🌐 Веб-сервер запущен на порту {port}")
 
 async def main():
-    # СНАЧАЛА ЗАПУСКАЕМ ВЕБ-СЕРВЕР (чтобы Render видел порт)
     asyncio.create_task(start_web_server())
     
     logger.info("📊 Инициализация пула...")
@@ -61,7 +60,6 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
-    # ... остальной код ...
 
     # ================= ИГРОК =================
     @dp.message(Command("start"))
@@ -196,54 +194,36 @@ async def main():
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
-        # Если в тексте нет дефиса — это не диапазон, выходим
-        if "-" not in message.text:
-            return
+        if "-" not in message.text: return
             
-        uid = message.from_user.id
-        chat_id = message.chat.id
+        uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
-        
         if len(parts) < 2: return
             
-        # Первое слово — это ставка
-        try:
-            bet = int(parts[0])
-        except ValueError:
-            return
+        try: bet = int(parts[0])
+        except ValueError: return
             
-        # Проверяем баланс
         if bet < 10 or get_balance(uid) < bet:
             return await message.reply("❌ Недостаточно или < 10.")
             
         ranges = []
-        # Парсим всё, что идет после суммы
         for p in parts[1:]:
             if "-" in p:
                 try:
                     start, end = map(int, p.split("-"))
-                    if 0 <= start <= end <= 36:
-                        ranges.append((start, end))
-                except:
-                    pass
+                    if 0 <= start <= end <= 36: ranges.append((start, end))
+                except: pass
             else:
                 try:
                     num = int(p)
-                    if 0 <= num <= 36:
-                        ranges.append((num, num))
-                except:
-                    pass
+                    if 0 <= num <= 36: ranges.append((num, num))
+                except: pass
                     
-        if not ranges:
-            return await message.reply("❌ Ошибка в формате диапазонов.")
+        if not ranges: return await message.reply("❌ Ошибка в формате.")
             
         set_balance(uid, -bet)
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({
-            "user_id": uid, 
-            "username": message.from_user.username or "user", 
-            "type": "range", 
-            "ranges": ranges, 
-            "bet": bet
+            "user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet
         })
         await message.reply(f"✅ Ставка {fmt_num(bet)} на диапазоны принята!")
 
@@ -475,6 +455,13 @@ async def main():
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
     # ================= ПОДДЕРЖКА =================
+    @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
+    async def support_main(message: Message, state: FSMContext):
+        await state.clear()
+        if message.chat.type != "private": return await message.reply(f"🆘 Поддержка доступна в ЛС: @{bot.username}")
+        try: await message.answer_photo(FSInputFile("support.jpg"), caption="🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
+        except Exception: await message.answer("🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
+
     @dp.message(F.text == "💎 Tokens не пришли")
     async def tokens_lost(message: Message, state: FSMContext):
         await state.clear()
@@ -577,3 +564,14 @@ async def main():
             "Играй ответственно! 🎲"
         )
         await send_clean(message, txt, reply_markup=support_menu())
+
+    # ================= ЗАПУСК =================
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
