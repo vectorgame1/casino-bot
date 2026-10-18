@@ -32,6 +32,8 @@ class BotStates(StatesGroup):
     waiting_question = State()
     waiting_custom_stars = State()
     waiting_broadcast = State()
+    waiting_broadcast_target = State()
+    waiting_broadcast_text = State()
 
 active_bets, admin_replies = {}, {}
 RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
@@ -474,26 +476,75 @@ async def main():
     @dp.message(F.text == "📢 Связь")
     async def admin_comm(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📢 Всем игрокам")],[KeyboardButton(text="⬅️ Назад в админку")]], resize_keyboard=True)
+        kb = ReplyKeyboardMarkup(keyboard=[
+            [KeyboardButton(text="📢 Всем игрокам")],
+            [KeyboardButton(text="🎯 По @username")],
+            [KeyboardButton(text="🆔 По ID")],
+            [KeyboardButton(text="⬅️ Назад в админку")]
+        ], resize_keyboard=True)
         await send_clean(message, "📢 <b>РАССЫЛКА</b>\n\nКому отправить?", reply_markup=kb)
 
     @dp.message(F.text == "📢 Всем игрокам")
-    async def broadcast_start(message: Message, state: FSMContext):
+    async def broadcast_all_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📢 Напиши текст для всех:")
         await state.set_state(BotStates.waiting_broadcast)
+        await state.update_data(target="all")
 
-    @dp.message(BotStates.waiting_broadcast)
-    async def broadcast_process(message: Message, state: FSMContext):
+    @dp.message(F.text == "🎯 По @username")
+    async def broadcast_user_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🎯 Введи @username игрока:")
+        await state.set_state(BotStates.waiting_broadcast_target)
+        await state.update_data(mode="user")
+
+    @dp.message(F.text == "🆔 По ID")
+    async def broadcast_id_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🆔 Введи ID игрока (цифры):")
+        await state.set_state(BotStates.waiting_broadcast_target)
+        await state.update_data(mode="id")
+
+    @dp.message(BotStates.waiting_broadcast_target)
+    async def broadcast_target_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        data = await state.get_data(); target = message.text.strip()
+        
+        if data["mode"] == "user":
+            uid = get_user_id_by_username(target.replace("@", ""))
+        else:
+            try: uid = int(target)
+            except: uid = None
+
+        if not uid:
+            await state.clear()
+            return await send_clean(message, "❌ Игрок не найден.")
+
+        await state.update_data(target=uid)
+        await send_clean(message, "✍️ Теперь напиши текст сообщения:")
+        await state.set_state(BotStates.waiting_broadcast_text)
+
+    @dp.message(BotStates.waiting_broadcast_text)
+    async def broadcast_text_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        data = await state.get_data()
+        target = data.get("target")
+        
+        if target == "all":
+            conn = get_conn(); c = conn.cursor(); c.execute("SELECT user_id FROM users"); users = c.fetchall(); c.close(); release_conn(conn)
+            sent = 0
+            await send_clean(message, f"⏳ Рассылка на {len(users)}...")
+            for (uid,) in users:
+                try: await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}", parse_mode="HTML"); sent += 1; await asyncio.sleep(0.05)
+                except: pass
+            await send_clean(message, f"✅ Отправлено: {sent}")
+        else:
+            try:
+                await message.bot.send_message(target, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}", parse_mode="HTML")
+                await send_clean(message, "✅ Отправлено игроку!")
+            except Exception as e:
+                await send_clean(message, f"❌ Ошибка: {e}")
         await state.clear()
-        conn = get_conn(); c = conn.cursor(); c.execute("SELECT user_id FROM users"); users = c.fetchall(); c.close(); release_conn(conn)
-        sent = 0
-        await send_clean(message, f"⏳ Рассылка на {len(users)}...")
-        for (uid,) in users:
-            try: await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}", parse_mode="HTML"); sent += 1; await asyncio.sleep(0.05)
-            except: pass
-        await send_clean(message, f"✅ Отправлено: {sent}")
 
     # ═══ РАЗДЕЛ: ИГРЫ (АДМИН) ═══
     @dp.message(F.text == "🎮 Игры")
