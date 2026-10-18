@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v3)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v7 - Быстрый старт)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import (
-    Message, LabeledPrice, PreCheckoutQuery,
+    Message, LabeledPrice, PreCheckoutQuery, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 )
@@ -30,6 +30,7 @@ class BotStates(StatesGroup):
     waiting_scan = State()
     waiting_amount = State()
     waiting_question = State()
+    waiting_custom_stars = State()
 
 active_bets, admin_replies = {}, {}
 RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
@@ -39,21 +40,32 @@ def get_color(num):
     if num == 0: return "🟢"
     return "🔴" if num in RED else "⚫"
 
+# 🆕 ВЕБ-СЕРВЕР (Запускается СРАЗУ, чтобы Render видел порт)
 async def start_web_server():
     async def health(request): return web.Response(text="OK")
     app = web.Application()
-    app.router.add_get('/', health); app.router.add_get('/health', health)
-    runner = web.AppRunner(app); await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080)))
+    app.router.add_get('/', health)
+    app.router.add_get('/health', health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+    logger.info(f"🌐 Веб-сервер запущен на порту {port}")
 
 async def main():
-    init_pool(); init_db()
+    # 🆕 СНАЧАЛА ЗАПУСКАЕМ ВЕБ-СЕРВЕР (чтобы Render был счастлив)
+    asyncio.create_task(start_web_server())
+    
+    logger.info("📊 Инициализация пула...")
+    init_pool()
+    logger.info("🗄️ Инициализация БД...")
+    init_db()
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
     # ================= ИГРОК =================
-
     @dp.message(Command("start"))
     async def start(message: Message):
         user_id = message.from_user.id
@@ -68,73 +80,76 @@ async def main():
         txt = f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В {BOT_NAME.upper()}</b>\n\n👋 Привет, {message.from_user.first_name}!\n{bonus}✨ Выбери действие 👇"
         try:
             await message.answer_photo(photo=FSInputFile("welcome.jpg"), caption=txt, reply_markup=main_menu())
-        except:
+        except Exception:
             await message.answer(txt, reply_markup=main_menu())
 
-    # 📌 КОМАНДЫ ИГРОКА (В ЛС И В ГРУППАХ)
     @dp.message(F.text.lower().in_({"баланс", "б"}))
     @dp.message(F.text == "💰 Баланс")
     async def cmd_bal(message: Message):
         bal = get_balance(message.from_user.id)
-        if message.chat.type == "private":
-            await send_clean(message, f"💎 <b>Баланс:</b> {fmt_num(bal)} Tokens", reply_markup=main_menu())
-        else:
-            await message.reply(f"💰 @{message.from_user.username or 'user'}, твой баланс: <b>{fmt_num(bal)}</b> Tokens")
+        if message.chat.type == "private": await send_clean(message, f"💎 <b>Баланс:</b> {fmt_num(bal)}", reply_markup=main_menu())
+        else: await message.reply(f"💰 Баланс: <b>{fmt_num(bal)}</b>")
 
     @dp.message(F.text.lower().in_({"профиль", "я"}))
     @dp.message(F.text == "👤 Профиль")
     async def cmd_prof(message: Message):
-        uid = message.from_user.id
-        xp = get_xp(uid); lvl = xp // 100
-        txt = f"👤 <b>Профиль</b>\n🎖 {get_rank_name(lvl)}\n📊 XP: {xp}/{(lvl+1)*100}\n{make_xp_bar(xp)}\n💎 {fmt_num(get_balance(uid))}"
-        if message.chat.type == "private":
-            await send_clean(message, txt, reply_markup=main_menu())
-        else:
-            await message.reply(txt)
+        uid = message.from_user.id; xp = get_xp(uid); lvl = xp // 100
+        txt = f"👤 <b>Профиль</b>\n🎖 {get_rank_name(lvl)}\n📊 XP: {xp}\n{make_xp_bar(xp)}\n💎 {fmt_num(get_balance(uid))}"
+        if message.chat.type == "private": await send_clean(message, txt, reply_markup=main_menu())
+        else: await message.reply(txt)
 
     @dp.message(F.text.lower().in_({"топ"}))
     @dp.message(F.text == "🏆 Топ")
     async def cmd_top(message: Message):
-        rows = get_top(10)
-        txt = "🏆 <b>ЗАЛ СЛАВЫ</b>\n\n"
-        for i, r in enumerate(rows):
-            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
-            txt += f"{medal} {r[1] or 'user'} — {fmt_num(r[2])}\n"
-        if message.chat.type == "private":
-            await send_clean(message, txt, reply_markup=main_menu())
-        else:
-            await message.reply(txt)
+        rows = get_top(10); txt = "🏆 <b>ЗАЛ СЛАВЫ</b>\n\n"
+        for i, r in enumerate(rows): txt += f"{['🥇','🥈','🥉'][i] if i<3 else i+1}. {r[1] or 'user'} — {fmt_num(r[2])}\n"
+        if message.chat.type == "private": await send_clean(message, txt, reply_markup=main_menu())
+        else: await message.reply(txt)
 
     @dp.message(F.text.lower().in_({"донат", "магазин"}))
     @dp.message(F.text == "🏪 Донат")
-    async def cmd_don(message: Message):
-        if message.chat.type != "private":
-            return await message.reply(f"🏪 Для покупки Tokens переходи в ЛС бота: @{bot.username}")
+    async def cmd_don(message: Message, state: FSMContext):
+        if message.chat.type != "private": return await message.reply(f"🏪 В ЛС: @{bot.username}")
         rate = get_rate("stars_rate", STARS_RATE)
-        await send_clean(message, f"🏪 <b>ДОНАТ</b>\n💱 Курс: 1 ⭐ = {rate:,} Tokens\n\n👇 Выбери пакет:", reply_markup=donate_menu())
+        await send_clean(message, f"💳 <b>ПОКУПКА TOKENS</b>\n\n💱 Курс: 1 ⭐ = {rate:,} Tokens\n\nВведи количество Stars от 1 до 10000:")
+        await state.set_state(BotStates.waiting_custom_stars)
+
+    @dp.message(BotStates.waiting_custom_stars)
+    async def custom_sum_process(message: Message, state: FSMContext):
+        try:
+            stars = int(message.text)
+            if stars < 1 or stars > 10000: return await send_clean(message, "❌ От 1 до 10000.")
+            rate = get_rate("stars_rate", STARS_RATE)
+            tokens = stars * rate
+            await message.answer_invoice(
+                title=f"{tokens:,} Tokens",
+                description=f"Покупка {tokens:,} Tokens за {stars} Stars",
+                payload=f"buy_{stars}_{tokens}",
+                provider_token="",
+                currency="XTR",
+                prices=[LabeledPrice(label=f"{tokens:,} Tokens", amount=stars)]
+            )
+            await state.clear()
+        except ValueError:
+            await send_clean(message, "❌ Введи число.")
 
     @dp.message(F.text.lower().in_({"бонус"}))
     async def cmd_bonus(message: Message):
-        if message.chat.type != "private":
-            return await message.reply(f"🎁 Бонус можно забрать в ЛС: @{bot.username}")
-        uid = message.from_user.id
-        conn = get_conn(); c = conn.cursor()
+        if message.chat.type != "private": return await message.reply(f"🎁 В ЛС: @{bot.username}")
+        uid = message.from_user.id; conn = get_conn(); c = conn.cursor()
         c.execute("SELECT last_login_date FROM users WHERE user_id = %s", (uid,)); row = c.fetchone()
         today = datetime.now(TZ_MINSK).date()
         if row and row[0] == today:
-            await send_clean(message, "⏳ Бонус уже забран сегодня.", reply_markup=main_menu())
-            c.close(); release_conn(conn); return
+            await send_clean(message, "⏳ Бонус уже забран.", reply_markup=main_menu()); c.close(); release_conn(conn); return
         c.execute("UPDATE users SET balance = balance + 5000, last_login_date = %s WHERE user_id = %s", (today, uid))
         conn.commit(); c.close(); release_conn(conn)
-        await send_clean(message, "🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС: +5 000 Tokens</b>", reply_markup=main_menu())
+        await send_clean(message, "🎁 <b>БОНУС +5 000 Tokens</b>", reply_markup=main_menu())
 
     @dp.message(F.text == "🎰 Игры")
     async def btn_games(message: Message):
         if message.chat.type == "private":
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 В ГРУППУ", url=GROUP_URL)]])
-            await send_clean(message, "🎰 Игры в группе 👇", reply_markup=kb)
-        else:
-            await send_clean(message, "🎰 Выбирай:", reply_markup=games_menu())
+            await send_clean(message, "🎰 Игры в группе 👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 В ГРУППУ", url=GROUP_URL)]]))
+        else: await send_clean(message, "🎰 Игры:", reply_markup=games_menu())
 
     @dp.message(F.text == "⬅️ Назад")
     async def btn_back(message: Message):
@@ -148,7 +163,7 @@ async def main():
         if not bet_type: return
         try: bet = int(parts[1])
         except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или меньше 10.")
+        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
         set_balance(uid, -bet)
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} принята!")
@@ -194,13 +209,6 @@ async def main():
                 await message.reply("❌ Отменено.")
 
     # ================= ОПЛАТА =================
-    @dp.message(F.text.startswith("💎 ") & F.text.endswith("⭐"))
-    async def handle_buy(message: Message):
-        parts = message.text.split()
-        try: amount = int("".join(parts[1:3])) * 1000; stars = int(parts[-2])
-        except: return
-        await message.answer_invoice(title=f"{amount:,} Tokens", description="Покупка Tokens", payload=f"buy_{stars}_{amount}", provider_token="", currency="XTR", prices=[LabeledPrice(label=f"{amount:,} Tokens", amount=stars)])
-
     @dp.pre_checkout_query()
     async def pre_check(query: PreCheckoutQuery): await query.answer(ok=True)
 
@@ -212,7 +220,6 @@ async def main():
             await message.answer(f"✅ Зачислено {fmt_num(int(amount))} Tokens.")
 
     # ================= АДМИНКА =================
-
     @dp.message(Command("admin"))
     async def cmd_admin(message: Message):
         if message.from_user.id != ADMIN_ID: return
@@ -276,17 +283,41 @@ async def main():
     @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
     async def placeholders(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, f"🛠 {message.text} в разработке.", reply_markup=admin_panel_kb())
+        await send_clean(message, f"🛠 {message.text} (в разработке)", reply_markup=admin_panel_kb())
 
     # ================= ПОДДЕРЖКА =================
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message):
         try: await message.answer_photo(FSInputFile("support.jpg"), caption="🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
-        except: await message.answer("🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
+        except Exception: await message.answer("🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
+
+    @dp.message(F.text == "💎 Tokens не пришли")
+    async def tokens_lost(message: Message):
+        await send_clean(message, "💎 <b>Tokens не пришли</b>\n\n1. Проверь оплату.\n2. Подожди 5 минут.\n3. Напиши @vctorw", reply_markup=support_menu())
+
+    @dp.message(F.text == "🎮 Что-то сломалось в игре")
+    async def game_broken(message: Message):
+        await send_clean(message, "🎮 <b>Что-то сломалось в игре</b>\n\nОпиши проблему: @vctorw", reply_markup=support_menu())
+
+    @dp.message(F.text == "💳 Вопрос по оплате")
+    async def payment_q(message: Message):
+        await send_clean(message, "💳 <b>Вопрос по оплате</b>\n\nВсе покупки через Stars. Если что-то неясно: @vctorw", reply_markup=support_menu())
+
+    @dp.message(F.text == "🚫 Бан или мут")
+    async def ban_mute(message: Message):
+        await send_clean(message, "🚫 <b>Бан или мут</b>\n\nЕсли наказание ошибочно, напиши @username и причину сюда: @vctorw", reply_markup=support_menu())
+
+    @dp.message(F.text == "🐞 Нашёл баг")
+    async def bug_found(message: Message):
+        await send_clean(message, "🐞 <b>Нашёл баг</b>\n\nОпиши баг и пришли скриншот сюда: @vctorw", reply_markup=support_menu())
+
+    @dp.message(F.text == "📜 Правила бота")
+    async def rules(message: Message):
+        await send_clean(message, "📜 <b>Правила</b>\n\n1. 18+\n2. Виртуальные Tokens\n3. Без мультиаккаунтов\n4. Донат — добровольный", reply_markup=support_menu())
 
     @dp.message(F.text == "✍️ Свой вопрос")
     async def own_q(message: Message, state: FSMContext):
-        await send_clean(message, "✍️ Напиши свой вопрос:"); await state.set_state(BotStates.waiting_question)
+        await send_clean(message, "✍️ Напиши вопрос:"); await state.set_state(BotStates.waiting_question)
 
     @dp.message(BotStates.waiting_question)
     async def fwd_admin(message: Message, state: FSMContext):
@@ -304,7 +335,7 @@ async def main():
             await message.answer("✅ Отправлено!")
         except Exception as e: await message.answer(f"❌ {e}")
 
-    await dp.start_polling(bot)     
- 
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    asyncio.run(main())   
+    asyncio.run(main())
