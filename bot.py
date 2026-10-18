@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v12)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v13)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
