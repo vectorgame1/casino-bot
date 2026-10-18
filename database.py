@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# database.py — ВСЯ РАБОТА С БАЗОЙ (v2)
+# database.py — ВСЯ РАБОТА С БАЗОЙ (v3)
 # ═══════════════════════════════════════════════════════════════
 
 import psycopg2
@@ -90,8 +90,6 @@ def init_db():
         got_start_bonus BOOLEAN DEFAULT FALSE,
         xp BIGINT DEFAULT 0,
         vip_level INT DEFAULT 0,
-        total_lost BIGINT DEFAULT 0,
-        total_won BIGINT DEFAULT 0,
         referrer_id BIGINT,
         ref_count INT DEFAULT 0,
         ref_earnings BIGINT DEFAULT 0,
@@ -255,12 +253,6 @@ def log_game(user_id: int, username: str, game: str, bet: int, win: int, detail:
     c.execute("""INSERT INTO game_log (user_id, username, game, bet, win, detail, time)
                  VALUES (%s, %s, %s, %s, %s, %s, %s)""",
               (user_id, username, game, bet, win, detail, datetime.now(TZ_MINSK).strftime("%H:%M:%S")))
-    
-    if win > 0:
-        c.execute("UPDATE users SET total_won = total_won + %s WHERE user_id = %s", (win, user_id))
-    else:
-        c.execute("UPDATE users SET total_lost = total_lost + %s WHERE user_id = %s", (bet, user_id))
-        
     conn.commit()
     c.close()
     release_conn(conn)
