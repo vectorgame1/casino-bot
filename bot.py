@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v26)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v29)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -57,6 +57,12 @@ async def main():
     init_pool(); init_db()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+
+    # ================= КНОПКА НАЗАД (ГЛОБАЛЬНАЯ) =================
+    @dp.message(F.text == "⬅️ Назад")
+    async def btn_back(message: Message, state: FSMContext):
+        await state.clear()
+        await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
 
     # ================= ИГРОК =================
     @dp.message(Command("start"))
@@ -118,8 +124,7 @@ async def main():
             "• <code>ч 1000</code> — Чёрное (x1.95)\n"
             "• <code>з 1000</code> — Зеро (x35)\n"
             "• <code>1000 1-18 20-36</code> — Диапазоны (умный кэф)\n"
-            "• <code>го</code> — Запустить\n"
-            "• <code>отмена</code> — Отменить свои ставки\n\n"
+            "• <code>го</code> — Запустить\n\n"
             "🎲 <b>2. КОСТИ</b>\n"
             "• <code>кости 1000</code> — Ставка на кубик\n"
             "• Выигрыш, если выпадет <b>4, 5 или 6</b> (x1.95)\n\n"
@@ -129,8 +134,9 @@ async def main():
             "• Два одинаковых — <b>x1.8</b>\n\n"
             "━━━━━━━━━━━━━━\n"
             "📊 <b>Общие команды:</b>\n"
-            "• <code>ставки</code> — Твои текущие ставки\n"
-            "• <code>лог</code> — История рулетки\n\n"
+            "• <code>ставки</code> — Твои ставки\n"
+            "• <code>отмена</code> — Отменить ставки\n"
+            "• <code>лог</code> — История\n\n"
             "💸 <b>Баланс:</b> <code>б</code> или <code>баланс</code>"
         )
         await message.reply(txt)
@@ -159,7 +165,6 @@ async def main():
         for i, r in enumerate(rows): txt += f"{['🥇','🥈','🥉'][i] if i<3 else i+1}. {r[1] or 'user'} — {fmt_num(r[2])}\n"
         await send_clean(message, txt, reply_markup=main_menu())
 
-    # 🆕 ДОНАТ С КАРТИНКОЙ
     @dp.message(F.chat.type == "private", F.text.lower().in_({"донат", "магазин"}))
     @dp.message(F.text == "🏪 Донат")
     async def cmd_don(message: Message, state: FSMContext):
@@ -176,6 +181,10 @@ async def main():
 
     @dp.message(BotStates.waiting_custom_stars)
     async def custom_sum_process(message: Message, state: FSMContext):
+        if message.text == "⬅️ Назад":
+            await state.clear()
+            return await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
+            
         try:
             stars = int(message.text)
             if stars < 1 or stars > 10000: return await send_clean(message, "❌ От 1 до 10000.")
@@ -184,7 +193,7 @@ async def main():
             await message.answer_invoice(title=f"{tokens:,} Tokens", description=f"Покупка {tokens:,} Tokens", payload=f"buy_{stars}_{tokens}", provider_token="", currency="XTR", prices=[LabeledPrice(label=f"{tokens:,} Tokens", amount=stars)])
             await state.clear()
         except ValueError:
-            await send_clean(message, "❌ Введи число.")
+            await send_clean(message, "❌ Введи число (например, 100).")
 
     @dp.message(F.chat.type == "private", F.text.lower().in_({"бонус"}))
     async def cmd_bonus(message: Message, state: FSMContext):
@@ -205,14 +214,9 @@ async def main():
             await send_clean(message, "🎰 Игры в группе 👇", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎮 В ГРУППУ", url=GROUP_URL)]]))
         else: await send_clean(message, "🎰 Игры:", reply_markup=games_menu())
 
-    @dp.message(F.text == "⬅️ Назад")
-    async def btn_back(message: Message, state: FSMContext):
-        await state.clear()
-        await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
-
     # ================= ИГРЫ =================
     
-    # 🎲 КОСТИ
+    # 🎲 КОСТИ (ЧЕРЕЗ СТИКЕР TELEGRAM)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("кости ", "кубик ", "дайс ")))
     async def play_dice(message: Message):
         uid = message.from_user.id
@@ -222,11 +226,15 @@ async def main():
         try: bet = int(parts[1])
         except ValueError: return
         if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+        
         set_balance(uid, -bet)
-        try: msg = await message.reply_animation(FSInputFile("dice.gif"), caption=f"🎲 <b>Кубик крутится...</b>\n💰 Ставка: {fmt_num(bet)}")
-        except Exception: msg = await message.reply(f"🎲 <b>Кубик крутится...</b>\n💰 Ставка: {fmt_num(bet)}")
-        await asyncio.sleep(2.5)
-        result = random.randint(1, 6)
+        
+        # 🆕 ОТПРАВЛЯЕМ СТИКЕР КУБИКА
+        sent = await message.answer_dice(emoji="🎲")
+        await asyncio.sleep(2.5) # Ждем анимацию
+        
+        result = sent.dice.value # От 1 до 6
+        
         if result >= 4:
             win_amount = int(bet * 1.95)
             set_balance(uid, win_amount)
@@ -235,13 +243,10 @@ async def main():
         else:
             log_game(uid, username, "кости", bet, 0, str(result))
             txt = f"🎲 Выпало: <b>{result}</b>\n\n😢 <b>Проигрыш</b>\n💸 Потеряно: <b>-{fmt_num(bet)}</b>"
-        try: await msg.edit_caption(caption=txt)
-        except: await msg.edit_text(txt)
-        await asyncio.sleep(30)
-        try: await msg.delete()
-        except: pass
+            
+        await message.reply(txt)
 
-    # 🎰 СЛОТЫ
+    # 🎰 СЛОТЫ (ЧЕРЕЗ СТИКЕР TELEGRAM)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("спин ", "слот ")))
     async def play_slots(message: Message):
         uid = message.from_user.id
@@ -251,32 +256,30 @@ async def main():
         try: bet = int(parts[1])
         except ValueError: return
         if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+        
         set_balance(uid, -bet)
-        try: msg = await message.reply_animation(FSInputFile("slots.gif"), caption=f"🎰 <b>Слоты крутятся...</b>\n💰 Ставка: {fmt_num(bet)}")
-        except Exception: msg = await message.reply(f"🎰 <b>Слоты крутятся...</b>\n💰 Ставка: {fmt_num(bet)}")
+        
+        # 🆕 ОТПРАВЛЯЕМ СТИКЕР СЛОТОВ
+        sent = await message.answer_dice(emoji="🎰")
         await asyncio.sleep(2.5)
-        symbols = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣"]
-        r1, r2, r3 = random.choice(symbols), random.choice(symbols), random.choice(symbols)
-        if r1 == r2 == r3:
-            multipliers = {"🍒": 9, "🍋": 13.5, "🍊": 18, "🍇": 22.5, "💎": 45, "7️⃣": 90}
-            mult = multipliers.get(r1, 9)
-            win_amount = int(bet * mult)
+        
+        result = sent.dice.value # От 1 до 64
+        
+        if result == 64:
+            win_amount = int(bet * 90)
             set_balance(uid, win_amount)
-            log_game(uid, username, "слоты", bet, win_amount, f"{r1}{r2}{r3}")
-            txt = f"🎰 <b>{r1} | {r2} | {r3}</b>\n\n🔥 <b>ДЖЕКПОТ!</b>\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x{mult})"
-        elif r1 == r2 or r2 == r3 or r1 == r3:
+            log_game(uid, username, "слоты", bet, win_amount, str(result))
+            txt = f"🎰 <b>ДЖЕКПОТ (777)!</b>\n\n🔥 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x90)"
+        elif result >= 32:
             win_amount = int(bet * 1.8)
             set_balance(uid, win_amount)
-            log_game(uid, username, "слоты", bet, win_amount, f"{r1}{r2}{r3}")
-            txt = f"🎰 <b>{r1} | {r2} | {r3}</b>\n\n✨ <b>Два совпадения!</b>\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.8)"
+            log_game(uid, username, "слоты", bet, win_amount, str(result))
+            txt = f"🎰 <b>Выигрыш!</b>\n\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.8)"
         else:
-            log_game(uid, username, "слоты", bet, 0, f"{r1}{r2}{r3}")
-            txt = f"🎰 <b>{r1} | {r2} | {r3}</b>\n\n😢 <b>Проигрыш</b>\n💸 Потеряно: <b>-{fmt_num(bet)}</b>"
-        try: await msg.edit_caption(caption=txt)
-        except: await msg.edit_text(txt)
-        await asyncio.sleep(30)
-        try: await msg.delete()
-        except: pass
+            log_game(uid, username, "слоты", bet, 0, str(result))
+            txt = f"🎰 <b>Проигрыш</b>\n\n😢 Потеряно: <b>-{fmt_num(bet)}</b>"
+            
+        await message.reply(txt)
 
     # 🎡 РУЛЕТКА: СТАВКИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("к ", "ч ", "з ", "чёт ", "нечет ")))
