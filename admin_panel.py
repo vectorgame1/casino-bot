@@ -14,6 +14,7 @@ from database import (
 )
 from utils import send_clean, fmt_num
 
+# ... дальше класс AdminStates ...
 # Стейты
 class AdminStates(StatesGroup):
     waiting_scan = State()
