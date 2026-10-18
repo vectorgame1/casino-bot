@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v13)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v14)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -14,7 +14,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import BOT_TOKEN, BOT_NAME, ADMIN_ID, START_BONUS, STARS_RATE, TZ_MINSK, GROUP_URL
+from config import BOT_TOKEN, BOT_NAME, ADMIN_ID, START_BONUS, STARS_RATE, TZ_MINSK, GROUP_URL, SUPPORT_USERNAME
 from keyboards import main_menu, games_menu, donate_menu, admin_panel_kb, support_menu
 from database import (
     init_pool, init_db, get_balance, set_balance, ensure_user, 
@@ -54,7 +54,7 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # ================= ИГРОК =================
+    # ================= ИГРОК (В ЛС И В ГРУППАХ) =================
     @dp.message(Command("start"))
     async def start(message: Message, state: FSMContext):
         await state.clear()
@@ -63,6 +63,11 @@ async def main():
         if is_banned(user_id): return await send_clean(message, "🚫 <b>ДОСТУП ЗАКРЫТ</b>")
         
         is_new = check_and_give_bonus(user_id, START_BONUS)
+        
+        # В группах /start не нужен, но если нажмут - просто текстом
+        if message.chat.type != "private":
+            return await message.reply(f"👋 Привет! Твой профиль и игры доступны в ЛС: @{bot.username}")
+            
         if user_id == ADMIN_ID:
             return await send_clean(message, "👑 <b>ПАНЕЛЬ УПРАВЛЕНИЯ</b>\n\n👇 Выбери раздел:", reply_markup=admin_panel_kb())
             
@@ -73,37 +78,61 @@ async def main():
         except Exception:
             await message.answer(txt, reply_markup=main_menu())
 
-    @dp.message(F.text.lower().in_({"баланс", "б"}))
+    # 📌 КОМАНДЫ ИГРОКА В ГРУППАХ (ТОЛЬКО ТЕКСТ)
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
+    async def group_bal(message: Message):
+        bal = get_balance(message.from_user.id)
+        await message.reply(f"💰 <b>Баланс:</b> {fmt_num(bal)} Tokens")
+
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"профиль", "я"}))
+    async def group_prof(message: Message):
+        uid = message.from_user.id; xp = get_xp(uid); lvl = xp // 100
+        txt = f"👤 <b>Профиль</b>\n🎖 {get_rank_name(lvl)}\n📊 XP: {xp}\n💎 {fmt_num(get_balance(uid))}"
+        await message.reply(txt)
+
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "топ")
+    async def group_top(message: Message):
+        rows = get_top(10); txt = "🏆 <b>ЗАЛ СЛАВЫ</b>\n\n"
+        for i, r in enumerate(rows): txt += f"{['🥇','🥈','🥉'][i] if i<3 else i+1}. {r[1] or 'user'} — {fmt_num(r[2])}\n"
+        await message.reply(txt)
+
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "лог")
+    async def group_log(message: Message):
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT detail FROM game_log WHERE game = 'рулетка' ORDER BY id DESC LIMIT 10")
+        rows = c.fetchall(); c.close(); release_conn(conn)
+        if not rows: return await message.reply("📜 История пуста.")
+        txt = "📜 <b>ПОСЛЕДНИЕ 10 ЧИСЕЛ</b>\n\n" + " ".join([row[0] for row in rows])
+        await message.reply(txt)
+
+    # 📌 КОМАНДЫ ИГРОКА В ЛС (С КНОПКАМИ)
+    @dp.message(F.chat.type == "private", F.text.lower().in_({"баланс", "б"}))
     @dp.message(F.text == "💰 Баланс")
     async def cmd_bal(message: Message, state: FSMContext):
         await state.clear()
         bal = get_balance(message.from_user.id)
-        if message.chat.type == "private": await send_clean(message, f"💎 <b>Баланс:</b> {fmt_num(bal)}", reply_markup=main_menu())
-        else: await message.reply(f"💰 Баланс: <b>{fmt_num(bal)}</b>")
+        await send_clean(message, f"💎 <b>Баланс:</b> {fmt_num(bal)}", reply_markup=main_menu())
 
-    @dp.message(F.text.lower().in_({"профиль", "я"}))
+    @dp.message(F.chat.type == "private", F.text.lower().in_({"профиль", "я"}))
     @dp.message(F.text == "👤 Профиль")
     async def cmd_prof(message: Message, state: FSMContext):
         await state.clear()
         uid = message.from_user.id; xp = get_xp(uid); lvl = xp // 100
         txt = f"👤 <b>Профиль</b>\n🎖 {get_rank_name(lvl)}\n📊 XP: {xp}\n{make_xp_bar(xp)}\n💎 {fmt_num(get_balance(uid))}"
-        if message.chat.type == "private": await send_clean(message, txt, reply_markup=main_menu())
-        else: await message.reply(txt)
+        await send_clean(message, txt, reply_markup=main_menu())
 
-    @dp.message(F.text.lower().in_({"топ"}))
+    @dp.message(F.chat.type == "private", F.text.lower().in_({"топ"}))
     @dp.message(F.text == "🏆 Топ")
     async def cmd_top(message: Message, state: FSMContext):
         await state.clear()
         rows = get_top(10); txt = "🏆 <b>ЗАЛ СЛАВЫ</b>\n\n"
         for i, r in enumerate(rows): txt += f"{['🥇','🥈','🥉'][i] if i<3 else i+1}. {r[1] or 'user'} — {fmt_num(r[2])}\n"
-        if message.chat.type == "private": await send_clean(message, txt, reply_markup=main_menu())
-        else: await message.reply(txt)
+        await send_clean(message, txt, reply_markup=main_menu())
 
-    @dp.message(F.text.lower().in_({"донат", "магазин"}))
+    @dp.message(F.chat.type == "private", F.text.lower().in_({"донат", "магазин"}))
     @dp.message(F.text == "🏪 Донат")
     async def cmd_don(message: Message, state: FSMContext):
         await state.clear()
-        if message.chat.type != "private": return await message.reply(f"🏪 В ЛС: @{bot.username}")
         rate = get_rate("stars_rate", STARS_RATE)
         await send_clean(message, f"💳 <b>ПОКУПКА TOKENS</b>\n\n💱 Курс: 1 ⭐ = {rate:,} Tokens\n\nВведи количество Stars от 1 до 10000:")
         await state.set_state(BotStates.waiting_custom_stars)
@@ -115,22 +144,14 @@ async def main():
             if stars < 1 or stars > 10000: return await send_clean(message, "❌ От 1 до 10000.")
             rate = get_rate("stars_rate", STARS_RATE)
             tokens = stars * rate
-            await message.answer_invoice(
-                title=f"{tokens:,} Tokens",
-                description=f"Покупка {tokens:,} Tokens за {stars} Stars",
-                payload=f"buy_{stars}_{tokens}",
-                provider_token="",
-                currency="XTR",
-                prices=[LabeledPrice(label=f"{tokens:,} Tokens", amount=stars)]
-            )
+            await message.answer_invoice(title=f"{tokens:,} Tokens", description=f"Покупка {tokens:,} Tokens", payload=f"buy_{stars}_{tokens}", provider_token="", currency="XTR", prices=[LabeledPrice(label=f"{tokens:,} Tokens", amount=stars)])
             await state.clear()
         except ValueError:
             await send_clean(message, "❌ Введи число.")
 
-    @dp.message(F.text.lower().in_({"бонус"}))
+    @dp.message(F.chat.type == "private", F.text.lower().in_({"бонус"}))
     async def cmd_bonus(message: Message, state: FSMContext):
         await state.clear()
-        if message.chat.type != "private": return await message.reply(f"🎁 В ЛС: @{bot.username}")
         uid = message.from_user.id; conn = get_conn(); c = conn.cursor()
         c.execute("SELECT last_login_date FROM users WHERE user_id = %s", (uid,)); row = c.fetchone()
         today = datetime.now(TZ_MINSK).date()
@@ -139,25 +160,6 @@ async def main():
         c.execute("UPDATE users SET balance = balance + 5000, last_login_date = %s WHERE user_id = %s", (today, uid))
         conn.commit(); c.close(); release_conn(conn)
         await send_clean(message, "🎁 <b>БОНУС +5 000 Tokens</b>", reply_markup=main_menu())
-
-    @dp.message(F.text.lower().in_({"что нового", "новости", "апдейт"}))
-    async def cmd_news(message: Message, state: FSMContext):
-        await state.clear()
-        txt = (
-            "🆕 <b>ЧТО НОВОГО В БОТЕ?</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "🔥 <b>Глобальное обновление:</b>\n"
-            "• 💎 Новый дизайн (золото/черный)\n"
-            "• 🎁 Ежедневный бонус (команда <code>бонус</code>)\n"
-            "• 🎰 Обновленная Рулетка (с гифкой и логом)\n"
-            "• 🆘 Улучшенная поддержка\n"
-            "• 👑 Полностью рабочая Админка\n\n"
-            "⏳ <i>Это сообщение удалится через 2 минуты.</i>"
-        )
-        msg = await message.answer(txt)
-        await asyncio.sleep(120)
-        try: await msg.delete()
-        except: pass
 
     @dp.message(F.text == "🎰 Игры")
     async def btn_games(message: Message, state: FSMContext):
@@ -334,8 +336,7 @@ async def main():
     @dp.message(BotStates.waiting_scan)
     async def adm_scan(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        data = await state.get_data()
-        target = message.text.replace("@", "").strip()
+        data = await state.get_data(); target = message.text.replace("@", "").strip()
         uid = get_user_id_by_username(target)
         if not uid:
             await state.clear()
