@@ -3,15 +3,12 @@ import asyncio
 import logging
 import os
 
-
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram import F
 
-from config import BOT_TOKEN, ADMIN_ID
+from config import BOT_TOKEN
 from database import init_pool, init_db
 
 # ═══ ИМПОРТЫ МОДУЛЕЙ ═══
@@ -24,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 # ═══════════════ ВЕБ-СЕРВЕР ДЛЯ RENDER ═══════════════
 async def start_web_server():
-    """Мини-сервер, чтобы Render видел открытый порт и не убивал бота."""
     async def health(request):
         return web.Response(text="OK")
     
@@ -50,53 +46,16 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # 🆕 ЭКСТРЕННЫЙ ПЕРЕХВАТ КНОПОК АДМИНКИ
-    @dp.message(F.text == "👥 Игроки")
-    async def bot_admin_players(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        from keyboards import admin_panel_kb
-        kb = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="🔍 Скан игрока")],
-                [KeyboardButton(text="💰 Выдать баланс"), KeyboardButton(text="💸 Забрать баланс")],
-                [KeyboardButton(text="🚫 Забанить"), KeyboardButton(text="✅ Разбанить")],
-                [KeyboardButton(text="⬅️ Назад в админку")]
-            ],
-            resize_keyboard=True
-        )
-        await message.answer("👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n👇 Выбери действие:", parse_mode="HTML", reply_markup=kb)
-
-    @dp.message(F.text == "🔍 Скан игрока")
-    async def bot_admin_scan(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await message.answer("🔍 Введи @username или ID игрока для сканирования:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
-
-    @dp.message(F.text == "💸 Забрать баланс")
-    async def bot_admin_take(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await message.answer("💸 Введи @username и сумму через пробел:\nПример: <code>@vctorw 1000</code>", parse_mode="HTML")
-
-    @dp.message(F.text == "⬅️ Назад в админку")
-    async def bot_admin_back(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        from keyboards import admin_panel_kb
-        await message.answer("👑 <b>АДМИН-ПАНЕЛЬ</b>\n\n👇 Выбери раздел:", parse_mode="HTML", reply_markup=admin_panel_kb())
-
     # ═══ РЕГИСТРАЦИЯ (ПОРЯДОК ВАЖЕН!) ═══
-    # 1. Админка (перехватывает кнопки админа)
-    admin_panel.register(dp)
-    # 2. Поддержка (перехватывает кнопки поддержки)
-    support.register(dp)
-    # 3. Игрок (Старт, Баланс, Профиль и т.д.)
-    handlers.register(dp)
+    admin_panel.register(dp)  # Админка ПЕРВАЯ
+    support.register(dp)      # Поддержка ВТОРАЯ
+    handlers.register(dp)     # Игрок ПОСЛЕДНИЙ
 
     logger.info("🎰 Запуск polling...")
     await dp.start_polling(bot)
 
 async def main_wrapper():
-    # Запускаем веб-сервер в фоне (чтобы Render был счастлив)
     asyncio.create_task(start_web_server())
-    # Запускаем самого бота
     await main()
 
 if __name__ == "__main__":

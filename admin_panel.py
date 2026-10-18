@@ -17,20 +17,13 @@ from utils import send_clean, fmt_num
 class AdminStates(StatesGroup):
     waiting_scan = State()
     waiting_amount = State()
-    waiting_broadcast_all = State()
-    waiting_broadcast_target = State()
-    waiting_broadcast_text = State()
+    waiting_broadcast = State()
+    waiting_ban = State()
 
-last_scanned_user = {}
-broadcast_target = {}
+last_scanned = {}
+broadcast_text = {}
 
 def register(dp: Dispatcher):
-
-    # ═══ СБРОС СОСТОЯНИЙ ═══
-    @dp.message(F.text.in_({"⬅️ Назад в админку", "⬅️ В меню игроков", "👥 Игроки", "🎮 Игры", "🛒 Контент", "💰 Экономика", "📢 Связь", "📊 Мониторинг", "📋 Все команды", "🔍 Скан игрока", "❌ Отмена"}))
-    async def cancel_any_state(message: Message, state: FSMContext):
-        if await state.get_state() is not None:
-            await state.clear()
 
     # ═══ ГЛАВНАЯ АДМИНКА ═══
     @dp.message(Command("admin"))
@@ -40,7 +33,7 @@ def register(dp: Dispatcher):
 
     # ═══ РАЗДЕЛ: ИГРОКИ ═══
     @dp.message(F.text == "👥 Игроки")
-    async def admin_players_menu(message: Message):
+    async def admin_players(message: Message):
         if message.from_user.id != ADMIN_ID: return
         kb = ReplyKeyboardMarkup(
             keyboard=[
@@ -57,7 +50,7 @@ def register(dp: Dispatcher):
     @dp.message(F.text == "🔍 Скан игрока")
     async def scan_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🔍 Введи @username или ID игрока:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await send_clean(message, "🔍 Введи @username или ID:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
         await state.set_state(AdminStates.waiting_scan)
 
     @dp.message(AdminStates.waiting_scan)
@@ -65,32 +58,34 @@ def register(dp: Dispatcher):
         if message.from_user.id != ADMIN_ID: return
         target = message.text.replace("@", "")
         uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+        
         if not uid:
             await send_clean(message, "❌ Игрок не найден.")
             await state.clear()
             return
-        last_scanned_user[message.from_user.id] = uid
-
+            
+        last_scanned[message.from_user.id] = uid
+        
         conn = get_conn()
         c = conn.cursor()
-        c.execute("SELECT username, balance, bank, xp, banned, total_won, total_lost FROM users WHERE user_id = %s", (uid,))
+        c.execute("SELECT username, balance, xp, banned FROM users WHERE user_id = %s", (uid,))
         row = c.fetchone()
         c.close()
         release_conn(conn)
-
-        if not row:
-            await send_clean(message, "❌ Нет в базе.")
-            await state.clear()
-            return
-
-        uname, bal, bank, xp, banned, won, lost = row
-        ban_status = "🚫 ЗАБАНЕН" if banned else "✅ Активен"
+        
+        uname, bal, xp, banned = row
+        status = "🚫 ЗАБАНЕН" if banned else "✅ Активен"
+        
         txt = (
-            f"🕵️ <b>СКАН</b>\n━━━━━━━━━━━━━━\n\n"
-            f"👤 @{uname}\n🆔 <code>{uid}</code>\n📊 {ban_status}\n\n"
-            f"💎 Баланс: {fmt_num(bal)}\n🏦 Банк: {fmt_num(bank)}\n⭐ XP: {xp}\n\n"
-            f"🏆 Выиграл: {fmt_num(won)}\n💸 Проиграл: {fmt_num(lost)}"
+            f"🕵️ <b>СКАН ИГРОКА</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"👤 @{uname}\n"
+            f"🆔 <code>{uid}</code>\n"
+            f"📊 Статус: {status}\n\n"
+            f"💎 Баланс: <b>{fmt_num(bal)}</b>\n"
+            f"⭐ XP: {xp}"
         )
+        
         quick_kb = ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="🚫 Забанить его"), KeyboardButton(text="✅ Разбанить его")],
@@ -102,19 +97,20 @@ def register(dp: Dispatcher):
         await send_clean(message, txt, parse_mode="HTML", reply_markup=quick_kb)
         await state.clear()
 
+    # ═══ БЫСТРЫЕ ДЕЙСТВИЯ ═══
     @dp.message(F.text == "🚫 Забанить его")
     async def q_ban(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        uid = last_scanned_user.get(message.from_user.id)
+        uid = last_scanned.get(message.from_user.id)
         if uid: set_banned(uid, True)
-        await send_clean(message, "🚫 Забанен!")
+        await send_clean(message, "🚫 Игрок забанен!")
 
     @dp.message(F.text == "✅ Разбанить его")
     async def q_unban(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        uid = last_scanned_user.get(message.from_user.id)
+        uid = last_scanned.get(message.from_user.id)
         if uid: set_banned(uid, False)
-        await send_clean(message, "✅ Разбанен!")
+        await send_clean(message, "✅ Игрок разбанен!")
 
     @dp.message(F.text == "💰 Выдать ему")
     async def q_give(message: Message, state: FSMContext):
@@ -133,45 +129,24 @@ def register(dp: Dispatcher):
     @dp.message(AdminStates.waiting_amount)
     async def q_amount(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        uid = last_scanned_user.get(message.from_user.id)
+        uid = last_scanned.get(message.from_user.id)
         data = await state.get_data()
-        try: amount = int(message.text)
-        except: await send_clean(message, "❌ Введи число."); return
-        set_balance(uid, amount if data["action"] == "give" else -amount)
-        await send_clean(message, f"✅ {'Выдано' if data['action'] == 'give' else 'Забрано'} <b>{fmt_num(amount)}</b>.", parse_mode="HTML")
+        
+        try:
+            amount = int(message.text)
+        except ValueError:
+            await send_clean(message, "❌ Введи число.")
+            return
+            
+        if data["action"] == "give":
+            set_balance(uid, amount)
+            await send_clean(message, f"✅ Выдано <b>{fmt_num(amount)}</b>.", parse_mode="HTML")
+        else:
+            set_balance(uid, -amount)
+            await send_clean(message, f"✅ Списано <b>{fmt_num(amount)}</b>.", parse_mode="HTML")
         await state.clear()
 
-    # ═══ РАЗДЕЛ: ИГРЫ ═══
-    @dp.message(F.text == "🎮 Игры")
-    async def admin_games(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: ЭКОНОМИКА ═══
-    @dp.message(F.text == "💰 Экономика")
-    async def admin_economy(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "💰 <b>ЭКОНОМИКА</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: КОНТЕНТ ═══
-    @dp.message(F.text == "🛒 Контент")
-    async def admin_content(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: МОНИТОРИНГ ═══
-    @dp.message(F.text == "📊 Мониторинг")
-    async def admin_monitoring(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "📊 <b>МОНИТОРИНГ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: ВСЕ КОМАНДЫ ═══
-    @dp.message(F.text == "📋 Все команды")
-    async def admin_commands(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "📋 <b>КОМАНДЫ</b>\n\n/admin\n/give @user сумма\n/ban @user\n/unban @user", parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: СВЯЗЬ (РАССЫЛКА) ═══
+    # ═══ РАЗДЕЛ: РАССЫЛКА ═══
     @dp.message(F.text == "📢 Связь")
     async def admin_comm(message: Message):
         if message.from_user.id != ADMIN_ID: return
@@ -188,36 +163,65 @@ def register(dp: Dispatcher):
     async def broadcast_start(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📢 Напиши текст для всех:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
-        await state.set_state(AdminStates.waiting_broadcast_all)
+        await state.set_state(AdminStates.waiting_broadcast)
 
-    @dp.message(AdminStates.waiting_broadcast_all)
+    @dp.message(AdminStates.waiting_broadcast)
     async def broadcast_process(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
         await state.clear()
+        
         conn = get_conn()
         c = conn.cursor()
         c.execute("SELECT user_id FROM users")
         users = c.fetchall()
         c.close()
         release_conn(conn)
+        
         sent = 0
-        await send_clean(message, f"⏳ Рассылка на {len(users)}...")
+        await send_clean(message, f"⏳ Рассылка на {len(users)} игроков...")
+        
         for (uid,) in users:
             try:
                 await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n━━━━━━━━━━━━━━\n\n{message.text}", parse_mode="HTML")
                 sent += 1
                 await asyncio.sleep(0.05)
-            except: pass
+            except:
+                pass
+                
         await send_clean(message, f"✅ Отправлено: {sent}", reply_markup=admin_panel_kb())
+
+    # ═══ ОСТАЛЬНЫЕ РАЗДЕЛЫ (Заглушки, но рабочие) ═══
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "💰 <b>ЭКОНОМИКА</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📊 <b>МОНИТОРИНГ</b>\n\nВ разработке.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_commands(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📋 <b>КОМАНДЫ</b>\n\n/admin\n/give @user сумма\n/ban @user\n/unban @user", parse_mode="HTML", reply_markup=admin_panel_kb())
 
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад в админку")
-    async def back_admin(message: Message, state: FSMContext):
+    async def back_admin(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        await state.clear()
         await send_clean(message, "👑 <b>АДМИН-ПАНЕЛЬ</b>", parse_mode="HTML", reply_markup=admin_panel_kb())
 
     @dp.message(F.text == "⬅️ В меню игроков")
-    async def back_players(message: Message, state: FSMContext):
-        await state.clear()
-        await admin_players_menu(message)
+    async def back_players(message: Message):
+        await admin_players(message)
