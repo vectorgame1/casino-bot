@@ -1,6 +1,6 @@
 # support.py
 from aiogram import Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -15,18 +15,21 @@ admin_replies = {}
 
 def register(dp: Dispatcher):
 
-    # ═══ ГЛАВНОЕ МЕНЮ ПОДДЕРЖКИ ═══
+    # ═══ ГЛАВНОЕ МЕНЮ ПОДДЕРЖКИ (С КАРТИНКОЙ) ═══
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message):
-        await send_clean(
-            message,
-            "🆘 <b>Поддержка</b>\n"
+        txt = (
+            "🆘 <b>СЛУЖБА ПОДДЕРЖКИ</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             "Выбери тему — я сразу отвечу.\n"
-            "Если не найдёшь ответ, напиши свой вопрос, и я передам его оператору.",
-            parse_mode="HTML",
-            reply_markup=support_menu()
+            "Если не найдёшь ответ, напиши свой вопрос, и я передам его оператору."
         )
+        
+        try:
+            photo = FSInputFile("support.jpg")  # Если PNG, напиши support.png
+            await message.answer_photo(photo=photo, caption=txt, parse_mode="HTML", reply_markup=support_menu())
+        except Exception:
+            await message.answer(txt, parse_mode="HTML", reply_markup=support_menu())
 
     # ═══ ТЕМЫ ПОДДЕРЖКИ ═══
     @dp.message(F.text == "💎 Tokens не пришли")
@@ -116,7 +119,7 @@ def register(dp: Dispatcher):
         )
         await send_clean(message, txt, parse_mode="HTML", reply_markup=support_menu())
 
-    # ═══ СВОЙ ВОПРОС (ПЕРЕСЫЛКА АДМИНУ) ═══
+    # ═══ СВОЙ ВОПРОС ═══
     @dp.message(F.text == "✍️ Свой вопрос")
     async def own_question(message: Message, state: FSMContext):
         await send_clean(
@@ -139,7 +142,7 @@ def register(dp: Dispatcher):
             f"━━━━━━━━━━━━━━\n\n"
             f"👤 От: {username}\n\n"
             f"💬 Текст:\n«{message.text}»\n\n"
-            f"↩️ <i>Чтобы ответить, нажми Reply (Ответить) на это сообщение.</i>",
+            f"↩️ <i>Чтобы ответить, нажми Reply на это сообщение.</i>",
             parse_mode="HTML"
         )
         
@@ -153,7 +156,7 @@ def register(dp: Dispatcher):
         )
         await state.clear()
 
-    # ═══ ОТВЕТ ОТ АДМИНА ИГРОКУ ═══
+    # ═══ ОТВЕТ ОТ АДМИНА ═══
     @dp.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
     async def admin_reply(message: Message):
         reply_id = message.reply_to_message.message_id
@@ -178,4 +181,4 @@ def register(dp: Dispatcher):
     # ═══ НАЗАД ═══
     @dp.message(F.text == "⬅️ Назад")
     async def back(message: Message):
-        await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
+        await send_clean(message, "✨ Главное меню 👇", reply_markup=main_menu())
