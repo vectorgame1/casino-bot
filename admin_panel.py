@@ -18,10 +18,8 @@ class AdminStates(StatesGroup):
     waiting_scan = State()
     waiting_amount = State()
     waiting_broadcast = State()
-    waiting_ban = State()
 
 last_scanned = {}
-broadcast_text = {}
 
 def register(dp: Dispatcher):
 
@@ -146,6 +144,80 @@ def register(dp: Dispatcher):
             await send_clean(message, f"✅ Списано <b>{fmt_num(amount)}</b>.", parse_mode="HTML")
         await state.clear()
 
+    # ═══ РАЗДЕЛ: ИГРЫ (РЕАЛЬНАЯ ИНФА) ═══
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM game_log")
+        total_games = c.fetchone()[0]
+        c.close()
+        release_conn(conn)
+        
+        txt = (
+            f"🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"📊 Всего сыграно игр: <b>{total_games}</b>\n"
+            f"✅ Все игры включены.\n\n"
+            f"👇 Скоро здесь появятся кнопки вкл/выкл."
+        )
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: ЭКОНОМИКА (РЕАЛЬНАЯ ИНФА) ═══
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
+        total_users, total_balance = c.fetchone()
+        c.close()
+        release_conn(conn)
+        
+        txt = (
+            f"💰 <b>ЭКОНОМИКА</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"👥 Всего игроков: <b>{total_users}</b>\n"
+            f"💎 Общий баланс: <b>{fmt_num(total_balance)}</b>\n\n"
+            f"💱 Курс Stars: <b>1 ⭐ = 7 500 Tokens</b>"
+        )
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: КОНТЕНТ (РЕАЛЬНАЯ ИНФА) ═══
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nРедактор магазина и кейсов появится в следующем обновлении.", parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: МОНИТОРИНГ (РЕАЛЬНАЯ ИНФА) ═══
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = FALSE")
+        active_users = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+        banned_users = c.fetchone()[0]
+        c.close()
+        release_conn(conn)
+        
+        txt = (
+            f"📊 <b>МОНИТОРИНГ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"✅ Активных: <b>{active_users}</b>\n"
+            f"🚫 Забаненных: <b>{banned_users}</b>\n\n"
+            f"👑 Админ: <b>@{message.from_user.username}</b>"
+        )
+        await send_clean(message, txt, parse_mode="HTML", reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: ВСЕ КОМАНДЫ ═══
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_commands(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📋 <b>КОМАНДЫ</b>\n\n/admin\n/give @user сумма\n/ban @user\n/unban @user", parse_mode="HTML", reply_markup=admin_panel_kb())
+
     # ═══ РАЗДЕЛ: РАССЫЛКА ═══
     @dp.message(F.text == "📢 Связь")
     async def admin_comm(message: Message):
@@ -190,61 +262,12 @@ def register(dp: Dispatcher):
                 
         await send_clean(message, f"✅ Отправлено: {sent}", reply_markup=admin_panel_kb())
 
-    # ═══ РАЗДЕЛ: ИГРЫ ═══
-    @dp.message(F.text == "🎮 Игры")
-    async def admin_games(message: Message):
+    # ═══ НАЗАД ═══
+    @dp.message(F.text == "⬅️ Назад в админку")
+    async def back_admin(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        kb = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="✅ Включить все"), KeyboardButton(text="❌ Выключить все")],
-                [KeyboardButton(text="⬅️ Назад в админку")]
-            ],
-            resize_keyboard=True
-        )
-        await send_clean(message, "🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\n👇 Выбери действие:", parse_mode="HTML", reply_markup=kb)
+        await send_clean(message, "👑 <b>АДМИН-ПАНЕЛЬ</b>", parse_mode="HTML", reply_markup=admin_panel_kb())
 
-    # ═══ РАЗДЕЛ: ЭКОНОМИКА ═══
-    @dp.message(F.text == "💰 Экономика")
-    async def admin_economy(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        # Получаем количество игроков и общий баланс
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
-        total_users, total_balance = c.fetchone()
-        c.close()
-        release_conn(conn)
-        
-        txt = (
-            f"💰 <b>ЭКОНОМИКА</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"👥 Всего игроков: <b>{total_users}</b>\n"
-            f"💎 Общий баланс: <b>{fmt_num(total_balance)}</b>\n\n"
-            f"💱 Курс Stars: <b>1 ⭐ = 7 500 Tokens</b>"
-        )
-        await send_clean(message, txt, parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: МОНИТОРИНГ ═══
-    @dp.message(F.text == "📊 Мониторинг")
-    async def admin_monitoring(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM users WHERE banned = FALSE")
-        active_users = c.fetchone()[0]
-        c.close()
-        release_conn(conn)
-        
-        txt = (
-            f"📊 <b>МОНИТОРИНГ</b>\n"
-            f"━━━━━━━━━━━━━━\n\n"
-            f"✅ Активных игроков: <b>{active_users}</b>\n"
-            f"👑 Админ: <b>@{message.from_user.username}</b>"
-        )
-        await send_clean(message, txt, parse_mode="HTML", reply_markup=admin_panel_kb())
-
-    # ═══ РАЗДЕЛ: КОНТЕНТ ═══
-    @dp.message(F.text == "🛒 Контент")
-    async def admin_content(message: Message):
-        if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке (магазин и кейсы).", parse_mode="HTML", reply_markup=admin_panel_kb())
+    @dp.message(F.text == "⬅️ В меню игроков")
+    async def back_players(message: Message):
+        await admin_players(message)
