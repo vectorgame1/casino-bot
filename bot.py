@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v14)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v15)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -54,7 +54,7 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
-    # ================= ИГРОК (В ЛС И В ГРУППАХ) =================
+    # ================= ИГРОК =================
     @dp.message(Command("start"))
     async def start(message: Message, state: FSMContext):
         await state.clear()
@@ -64,7 +64,6 @@ async def main():
         
         is_new = check_and_give_bonus(user_id, START_BONUS)
         
-        # В группах /start не нужен, но если нажмут - просто текстом
         if message.chat.type != "private":
             return await message.reply(f"👋 Привет! Твой профиль и игры доступны в ЛС: @{bot.username}")
             
@@ -78,7 +77,7 @@ async def main():
         except Exception:
             await message.answer(txt, reply_markup=main_menu())
 
-    # 📌 КОМАНДЫ ИГРОКА В ГРУППАХ (ТОЛЬКО ТЕКСТ)
+    # 📌 КОМАНДЫ В ГРУППАХ (ТОЛЬКО ТЕКСТ)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
     async def group_bal(message: Message):
         bal = get_balance(message.from_user.id)
@@ -105,7 +104,7 @@ async def main():
         txt = "📜 <b>ПОСЛЕДНИЕ 10 ЧИСЕЛ</b>\n\n" + " ".join([row[0] for row in rows])
         await message.reply(txt)
 
-    # 📌 КОМАНДЫ ИГРОКА В ЛС (С КНОПКАМИ)
+    # 📌 КОМАНДЫ В ЛС (С КНОПКАМИ)
     @dp.message(F.chat.type == "private", F.text.lower().in_({"баланс", "б"}))
     @dp.message(F.text == "💰 Баланс")
     async def cmd_bal(message: Message, state: FSMContext):
@@ -352,74 +351,192 @@ async def main():
             if row: await send_clean(message, f"🕵️ @{target}\n💎 {fmt_num(row[0])}\n⭐ {row[1]}\n📊 {'🚫' if row[2] else '✅'}")
         await state.clear()
 
-    # 🆕 ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ КНОПОК
-    @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
-    async def placeholders(message: Message, state: FSMContext):
+    # ═══ РАЗДЕЛ: ИГРЫ (АДМИН) ═══
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games_menu(message: Message, state: FSMContext):
         await state.clear()
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, f"🛠 {message.text} в разработке.", reply_markup=admin_panel_kb())
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM game_log")
+        total_games = c.fetchone()[0]
+        c.close(); release_conn(conn)
+        
+        txt = (
+            f"🎮 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"📊 Всего сыграно игр: <b>{total_games}</b>\n"
+            f"✅ Все игры включены.\n\n"
+            f"👇 Скоро здесь появятся кнопки вкл/выкл."
+        )
+        await send_clean(message, txt, reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: ЭКОНОМИКА (АДМИН) ═══
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy_menu(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
+        total_users, total_balance = c.fetchone()
+        c.close(); release_conn(conn)
+        
+        txt = (
+            f"💰 <b>ЭКОНОМИКА</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"👥 Всего игроков: <b>{total_users}</b>\n"
+            f"💎 Общий баланс: <b>{fmt_num(total_balance)}</b>\n\n"
+            f"💱 Курс Stars: <b>1 ⭐ = 7 500 Tokens</b>"
+        )
+        await send_clean(message, txt, reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: КОНТЕНТ (АДМИН) ═══
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content_menu(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        txt = (
+            f"🛒 <b>КОНТЕНТ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"📦 Редактор магазина и кейсов появится в следующем обновлении."
+        )
+        await send_clean(message, txt, reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: МОНИТОРИНГ (АДМИН) ═══
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitoring_menu(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = FALSE")
+        active = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE")
+        banned = c.fetchone()[0]
+        c.close(); release_conn(conn)
+        
+        txt = (
+            f"📊 <b>МОНИТОРИНГ</b>\n"
+            f"━━━━━━━━━━━━━━\n\n"
+            f"✅ Активных: <b>{active}</b>\n"
+            f"🚫 Забаненных: <b>{banned}</b>\n\n"
+            f"👑 Админ: <b>@{message.from_user.username}</b>"
+        )
+        await send_clean(message, txt, reply_markup=admin_panel_kb())
+
+    # ═══ РАЗДЕЛ: ВСЕ КОМАНДЫ (АДМИН) ═══
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_all_commands(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        txt = (
+            "📋 <b>КОМАНДЫ</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "/admin — меню\n"
+            "/give @user сумма — выдать\n"
+            "/ban @user — забанить\n"
+            "/unban @user — разбанить"
+        )
+        await send_clean(message, txt, reply_markup=admin_panel_kb())
 
     # ================= ПОДДЕРЖКА =================
-    @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
-    async def support_main(message: Message, state: FSMContext):
-        await state.clear()
-        if message.chat.type != "private": return await message.reply(f"🆘 Поддержка доступна в ЛС: @{bot.username}")
-        try: await message.answer_photo(FSInputFile("support.jpg"), caption="🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
-        except Exception: await message.answer("🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
-
     @dp.message(F.text == "💎 Tokens не пришли")
     async def tokens_lost(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "💎 <b>Tokens не пришли</b>\n\n1. Проверь оплату.\n2. Подожди 5 минут.\n3. Напиши @vctorw", reply_markup=support_menu())
+        txt = (
+            "💎 <b>Tokens не пришли</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Спокойно, сейчас разберёмся. Проблема решаема.\n\n"
+            "1️⃣ <b>Проверь оплату.</b> Зайди в Telegram -> Настройки -> Мои подарки. Если платеж прошел, но токенов нет — читаем дальше.\n"
+            "2️⃣ <b>Подожди 5–10 минут.</b> Telegram Stars иногда зачисляются с задержкой.\n"
+            "3️⃣ <b>Перезапусти бота.</b> Напиши /start. Если баланс не обновился — идем в поддержку.\n\n"
+            "✍️ <b>Что написать оператору:</b>\n"
+            "• Скриншот чека об оплате\n"
+            "• Сколько Stars отправил\n"
+            "• Примерное время\n\n"
+            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
+            "Мы всё вернём! 🙏"
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "🎮 Что-то сломалось в игре")
     async def game_broken(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "🎮 <b>Что-то сломалось в игре</b>\n\nОпиши проблему: @vctorw", reply_markup=support_menu())
+        txt = (
+            "🎮 <b>Что-то сломалось в игре</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Опиши проблему, и мы починим это как можно скорее!\n\n"
+            "Пожалуйста, укажи:\n"
+            "1️⃣ <b>В какой игре</b> произошла ошибка (Рулетка, Слоты, Мины и т.д.).\n"
+            "2️⃣ <b>Что ты делал</b> (какую команду вводил, на какую кнопку жал).\n"
+            "3️⃣ <b>Что пошло не так</b> (списалось дважды, не выдало выигрыш, бот завис).\n\n"
+            "📸 <b>Пришли скриншот</b> — это ускорит починку в 2 раза!\n\n"
+            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
+            "Мы всё проверим по логам."
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "💳 Вопрос по оплате")
     async def payment_q(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "💳 <b>Вопрос по оплате</b>\n\nВсе покупки через Stars. Если что-то неясно: @vctorw", reply_markup=support_menu())
+        txt = (
+            "💳 <b>Вопрос по оплате</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Все покупки в боте проходят через <b>Telegram Stars ⭐</b> (внутренняя валюта Telegram).\n\n"
+            "<b>Как это работает:</b>\n"
+            "• Ты выбираешь пакет -> бот присылает счет -> ты подтверждаешь оплату.\n"
+            "• Токены зачисляются автоматически в течение 10 секунд.\n\n"
+            "<b>Если что-то пошло не так:</b>\n"
+            "• Возврат средств возможен только через поддержку Telegram (в настройках платежей).\n"
+            "• Если токены не пришли — см. пункт <b>«Tokens не пришли»</b>.\n\n"
+            f"📩 <b>Если остались вопросы:</b> {SUPPORT_USERNAME} ✍️"
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "🚫 Бан или мут")
     async def ban_mute(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "🚫 <b>Бан или мут</b>\n\nЕсли наказание ошибочно, напиши @username и причину сюда: @vctorw", reply_markup=support_menu())
+        txt = (
+            "🚫 <b>Бан или мут</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Если ты считаешь, что наказание было ошибочным, мы разберёмся.\n\n"
+            "Пришли нам:\n"
+            "1️⃣ Твой <b>@username</b> (и ID, если знаешь).\n"
+            "2️⃣ <b>Причину блокировки</b> (если она была указана).\n"
+            "3️⃣ <b>Примерное время</b>, когда это случилось.\n\n"
+            "⚠️ <b>Важно:</b> Если ты попал в бан из-за непогашенного кредита, сначала верни долг.\n\n"
+            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
+            "Мы проверим логи и снимем бан, если он был выдан по ошибке. 🤝"
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "🐞 Нашёл баг")
     async def bug_found(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "🐞 <b>Нашёл баг</b>\n\nОпиши баг и пришли скриншот сюда: @vctorw", reply_markup=support_menu())
+        txt = (
+            "🐞 <b>Нашёл баг</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Спасибо, что помогаешь делать бота лучше! За реальный баг мы даем бонус Tokens.\n\n"
+            "Опиши баг максимально подробно:\n"
+            "1️⃣ <b>Что ты делал</b> (по шагам).\n"
+            "2️⃣ <b>Что ожидал увидеть</b>.\n"
+            "3️⃣ <b>Что случилось на самом деле</b>.\n\n"
+            "📸 <b>Скриншот или текст ошибки</b> — обязательно!\n\n"
+            f"📩 <b>Отправь это сюда:</b> {SUPPORT_USERNAME}\n"
+            "За подтверждённый баг — бонус Tokens! 🎁"
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "📜 Правила бота")
     async def rules(message: Message, state: FSMContext):
         await state.clear()
-        await send_clean(message, "📜 <b>Правила</b>\n\n1. 18+\n2. Виртуальные Tokens\n3. Без мультиаккаунтов\n4. Донат — добровольный", reply_markup=support_menu())
-
-    @dp.message(F.text == "✍️ Свой вопрос")
-    async def own_q(message: Message, state: FSMContext):
-        await send_clean(message, "✍️ Напиши вопрос:")
-        await state.set_state(BotStates.waiting_question)
-
-    @dp.message(BotStates.waiting_question)
-    async def fwd_admin(message: Message, state: FSMContext):
-        username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
-        msg = await message.bot.send_message(ADMIN_ID, f"📩 <b>Вопрос</b>\n👤 {username}\n\n«{message.text}»\n\n↩️ <i>Reply чтобы ответить.</i>")
-        admin_replies[msg.message_id] = message.from_user.id
-        await send_clean(message, "✅ Отправлено оператору.", reply_markup=main_menu())
-        await state.clear()
-
-    @dp.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
-    async def admin_reply(message: Message):
-        uid = admin_replies.get(message.reply_to_message.message_id)
-        if not uid: return
-        try:
-            await message.bot.send_message(uid, f"📩 <b>Ответ поддержки:</b>\n\n«{message.text}»\n\n— {BOT_NAME}")
-            await message.answer("✅ Отправлено!")
-        except Exception as e: await message.answer(f"❌ {e}")
-
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        txt = (
+            "📜 <b>Правила Gold Casino</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "1️⃣ Бот создан исключительно в развлекательных целях. <b>Реальных ставок нет.</b>\n"
+            "2️⃣ Виртуальные Tokens не подлежат выводу или обмену на реальные деньги.\n"
+            "3️⃣ Игра разрешена только пользователям <b>18+</b>.\n"
+            "4️⃣ <b>Запрещены:</b> мультиаккаунтинг, использование багов, мошенничество, передача аккаунта.\n"
+            "5️⃣ Донат — это добровольная поддержка проекта, а не инвестиция.\n\n"
+            "⚠️ <b>Нарушение правил ведет к бану без предупреждения.</b>\n\n"
+            "Играй ответственно! 🎲"
+        )
+        await send_clean(message, txt, reply_markup=support_menu())
