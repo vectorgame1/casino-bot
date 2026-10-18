@@ -15,7 +15,7 @@ from database import init_pool, init_db
 import support
 import admin_panel
 import handlers
-from games import roulette  # <-- ИМПОРТ РУЛЕТКИ
+from games.roulette import register as register_roulette  # <-- ПРАВИЛЬНЫЙ ИМПОРТ
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ async def main():
     admin_panel.register(dp)  # Админка ПЕРВАЯ
     support.register(dp)      # Поддержка ВТОРАЯ
     handlers.register(dp)     # Игрок ТРЕТИЙ
-    roulette.register(dp)     # Рулетка ПОСЛЕДНЯЯ (для групп)
+    register_roulette(dp)     # Рулетка ПОСЛЕДНЯЯ (для групп)
 
     logger.info("🎰 Запуск polling...")
     await dp.start_polling(bot)
