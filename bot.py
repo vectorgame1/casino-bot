@@ -185,29 +185,57 @@ async def main():
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} принята!")
 
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("10-", "1-", "2-", "3-", "4-", "5-", "6-", "7-", "8-", "9-")))
+    @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
-        uid = message.from_user.id; chat_id = message.chat.id
+        # Если в тексте нет дефиса — это не диапазон, выходим
+        if "-" not in message.text:
+            return
+            
+        uid = message.from_user.id
+        chat_id = message.chat.id
         parts = message.text.lower().split()
+        
         if len(parts) < 2: return
-        try: bet = int(parts[0])
-        except ValueError: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+            
+        # Первое слово — это ставка
+        try:
+            bet = int(parts[0])
+        except ValueError:
+            return
+            
+        # Проверяем баланс
+        if bet < 10 or get_balance(uid) < bet:
+            return await message.reply("❌ Недостаточно или < 10.")
+            
         ranges = []
+        # Парсим всё, что идет после суммы
         for p in parts[1:]:
             if "-" in p:
                 try:
                     start, end = map(int, p.split("-"))
-                    if 0 <= start <= end <= 36: ranges.append((start, end))
-                except: pass
+                    if 0 <= start <= end <= 36:
+                        ranges.append((start, end))
+                except:
+                    pass
             else:
                 try:
                     num = int(p)
-                    if 0 <= num <= 36: ranges.append((num, num))
-                except: pass
-        if not ranges: return await message.reply("❌ Ошибка в формате.")
+                    if 0 <= num <= 36:
+                        ranges.append((num, num))
+                except:
+                    pass
+                    
+        if not ranges:
+            return await message.reply("❌ Ошибка в формате диапазонов.")
+            
         set_balance(uid, -bet)
-        active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet})
+        active_bets.setdefault(chat_id, {"bets": []})["bets"].append({
+            "user_id": uid, 
+            "username": message.from_user.username or "user", 
+            "type": "range", 
+            "ranges": ranges, 
+            "bet": bet
+        })
         await message.reply(f"✅ Ставка {fmt_num(bet)} на диапазоны принята!")
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "ставки")
