@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v10)
+# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v12)
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -184,7 +184,6 @@ async def main():
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} принята!")
 
-    # 🆕 СТАВКИ НА ДИАПАЗОНЫ (например: 1000 1-18 20-36)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("10-", "1-", "2-", "3-", "4-", "5-", "6-", "7-", "8-", "9-")))
     async def place_range_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
@@ -192,9 +191,7 @@ async def main():
         if len(parts) < 2: return
         try: bet = int(parts[0])
         except ValueError: return
-            
         if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
-            
         ranges = []
         for p in parts[1:]:
             if "-" in p:
@@ -207,9 +204,7 @@ async def main():
                     num = int(p)
                     if 0 <= num <= 36: ranges.append((num, num))
                 except: pass
-                    
-        if not ranges: return await message.reply("❌ Ошибка в формате диапазонов.")
-            
+        if not ranges: return await message.reply("❌ Ошибка в формате.")
         set_balance(uid, -bet)
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} на диапазоны принята!")
@@ -249,11 +244,9 @@ async def main():
         txt = f"🎡 <b>ВЫПАЛО: {color} {res}</b>\n\n" + ("🎉 <b>Победители:</b>\n"+"\n".join(win) if win else "") + ("\n\n💔 <b>Проиграли:</b>\n"+"\n".join(lose) if lose else "")
         try: await msg.edit_caption(caption=txt)
         except: await msg.edit_text(txt)
-        
         await asyncio.sleep(30)
         try: await msg.delete()
         except: pass
-        
         del active_bets[chat_id]
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
@@ -347,7 +340,6 @@ async def main():
         if not uid:
             await state.clear()
             return await send_clean(message, "❌ Не найден.")
-            
         if data.get("action")=="ban": 
             set_banned(uid, True)
             await send_clean(message, "🚫 Забанен.")
@@ -359,16 +351,18 @@ async def main():
             if row: await send_clean(message, f"🕵️ @{target}\n💎 {fmt_num(row[0])}\n⭐ {row[1]}\n📊 {'🚫' if row[2] else '✅'}")
         await state.clear()
 
+    # 🆕 ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ КНОПОК
     @dp.message(F.text.in_({"🎮 Игры", "🛒 Контент", "💰 Экономика", "📊 Мониторинг", "📋 Все команды"}))
     async def placeholders(message: Message, state: FSMContext):
         await state.clear()
         if message.from_user.id != ADMIN_ID: return
-        await send_clean(message, f"🛠 {message.text} (в разработке)", reply_markup=admin_panel_kb())
+        await send_clean(message, f"🛠 {message.text} в разработке.", reply_markup=admin_panel_kb())
 
     # ================= ПОДДЕРЖКА =================
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message, state: FSMContext):
         await state.clear()
+        if message.chat.type != "private": return await message.reply(f"🆘 Поддержка доступна в ЛС: @{bot.username}")
         try: await message.answer_photo(FSInputFile("support.jpg"), caption="🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
         except Exception: await message.answer("🆘 <b>ПОДДЕРЖКА</b>\n\nВыбери тему 👇", reply_markup=support_menu())
 
