@@ -302,8 +302,11 @@ async def main():
         conn.commit(); c.close(); release_conn(conn)
         msg = await message.reply(f"🎁 <b>БОНУС</b>\n+5 000 Tokens!"); asyncio.create_task(delete_message_later(msg, 150))
 
-    # ================= ДУЭЛИ 2.0 (С ПРИНЯТИЕМ) =================
+        # ================= ДУЭЛИ 2.0 (С ПРИНЯТИЕМ) =================
     
+    # Временное хранилище для дуэлей: {chat_id: duel_data}
+    active_duels = {}
+
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith("дуэль "))
     async def play_duel(message: Message):
         if not message.reply_to_message: 
@@ -312,7 +315,6 @@ async def main():
         challenger = message.from_user
         opponent = message.reply_to_message.from_user
         
-        # Проверки
         if challenger.id == opponent.id: return await message.reply("❌ Нельзя вызвать самого себя!")
         if opponent.is_bot: return await message.reply("❌ С ботом нельзя!")
         
@@ -328,11 +330,21 @@ async def main():
         # Списываем у вызывающего (замораживаем)
         set_balance(challenger.id, -bet)
         
-        # Создаем кнопку для принятия
-        # В callback_data передаем ID вызывающего, ID соперника и сумму
+        # Сохраняем данные дуэли в памяти, чтобы не пихать всё в кнопку
+        chat_id = message.chat.id
+        duel_id = f"{chat_id}_{challenger.id}_{opponent.id}"
+        
+        active_duels[duel_id] = {
+            "challenger_id": challenger.id,
+            "challenger_name": challenger.username or challenger.first_name,
+            "opponent_id": opponent.id,
+            "opponent_name": opponent.username or opponent.first_name,
+            "bet": bet
+        }
+        
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚔️ ПРИНЯТЬ ДУЭЛЬ", callback_data=f"duel_accept_{challenger.id}_{opponent.id}_{bet}")],
-            [InlineKeyboardButton(text="❌ ОТКЛОНИТЬ", callback_data=f"duel_decline_{challenger.id}_{opponent.id}_{bet}")]
+            [InlineKeyboardButton(text="⚔️ ПРИНЯТЬ ДУЭЛЬ", callback_data=f"duel_accept_{duel_id}")],
+            [InlineKeyboardButton(text="❌ ОТКЛОНИТЬ", callback_data=f"duel_decline_{duel_id}")]
         ])
         
         txt = (
@@ -349,10 +361,16 @@ async def main():
 
     @dp.callback_query(F.data.startswith("duel_accept_"))
     async def duel_accept_handler(call: CallbackQuery):
-        parts = call.data.split("_")
-        challenger_id = int(parts[2])
-        opponent_id = int(parts[3])
-        bet = int(parts[4])
+        # Извлекаем уникальный ID дуэли из кнопки
+        duel_id = call.data.replace("duel_accept_", "")
+        
+        if duel_id not in active_duels:
+            return await call.answer("❌ Эта дуэль устарела или уже была завершена.", show_alert=True)
+            
+        duel = active_duels[duel_id]
+        challenger_id = duel["challenger_id"]
+        opponent_id = duel["opponent_id"]
+        bet = duel["bet"]
         
         # Проверяем, что на кнопку жмет именно тот, кого вызвали
         if call.from_user.id != opponent_id:
@@ -364,12 +382,15 @@ async def main():
         # Списываем у соперника
         set_balance(opponent_id, -bet)
         
-        # Удаляем кнопки, чтобы никто больше не нажал
+        # Удаляем из памяти, чтобы нельзя было нажать дважды
+        del active_duels[duel_id]
+        
+        # Меняем сообщение, убираем кнопки
         await call.message.edit_text(
             f"⚔️ <b>ДУЭЛЬ НАЧАЛАСЬ!</b>\n"
             f"━━━━━━━━━━━━━━\n"
-            f"🔵 @{call.bot.get_chat(challenger_id).username or 'Игрок 1'}\n"
-            f"🔴 @{call.from_user.username or 'Игрок 2'}\n"
+            f"🔵 @{duel['challenger_name']}\n"
+            f"🔴 @{duel['opponent_name']}\n"
             f"💰 Банк: <b>{fmt_num(bet * 2)}</b> Tokens\n\n"
             f"🎲 Бросаем кубики..."
         )
@@ -377,19 +398,17 @@ async def main():
         
         await asyncio.sleep(1.5)
         
-        # Кидаем стикеры кубиков (настоящие)
-        # Кидаем от лица бота
+        # Кидаем стикеры кубиков
         dice1_msg = await call.bot.send_dice(chat_id=call.message.chat.id, emoji="🎲")
         await asyncio.sleep(0.5)
         dice2_msg = await call.bot.send_dice(chat_id=call.message.chat.id, emoji="🎲")
         
-        # Ждем, пока кубики прокрутятся (примерно 3 секунды)
+        # Ждем прокрутки
         await asyncio.sleep(3.5)
         
         val1 = dice1_msg.dice.value
         val2 = dice2_msg.dice.value
         
-        # Если ничья, перебрасываем (упрощенно: победит тот, у кого больше, при равенстве переброс не делаем, просто возвращаем ставки)
         if val1 == val2:
             set_balance(challenger_id, bet)
             set_balance(opponent_id, bet)
@@ -398,17 +417,14 @@ async def main():
             
         if val1 > val2:
             winner_id, loser_id = challenger_id, opponent_id
-            winner_name = call.bot.get_chat(challenger_id).username or "Игрок 1"
+            winner_name = duel['challenger_name']
             w_dice, l_dice = val1, val2
         else:
             winner_id, loser_id = opponent_id, challenger_id
-            winner_name = call.from_user.username or "Игрок 2"
+            winner_name = duel['opponent_name']
             w_dice, l_dice = val2, val1
             
-        # Выдаем выигрыш
         set_balance(winner_id, bet * 2)
-        
-        # Записываем в лог игры (если нужно)
         log_game(winner_id, winner_name, "дуэль", bet, bet * 2, str(w_dice))
         
         await call.message.reply(
@@ -422,16 +438,22 @@ async def main():
 
     @dp.callback_query(F.data.startswith("duel_decline_"))
     async def duel_decline_handler(call: CallbackQuery):
-        parts = call.data.split("_")
-        challenger_id = int(parts[2])
-        opponent_id = int(parts[3])
-        bet = int(parts[4])
+        duel_id = call.data.replace("duel_decline_", "")
+        
+        if duel_id not in active_duels:
+            return await call.answer("❌ Эта дуэль устарела.", show_alert=True)
+            
+        duel = active_duels[duel_id]
+        challenger_id = duel["challenger_id"]
+        opponent_id = duel["opponent_id"]
+        bet = duel["bet"]
         
         if call.from_user.id != opponent_id:
             return await call.answer("❌ Это не твой вызов!", show_alert=True)
             
         # Возвращаем деньги вызывающему
         set_balance(challenger_id, bet)
+        del active_duels[duel_id]
         
         await call.message.edit_text(
             f"❌ <b>ДУЭЛЬ ОТКЛОНЕНА</b>\n"
