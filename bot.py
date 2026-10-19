@@ -872,12 +872,18 @@ async def main():
         await state.clear()
         await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>", reply_markup=main_menu())
 
-    # ЛОВИМ ВОПРОС ОТ ИГРОКА
+    # ЛОВИМ ВОПРОС ОТ ИГРОКА (С ЗАЩИТОЙ ОТ КНОПОК)
     @dp.message(lambda msg: msg.from_user.id != ADMIN_ID) 
     async def catch_custom_q(message: Message, state: FSMContext):
         current_state = await state.get_state()
         is_reply = message.reply_to_message and message.reply_to_message.message_id in support_replies
         
+        # ЗАЩИТА: Если это текст одной из кнопок поддержки, не пересылаем его как вопрос
+        ignore_texts = ["💎 Tokens не пришли", "🎮 Что-то сломалось в игре", "💳 Вопрос по оплате", 
+                        "🚫 Бан или мут", "🐞 Нашёл баг", "📜 Правила бота", "✍️ Свой вопрос", "⬅️ Назад"]
+        if message.text in ignore_texts:
+            return
+
         if current_state == "waiting_custom_support" or is_reply:
             await state.clear()
             user = message.from_user
@@ -927,7 +933,7 @@ async def main():
             except Exception as e:
                 await message.reply(f"❌ Ошибка: {e}")
 
-    # --- КНОПКИ С РАСШИРЕННЫМ ТЕКСТОМ ---
+    # --- ОСТАЛЬНЫЕ КНОПКИ (Тексты) ---
 
     @dp.message(F.text == "💎 Tokens не пришли")
     async def tokens_lost(message: Message, state: FSMContext):
