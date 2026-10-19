@@ -826,7 +826,9 @@ async def main():
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📋 /admin\n/give @user сумма\n/ban @user\n/unban @user", reply_markup=admin_panel_kb())
 
-   # ================= ПОДДЕРЖКА =================
+    # ================= ПОДДЕРЖКА =================
+    support_replies = {}
+
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message, state: FSMContext):
         await state.clear()
@@ -835,8 +837,10 @@ async def main():
         
         txt = (
             "🆘 <b>ЦЕНТР ПОДДЕРЖКИ</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "👋 Привет! Если у тебя возникли проблемы, выбери тему обращения ниже.\n\n"
+            "╔══════════════════════╗\n"
+            "║ 👋 Добро пожаловать!\n"
+            "║ Выбери тему ниже.\n"
+            "╚══════════════════════╝\n\n"
             "👇 <i>Нажми на нужную кнопку:</i>"
         )
         try: 
@@ -844,22 +848,100 @@ async def main():
         except Exception: 
             await send_clean(message, txt, reply_markup=support_menu())
 
+    # ✍️ СВОЙ ВОПРОС
+    @dp.message(F.text == "✍️ Свой вопрос")
+    async def support_custom_q(message: Message, state: FSMContext):
+        await state.clear()
+        await send_clean(message, 
+            "✍️ <b>СВОЙ ВОПРОС</b>\n"
+            "╔══════════════════════╗\n"
+            "║ Напиши свой вопрос.\n"
+            "║ Мы передадим его админу.\n"
+            "╚══════════════════════╝\n\n"
+            "👇 <i>Жду твоего сообщения...</i>"
+        )
+        await state.set_state("waiting_custom_support")
+
+    # ОТМЕНА
+    @dp.message(F.text == "⬅️ Назад")
+    async def cancel_custom_q(message: Message, state: FSMContext):
+        current_state = await state.get_state()
+        if current_state == "waiting_custom_support":
+            await state.clear()
+            return await send_clean(message, "❌ Отменено.", reply_markup=main_menu())
+        await state.clear()
+        await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>", reply_markup=main_menu())
+
+    # ЛОВИМ ВОПРОС ОТ ИГРОКА
+    @dp.message(lambda msg: msg.from_user.id != ADMIN_ID) 
+    async def catch_custom_q(message: Message, state: FSMContext):
+        current_state = await state.get_state()
+        is_reply = message.reply_to_message and message.reply_to_message.message_id in support_replies
+        
+        if current_state == "waiting_custom_support" or is_reply:
+            await state.clear()
+            user = message.from_user
+            admin_text = (
+                f"📩 <b>ВХОДЯЩЕЕ СООБЩЕНИЕ</b>\n"
+                f"╔══════════════════════╗\n"
+                f"║ 👤 <b>От:</b> @{user.username or user.first_name}\n"
+                f"║ 🆔 <b>ID:</b> <code>{user.id}</code>\n"
+                f"╚══════════════════════╝\n\n"
+                f"💬 <b>Текст:</b>\n"
+                f"┌──────────────────────┐\n"
+                f"│ {message.text}\n"
+                f"└──────────────────────┘\n\n"
+                f"<i>⚡ Ответь на это сообщение, чтобы ответить.</i>"
+            )
+            try:
+                sent_msg = await message.bot.send_message(ADMIN_ID, admin_text)
+                support_replies[sent_msg.message_id] = user.id
+                if current_state == "waiting_custom_support":
+                    await send_clean(message, "✅ <b>ОТПРАВЛЕНО!</b>\n╔══════════════════════╗\n║ Жди ответа.\n╚══════════════════════╝", reply_markup=main_menu())
+                else:
+                    await message.reply("✅ Доставлено.")
+            except Exception:
+                await send_clean(message, "❌ Ошибка.", reply_markup=main_menu())
+
+    # ОТВЕТ АДМИНА
+    @dp.message(lambda msg: msg.from_user.id == ADMIN_ID and msg.reply_to_message)
+    async def admin_reply_to_support(message: Message):
+        replied_msg_id = message.reply_to_message.message_id
+        if replied_msg_id in support_replies:
+            user_id = support_replies[replied_msg_id]
+            user_text = (
+                f"📢 <b>ОТВЕТ ОТ ПОДДЕРЖКИ</b>\n"
+                f"╔══════════════════════╗\n"
+                f"║ 👑 <b>Админ на связи</b>\n"
+                f"╚══════════════════════╝\n\n"
+                f"💬 <b>Сообщение:</b>\n"
+                f"┌──────────────────────┐\n"
+                f"│ {message.text}\n"
+                f"└──────────────────────┘\n\n"
+                f"<i>💡 Ответь на это сообщение для продолжения.</i>"
+            )
+            try:
+                sent_msg = await message.bot.send_message(user_id, user_text)
+                support_replies[sent_msg.message_id] = ADMIN_ID
+                await message.reply("✅ Ответ отправлен игроку.")
+            except Exception as e:
+                await message.reply(f"❌ Ошибка: {e}")
+
+    # --- КНОПКИ С РАСШИРЕННЫМ ТЕКСТОМ ---
+
     @dp.message(F.text == "💎 Tokens не пришли")
     async def tokens_lost(message: Message, state: FSMContext):
         await state.clear()
         txt = (
             "💎 <b>ПРОБЛЕМА С TOKENS</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Спокойно, сейчас разберёмся. Проблема решаема.\n\n"
-            "1️⃣ <b>Проверь оплату.</b> Зайди в Telegram -> Настройки -> Мои подарки. Если платеж прошел, но токенов нет — читаем дальше.\n"
-            "2️⃣ <b>Подожди 5–10 минут.</b> Telegram Stars иногда зачисляются с задержкой.\n"
-            "3️⃣ <b>Перезапусти бота.</b> Напиши /start. Если баланс не обновился — пиши в поддержку.\n\n"
-            "✍️ <b>Что написать оператору:</b>\n"
-            "• Скриншот чека об оплате\n"
-            "• Сколько Stars отправил\n"
-            "• Примерное время\n\n"
+            "╔══════════════════════╗\n"
+            "║ 1️⃣ <b>Проверь оплату</b>\n"
+            "║ Настройки -> Мои подарки.\n"
+            "║ 2️⃣ <b>Подожди 5-10 мин.</b>\n"
+            "║ 3️⃣ <b>Напиши /start</b>\n"
+            "╚══════════════════════╝\n\n"
             f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
-            "Мы всё вернём! 🙏"
+            "Пришли чек, мы всё вернём! 🙏"
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
@@ -868,15 +950,14 @@ async def main():
         await state.clear()
         txt = (
             "🎮 <b>ОШИБКА В ИГРЕ</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Опиши проблему, и мы починим это как можно скорее!\n\n"
-            "Пожалуйста, укажи:\n"
-            "1️⃣ <b>В какой игре</b> произошла ошибка.\n"
-            "2️⃣ <b>Что ты делал</b> (какую команду вводил).\n"
-            "3️⃣ <b>Что пошло не так</b> (списалось дважды, не выдало выигрыш).\n\n"
-            "📸 <b>Пришли скриншот</b> — это ускорит починку в 2 раза!\n\n"
-            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
-            "Мы всё проверим по логам. 🤝"
+            "╔══════════════════════╗\n"
+            "║ Опиши проблему:\n"
+            "║ 1️⃣ В какой игре?\n"
+            "║ 2️⃣ Что вводил?\n"
+            "║ 3️⃣ Что пошло не так?\n"
+            "╚══════════════════════╝\n\n"
+            "📸 <b>Пришли скриншот!</b>\n\n"
+            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}"
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
@@ -885,15 +966,13 @@ async def main():
         await state.clear()
         txt = (
             "💳 <b>ВОПРОС ПО ОПЛАТЕ</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Все покупки в боте проходят через <b>Telegram Stars ⭐</b> (внутренняя валюта Telegram).\n\n"
-            "<b>Как это работает:</b>\n"
-            "• Ты выбираешь пакет -> бот присылает счет -> ты подтверждаешь оплату.\n"
-            "• Токены зачисляются автоматически в течение 10 секунд.\n\n"
-            "<b>Если что-то пошло не так:</b>\n"
-            "• Возврат средств возможен только через поддержку Telegram (в настройках платежей).\n"
-            "• Если токены не пришли — см. пункт <b>«Tokens не пришли»</b>.\n\n"
-            f"📩 <b>Если остались вопросы:</b> {SUPPORT_USERNAME} ✍️"
+            "╔══════════════════════╗\n"
+            "║ Все покупки идут через\n"
+            "║ <b>Telegram Stars ⭐</b>\n"
+            "╚══════════════════════╝\n\n"
+            "• Выбираешь пакет -> счет -> оплата.\n"
+            "• Токены приходят за 10 секунд.\n\n"
+            f"📩 <b>Вопросы:</b> {SUPPORT_USERNAME} ✍️"
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
@@ -902,15 +981,15 @@ async def main():
         await state.clear()
         txt = (
             "🚫 <b>БАН ИЛИ МУТ</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Если ты считаешь, что наказание было ошибочным, мы разберёмся.\n\n"
-            "Пришли нам:\n"
-            "1️⃣ Твой <b>@username</b> (и ID, если знаешь).\n"
-            "2️⃣ <b>Причину блокировки</b> (если она была указана).\n"
-            "3️⃣ <b>Примерное время</b>, когда это случилось.\n\n"
-            "⚠️ <b>Важно:</b> Если ты попал в бан из-за непогашенного кредита, сначала верни долг.\n\n"
-            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}\n"
-            "Мы проверим логи и снимем бан, если он был выдан по ошибке. 🤝"
+            "╔══════════════════════╗\n"
+            "║ Если считаешь наказание\n"
+            "║ ошибкой, пришли:\n"
+            "║ 1️⃣ @username и ID\n"
+            "║ 2️⃣ Причину\n"
+            "║ 3️⃣ Время\n"
+            "╚══════════════════════╝\n\n"
+            "⚠️ <b>Важно:</b> Если есть долг — верни его.\n\n"
+            f"📩 <b>Куда писать:</b> {SUPPORT_USERNAME}"
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
@@ -919,84 +998,33 @@ async def main():
         await state.clear()
         txt = (
             "🐞 <b>НАШЁЛ БАГ?</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Спасибо, что помогаешь делать бота лучше! За реальный баг мы даем бонус Tokens.\n\n"
-            "Опиши баг максимально подробно:\n"
-            "1️⃣ <b>Что ты делал</b> (по шагам).\n"
-            "2️⃣ <b>Что ожидал увидеть</b>.\n"
-            "3️⃣ <b>Что случилось на самом деле</b>.\n\n"
-            "📸 <b>Скриншот или текст ошибки</b> — обязательно!\n\n"
-            f"📩 <b>Отправь это сюда:</b> {SUPPORT_USERNAME}\n"
-            "За подтверждённый баг — бонус Tokens! 🎁"
+            "╔══════════════════════╗\n"
+            "║ За реальный баг — бонус!\n"
+            "║ Опиши подробно:\n"
+            "║ 1️⃣ Что делал?\n"
+            "║ 2️⃣ Что ожидал?\n"
+            "║ 3️⃣ Что случилось?\n"
+            "╚══════════════════════╝\n\n"
+            f"📩 <b>Отправь сюда:</b> {SUPPORT_USERNAME}\n"
+            "За подтверждённый баг — бонус! 🎁"
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
     @dp.message(F.text == "📜 Правила бота")
     async def rules(message: Message, state: FSMContext):
         await state.clear()
-        # ИСПРАВЛЕНА ОШИБКА: добавлена f-строка
         txt = (
             f"📜 <b>ПРАВИЛА {BOT_NAME.upper()}</b>\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "1️⃣ Бот создан исключительно в развлекательных целях. <b>Реальных ставок нет.</b>\n"
-            "2️⃣ Виртуальные Tokens не подлежат выводу или обмену на реальные деньги.\n"
-            "3️⃣ Игра разрешена только пользователям <b>18+</b>.\n"
-            "4️⃣ <b>Запрещены:</b> мультиаккаунтинг, использование багов, мошенничество, передача аккаунта.\n"
-            "5️⃣ Донат — это добровольная поддержка проекта, а не инвестиция.\n\n"
-            "⚠️ <b>Нарушение правил ведет к бану без предупреждения.</b>\n\n"
+            "╔══════════════════════╗\n"
+            "║ 1️⃣ 18+\n"
+            "║ 2️⃣ Токены не выводятся\n"
+            "║ 3️⃣ Без багоюза\n"
+            "║ 4️⃣ Донат — поддержка\n"
+            "╚══════════════════════╝\n\n"
+            "⚠️ <b>Нарушение = бан без предупреждения.</b>\n\n"
             "Играй ответственно! 🎲"
         )
         await send_clean(message, txt, reply_markup=support_menu())
-
-        # ✍️ СВОЙ ВОПРОС (Обработчик кнопки)
-    @dp.message(F.text == "✍️ Свой вопрос")
-    async def support_custom_q(message: Message, state: FSMContext):
-        await state.clear()
-        await send_clean(message, 
-            "✍️ <b>СВОЙ ВОПРОС</b>\n"
-            "━━━━━━━━━━━━━━\n"
-            "Напиши свой вопрос одним сообщением, и я передам его администрации.\n\n"
-            "👇 <i>Жду твоего сообщения...</i>"
-        )
-        await state.set_state("waiting_custom_support")
-
-    # Обработка самого вопроса (когда игрок его напишет)
-    @dp.message(F.text == "⬅️ Назад") # Чтобы можно было отменить, если передумал
-    async def cancel_custom_q(message: Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state == "waiting_custom_support":
-            await state.clear()
-            return await send_clean(message, "❌ Отменено.", reply_markup=main_menu())
-        # Если это не отмена вопроса, пропускаем дальше (для других кнопок Назад)
-        await state.clear()
-        await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>", reply_markup=main_menu())
-
-    @dp.message(F.text != "⬅️ Назад", lambda msg: msg.from_user.id != ADMIN_ID) # Ловим любой текст от игрока
-    async def catch_custom_q(message: Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state == "waiting_custom_support":
-            await state.clear()
-            user = message.from_user
-            
-            # Отправляем сообщение тебе (Админу)
-            admin_text = (
-                f"📩 <b>НОВЫЙ ВОПРОС В ПОДДЕРЖКУ</b>\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"👤 От: @{user.username or user.first_name}\n"
-                f"🆔 ID: <code>{user.id}</code>\n"
-                f"━━━━━━━━━━━━━━\n\n"
-                f"💬 <b>Текст:</b>\n{message.text}"
-            )
-            try:
-                await message.bot.send_message(ADMIN_ID, admin_text)
-                await send_clean(message, 
-                    "✅ <b>ВОПРОС ОТПРАВЛЕН!</b>\n"
-                    "━━━━━━━━━━━━━━\n"
-                    "Администрация получила твое сообщение и скоро ответит.", 
-                    reply_markup=main_menu()
-                )
-            except Exception:
-                await send_clean(message, "❌ Ошибка отправки. Попробуй позже.", reply_markup=main_menu())
 
     # ================= ЗАПУСК =================
     await dp.start_polling(bot)
