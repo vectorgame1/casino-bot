@@ -1,4 +1,4 @@
-# bot.py — MEGA UPDATE v42 (Кредиты, Кейсы, Оптимизация)
+# bot.py — MEGA UPDATE v44 (Финальный фикс)
 import asyncio, logging, os, random, re, time
 from datetime import datetime, timedelta
 from aiohttp import web
@@ -15,7 +15,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import BOT_TOKEN, BOT_NAME, ADMIN_ID, START_BONUS, STARS_RATE, TZ_MINSK, GROUP_URL, SUPPORT_USERNAME
-from keyboards import main_menu, games_menu, donate_menu, admin_panel_kb, support_menu
+from keyboards import main_menu, games_menu, donate_menu, admin_panel_kb, support_menu, bank_menu
 from database import (
     init_pool, init_db, get_balance, set_balance, ensure_user, 
     check_and_give_bonus, is_banned, get_top, get_xp, set_banned,
@@ -35,7 +35,6 @@ class BotStates(StatesGroup):
     waiting_broadcast_target = State()
     waiting_broadcast_text = State()
     mines_game = State()
-    # Для кредитов
     waiting_credit_name = State()
     waiting_credit_amount = State()
     waiting_credit_term = State()
@@ -47,7 +46,7 @@ is_spinning = {}
 support_replies = {}
 cache_balance = {} 
 cache_admin_stats = {"time": 0, "users": 0, "balance": 0, "banned": 0}
-credit_requests = {} # Хранилище заявок на кредит
+credit_requests = {}
 
 RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 BLACK = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35]
@@ -94,6 +93,10 @@ async def main():
     # ================= ОБЩИЕ =================
     @dp.message(F.text == "⬅️ Назад")
     async def btn_back(message: Message, state: FSMContext):
+        current_state = await state.get_state()
+        if current_state in [BotStates.waiting_credit_name, BotStates.waiting_credit_amount, BotStates.waiting_credit_term, BotStates.waiting_credit_purpose]:
+            await state.clear()
+            return await send_clean(message, "❌ Заявка на кредит отменена.", reply_markup=main_menu())
         await state.clear()
         await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>\n━━━━━━━━━━━━━━\nВыбери раздел 👇", reply_markup=main_menu())
 
@@ -102,6 +105,11 @@ async def main():
         await state.clear()
         user_id = message.from_user.id
         ensure_user(user_id, message.from_user.username or message.from_user.first_name)
+        
+        # Проверка на бан
+        if is_banned(user_id): 
+            return await send_clean(message, "🚫 <b>ВЫ ЗАБЛОКИРОВАНЫ</b>\n━━━━━━━━━━━━━━\nВы были забанены в этом боте. Если это ошибка, напишите в поддержку.")
+            
         args = message.text.split()
         if len(args) > 1 and args[1].startswith("ref_"):
             try: ref_id = int(args[1].replace("ref_", ""))
@@ -114,7 +122,7 @@ async def main():
                     try: await bot.send_message(ref_id, "🎉 <b>ДРУГ ЗАШЕЛ!</b>\n+10 000 Tokens!")
                     except: pass
                 c.close(); release_conn(conn)
-        if is_banned(user_id): return await send_clean(message, "🚫 <b>ДОСТУП ЗАКРЫТ</b>")
+                
         is_new = check_and_give_bonus(user_id, START_BONUS)
         if message.chat.type != "private": return await message.reply(f"👋 ЛС: @{bot.username}")
         if user_id == ADMIN_ID: return await send_clean(message, "👑 <b>АДМИНКА</b>", reply_markup=admin_panel_kb())
@@ -189,7 +197,7 @@ async def main():
     # ================= БАНК И КРЕДИТЫ =================
     @dp.message(F.chat.type == "private", F.text.lower().in_({"банк"}))
     @dp.message(F.text == "🏦 Банк")
-    async def bank_menu(message: Message, state: FSMContext):
+    async def bank_menu_handler(message: Message, state: FSMContext):
         await state.clear()
         bal = get_balance(message.from_user.id)
         conn = get_conn(); c = conn.cursor()
@@ -197,11 +205,9 @@ async def main():
             c.execute("SELECT bank FROM users WHERE user_id = %s", (message.from_user.id,)); row = c.fetchone(); bank = row[0] if row and row[0] is not None else 0
         except: bank = 0
         finally: c.close(); release_conn(conn)
-        kb = ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="📥 Положить"), KeyboardButton(text="📤 Снять")],
-            [KeyboardButton(text="💳 Кредит")],
-            [KeyboardButton(text="⬅️ Назад")]
-        ], resize_keyboard=True)
+        
+        kb = bank_menu() # Используем функцию из keyboards.py
+        
         txt = f"🏦 <b>БАНК</b>\n━━━━━━━━━━━━━━\n\n💎 На руках: <b>{fmt_num(bal)}</b>\n🏦 В сейфе: <b>{fmt_num(bank)}</b>\n\n📈 <b>Процент:</b> 5% в день\n\n👇 Действие:"
         try: await message.answer_photo(photo=FSInputFile("bank.jpg"), caption=txt, reply_markup=kb)
         except: await send_clean(message, txt, reply_markup=kb)
@@ -218,13 +224,12 @@ async def main():
 
     @dp.message(BotStates.waiting_bank_amount)
     async def bank_process(message: Message, state: FSMContext):
-        # Если это кредит - пропускаем, его ловит другой обработчик
         data = await state.get_data()
         if data.get("action") in ["credit_name", "credit_amount", "credit_term"]:
             return
             
         if message.text == "⬅️ Назад": 
-            await state.clear(); return await bank_menu(message, state)
+            await state.clear(); return await bank_menu_handler(message, state)
             
         try: amount = int(message.text)
         except ValueError: return await send_clean(message, "❌ Введи число.")
@@ -241,32 +246,13 @@ async def main():
                 c.close(); release_conn(conn); return await send_clean(message, "❌ Мало в банке.")
             c.execute("UPDATE users SET bank = bank - %s WHERE user_id = %s", (amount, uid)); set_balance(uid, amount); conn.commit(); c.close(); release_conn(conn)
             await send_clean(message, f"✅ Снято <b>{fmt_num(amount)}</b>.")
-        await state.clear(); await bank_menu(message, state)
+        await state.clear(); await bank_menu_handler(message, state)
 
-    @dp.message(F.text == "💳 Кредит")
-    async def credit_start(message: Message, state: FSMContext):
-        await state.clear()
-        await send_clean(message, "💳 <b>ЗАЯВКА НА КРЕДИТ</b>\n━━━━━━━━━━━━━━\nУсловия: от 10 000 до 100 000 под 3% в день.\n\n1️⃣ Введи свое <b>Имя и Фамилию</b>:")
-        await state.set_state(BotStates.waiting_credit_name) # Меняем состояние на кредитное
-
-    # 💳 КРЕДИТ (Анкета)
     @dp.message(F.text == "💳 Кредит")
     async def credit_start(message: Message, state: FSMContext):
         await state.clear()
         await send_clean(message, "💳 <b>ЗАЯВКА НА КРЕДИТ</b>\n━━━━━━━━━━━━━━\nУсловия: от 10 000 до 100 000 под 3% в день.\n\n1️⃣ Введи свое <b>Имя и Фамилию</b>:")
         await state.set_state(BotStates.waiting_credit_name)
-
-        # Отмена кредита (если передумал)
-    @dp.message(F.text == "⬅️ Назад")
-    async def cancel_credit(message: Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state in [BotStates.waiting_credit_name, BotStates.waiting_credit_amount, BotStates.waiting_credit_term, BotStates.waiting_credit_purpose]:
-            await state.clear()
-            return await send_clean(message, "❌ Заявка на кредит отменена.", reply_markup=main_menu())
-        
-        # Если это не кредит, а обычное меню
-        await state.clear()
-        await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>", reply_markup=main_menu())
 
     @dp.message(BotStates.waiting_credit_name)
     async def credit_get_name(message: Message, state: FSMContext):
@@ -298,7 +284,6 @@ async def main():
         user = message.from_user
         await state.clear()
         
-        # Отправляем анкету Админу
         req_id = f"{user.id}_{int(time.time())}"
         credit_requests[req_id] = {"user_id": user.id, **data}
         
@@ -328,14 +313,9 @@ async def main():
     async def credit_accept_handler(call: CallbackQuery):
         req_id = call.data.replace("credit_accept_", "")
         if req_id not in credit_requests: return await call.answer("❌ Заявка устарела.", show_alert=True)
-        
         req = credit_requests[req_id]
         uid = req["user_id"]; amount = req["credit_amount"]
-        
-        # Выдаем деньги (добавляем к балансу)
         set_balance(uid, amount)
-        
-        # Записываем долг в БД
         conn = get_conn(); c = conn.cursor()
         try:
             c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS credit_debt BIGINT DEFAULT 0")
@@ -344,7 +324,6 @@ async def main():
             conn.commit()
         except: pass
         finally: c.close(); release_conn(conn)
-        
         await call.message.edit_text(f"✅ <b>КРЕДИТ ОДОБРЕН</b>\nИгроку @{req.get('credit_name')} выдано {fmt_num(amount)} Tokens.\nК возврату: {fmt_num(int(amount*1.03))} за {req['credit_term']} дней.")
         try: await call.bot.send_message(uid, f"🎉 <b>КРЕДИТ ОДОБРЕН!</b>\n━━━━━━━━━━━━━━\nТебе выдано: <b>{fmt_num(amount)} Tokens</b>\nК возврату: <b>{fmt_num(int(amount*1.03))}</b> (3% в день) за {req['credit_term']} дней.\nНе забудь вернуть долг!")
         except: pass
@@ -362,6 +341,34 @@ async def main():
         del credit_requests[req_id]
         await call.answer("Отклонено.")
 
+    # 💸 ПОГАШЕНИЕ КРЕДИТА
+    @dp.message(F.text == "💸 Погасить кредит")
+    async def credit_repay(message: Message, state: FSMContext):
+        await state.clear()
+        uid = message.from_user.id
+        conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("SELECT credit_debt FROM users WHERE user_id = %s", (uid,))
+            row = c.fetchone()
+            debt = row[0] if row and row[0] else 0
+        except Exception:
+            debt = 0
+        finally:
+            c.close(); release_conn(conn)
+            
+        if debt <= 0:
+            return await send_clean(message, "✅ <b>У ТЕБЯ НЕТ ДОЛГОВ!</b>\n━━━━━━━━━━━━━━\nТы чист перед банком.", reply_markup=bank_menu())
+            
+        bal = get_balance(uid)
+        if bal < debt:
+            return await send_clean(message, f"❌ <b>НЕДОСТАТОЧНО СРЕДСТВ</b>\n━━━━━━━━━━━━━━\n💰 Твой баланс: <b>{fmt_num(bal)}</b>\n💳 Твой долг: <b>{fmt_num(debt)}</b>\n━━━━━━━━━━━━━━\nНе хватает: <b>{fmt_num(debt - bal)}</b> Tokens.", reply_markup=bank_menu())
+            
+        set_balance(uid, -debt)
+        conn = get_conn(); c = conn.cursor()
+        c.execute("UPDATE users SET credit_debt = 0, credit_days_left = 0 WHERE user_id = %s", (uid,))
+        conn.commit(); c.close(); release_conn(conn)
+        
+        await send_clean(message, f"✅ <b>КРЕДИТ ПОГАШЕН!</b>\n━━━━━━━━━━━━━━\n💸 Списано: <b>{fmt_num(debt)}</b> Tokens\n💎 Остаток на балансе: <b>{fmt_num(get_balance(uid))}</b>\n━━━━━━━━━━━━━━\nТвоя кредитная история чиста! 🤝", reply_markup=bank_menu())
 
     # ================= ИГРЫ =================
     async def play_dice_game(message: Message, game_name: str, emoji: str, win_cond, win_mult, lose_txt, win_txt):
@@ -478,7 +485,7 @@ async def main():
         kb.inline_keyboard.append([InlineKeyboardButton(text=f"💰 ЗАБРАТЬ (x{mult:.2f})", callback_data="mine_cashout")])
         await call.message.edit_text(f"💣 <b>МИНЫ</b>\n💰 {fmt_num(bet)}\n📈 Выигрыш: <b>{fmt_num(int(bet * mult))}</b> (x{mult:.2f})\n\nОткрывай дальше!", reply_markup=kb); await call.answer("Безопасно!")
 
-    # ================= РУЛЕТКА (УМНЫЙ ПАРСЕР) =================
+    # ================= РУЛЕТКА =================
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(к|ч|з|чет|чёт|нечет|нечёт)\s+(\d+)$"))
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(\d+)\s+(к|ч|з|чет|чёт|нечет|нечёт)$"))
     async def place_color_bet(message: Message):
@@ -821,7 +828,7 @@ async def main():
         await state.clear()
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📋 /admin\n/give @user сумма\n/ban @user\n/unban @user", reply_markup=admin_panel_kb())
-    
+
     # ================= ПОДДЕРЖКА =================
     support_replies = {}
 
@@ -852,15 +859,6 @@ async def main():
             "👇 <i>Жду твоего сообщения...</i>"
         )
         await state.set_state("waiting_custom_support")
-
-    @dp.message(F.text == "⬅️ Назад")
-    async def cancel_custom_q(message: Message, state: FSMContext):
-        current_state = await state.get_state()
-        if current_state == "waiting_custom_support":
-            await state.clear()
-            return await send_clean(message, "❌ Отменено.", reply_markup=main_menu())
-        await state.clear()
-        await send_clean(message, "🏠 <b>ГЛАВНОЕ МЕНЮ</b>", reply_markup=main_menu())
 
     @dp.message(lambda msg: msg.from_user.id != ADMIN_ID) 
     async def catch_custom_q(message: Message, state: FSMContext):

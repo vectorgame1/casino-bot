@@ -65,3 +65,10 @@ def admin_panel_kb() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True
     )
+
+def bank_menu():
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📥 Положить"), KeyboardButton(text="📤 Снять")],
+        [KeyboardButton(text="💳 Кредит"), KeyboardButton(text="💸 Погасить кредит")],
+        [KeyboardButton(text="⬅️ Назад")]
+    ], resize_keyboard=True)
