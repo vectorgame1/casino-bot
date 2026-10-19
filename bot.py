@@ -441,6 +441,8 @@ async def main():
             await message.reply(f"🪙 <b>МОНЕТКА</b>\n━━━━━━━━━━━━━━\nВыпало: {res}\n😢 Проигрыш. Потеряно: <b>-{fmt_num(bet)}</b>")
 
     # ================= РУЛЕТКА =================
+    
+    # 🎰 СТАВКИ НА ЦВЕТ/ЧЁТ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("к ", "ч ", "з ", "чёт ", "нечет ")))
     async def place_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
@@ -452,23 +454,43 @@ async def main():
         if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         
         set_balance(uid, -bet)
+        
+        # Сброс таймера при новой ставке
+        if "timer" in active_bets.get(chat_id, {}): active_bets[chat_id]["timer"].cancel()
+        
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
+        
+        # Запуск таймера на 5 минут (300 сек)
+        async def auto_cancel():
+            await asyncio.sleep(300)
+            if chat_id in active_bets and active_bets[chat_id]["bets"]:
+                for b in active_bets[chat_id]["bets"]:
+                    set_balance(b["user_id"], b["bet"])
+                await message.answer("⏰ **ВРЕМЯ ВЫШЛО!** Ставки отменены, токены возвращены на балансы.")
+                del active_bets[chat_id]
+                
+        active_bets[chat_id]["timer"] = asyncio.create_task(auto_cancel())
         
         names = {"red": "🔴 КРАСНОЕ", "black": "⚫ ЧЁРНОЕ", "green": "🟢 ЗЕРО", "even": "2️⃣ ЧЁТ", "odd": "1️⃣ НЕЧЁТ"}
         await message.reply(
-            f"🎰 <b>СТАВКА ПРИНЯТА</b>\n"
+            f"🎰 **СТАВКА ПРИНЯТА**\n"
             f"━━━━━━━━━━━━━━\n"
-            f"👤 Игрок: <b>@{message.from_user.username or 'user'}</b>\n"
-            f"🎯 Выбор: <b>{names[bet_type]}</b>\n"
-            f"💰 Сумма: <b>{fmt_num(bet)}</b>\n"
+            f"👤 Игрок: **@{message.from_user.username or 'user'}**\n"
+            f"🎯 Выбор: **{names[bet_type]}**\n"
+            f"💰 Сумма: **{fmt_num(bet)}**\n"
             f"━━━━━━━━━━━━━━\n"
-            f"⚡️ Напиши <b>го</b> для запуска!"
+            f"⚡️ Напиши **го** для запуска!"
         )
 
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^\d+.*-.*"))
+    # 🎰 СТАВКИ НА ДИАПАЗОНЫ (Защита от огромных сообщений)
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^\d+\s+(\d+-\d+)(\s+\d+-\d+)*$"))
     async def place_range_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
+        
+        # Ограничение: ставка не может быть больше 1 миллиарда, и не более 3 диапазонов
+        if len(parts) > 4: return await message.reply("❌ Слишком много диапазонов. Укажи 1-2.")
+        
         try: bet = int(parts[0])
         except ValueError: return
         if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
@@ -483,17 +505,30 @@ async def main():
         if not ranges: return
         
         set_balance(uid, -bet)
+        
+        if "timer" in active_bets.get(chat_id, {}): active_bets[chat_id]["timer"].cancel()
+        
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet})
+        
+        async def auto_cancel():
+            await asyncio.sleep(300)
+            if chat_id in active_bets and active_bets[chat_id]["bets"]:
+                for b in active_bets[chat_id]["bets"]:
+                    set_balance(b["user_id"], b["bet"])
+                await message.answer("⏰ **ВРЕМЯ ВЫШЛО!** Ставки отменены, токены возвращены на балансы.")
+                del active_bets[chat_id]
+                
+        active_bets[chat_id]["timer"] = asyncio.create_task(auto_cancel())
         
         rng_str = ", ".join([f"{s}-{e}" for s, e in ranges])
         await message.reply(
-            f"🎰 <b>СТАВКА НА ДИАПАЗОН</b>\n"
+            f"🎰 **СТАВКА НА ДИАПАЗОН**\n"
             f"━━━━━━━━━━━━━━\n"
-            f"👤 Игрок: <b>@{message.from_user.username or 'user'}</b>\n"
-            f"🎯 Сектор: <b>{rng_str}</b>\n"
-            f"💰 Сумма: <b>{fmt_num(bet)}</b>\n"
+            f"👤 Игрок: **@{message.from_user.username or 'user'}**\n"
+            f"🎯 Сектор: **{rng_str}**\n"
+            f"💰 Сумма: **{fmt_num(bet)}**\n"
             f"━━━━━━━━━━━━━━\n"
-            f"⚡️ Напиши <b>го</b> для запуска!"
+            f"⚡️ Напиши **го** для запуска!"
         )
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "ставки")
@@ -501,14 +536,15 @@ async def main():
         chat_id = message.chat.id
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]: return await message.reply("📊 Нет активных ставок.")
         
-        txt = "📊 <b>АКТИВНЫЕ СТАВКИ</b>\n━━━━━━━━━━━━━━\n"
+        txt = "📊 **АКТИВНЫЕ СТАВКИ**\n━━━━━━━━━━━━━━\n"
         total = 0
         for b in active_bets[chat_id]["bets"]:
-            txt += f"• @{b['username']}: <b>{fmt_num(b['bet'])}</b>\n"
+            txt += f"• @{b['username']}: **{fmt_num(b['bet'])}**\n"
             total += b["bet"]
-        txt += f"━━━━━━━━━━━━━━\n💰 <b>Общий банк: {fmt_num(total)}</b>"
+        txt += f"━━━━━━━━━━━━━━\n💰 **Общий банк: {fmt_num(total)}**"
         await message.reply(txt)
 
+    # ❌ ОТМЕНА ТОЛЬКО СВОИХ СТАВОК
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
     async def cancel_bets(message: Message):
         chat_id = message.chat.id; uid = message.from_user.id
@@ -517,25 +553,33 @@ async def main():
             if my:
                 set_balance(uid, sum(b["bet"] for b in my))
                 active_bets[chat_id]["bets"] = [b for b in active_bets[chat_id]["bets"] if b["user_id"]!=uid]
-                await message.reply(f"❌ <b>ОТМЕНЕНО</b>\n━━━━━━━━━━━━━━\nСтавки на <b>{fmt_num(sum(b['bet'] for b in my))}</b> возвращены на баланс.")
+                
+                if not active_bets[chat_id]["bets"]:
+                    if "timer" in active_bets[chat_id]: active_bets[chat_id]["timer"].cancel()
+                    del active_bets[chat_id]
+                    
+                await message.reply(f"❌ **ОТМЕНЕНО**\n━━━━━━━━━━━━━━\nТвои ставки на **{fmt_num(sum(b['bet'] for b in my))}** возвращены.")
                 return
         await message.reply("📊 У тебя нет активных ставок.")
 
+    # 🎡 ЗАПУСК РУЛЕТКИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
         chat_id = message.chat.id
         if chat_id not in active_bets or not active_bets[chat_id]["bets"]: 
             return await message.reply("❌ Нет ставок для запуска! Сначала сделай ставку.")
         
+        if "timer" in active_bets[chat_id]: active_bets[chat_id]["timer"].cancel()
+        
         bets = active_bets[chat_id]["bets"]; total = sum(b["bet"] for b in bets)
         
         try: 
             msg = await message.reply_animation(
                 FSInputFile("roulette.gif"), 
-                caption=f"🎡 <b>РУЛЕТКА ЗАПУЩЕНА!</b>\n━━━━━━━━━━━━━━\n💰 Банк: <b>{fmt_num(total)}</b> Tokens\n⏳ Крутится..."
+                caption=f"🎡 **РУЛЕТКА ЗАПУЩЕНА!**\n━━━━━━━━━━━━━━\n💰 Банк: **{fmt_num(total)}** Tokens\n⏳ Крутится..."
             )
         except: 
-            msg = await message.reply(f"🎡 <b>РУЛЕТКА ЗАПУЩЕНА!</b>\n━━━━━━━━━━━━━━\n💰 Банк: <b>{fmt_num(total)}</b> Tokens\n⏳ Крутится...")
+            msg = await message.reply(f"🎡 **РУЛЕТКА ЗАПУЩЕНА!**\n━━━━━━━━━━━━━━\n💰 Банк: **{fmt_num(total)}** Tokens\n⏳ Крутится...")
             
         await asyncio.sleep(3)
         
@@ -557,27 +601,68 @@ async def main():
                         break
             if w > 0: 
                 set_balance(b["user_id"], w)
-                win.append(f"🏆 @{b['username']} — <b>+{fmt_num(w)}</b>")
+                win.append(f"🏆 @{b['username']} — **+{fmt_num(w)}**")
             else: 
                 lose.append(f"💔 @{b['username']} — Проигрыш")
                 
         txt = (
-            f"🎡 <b>РЕЗУЛЬТАТ РУЛЕТКИ</b>\n"
+            f"🎡 **РЕЗУЛЬТАТ РУЛЕТКИ**\n"
             f"━━━━━━━━━━━━━━\n"
-            f"🎯 Выпало число: <b>{color} {res}</b>\n"
+            f"🎯 Выпало число: **{color} {res}**\n"
             f"━━━━━━━━━━━━━━\n\n"
         )
-        if win: txt += "🎉 <b>ПОБЕДИТЕЛИ:</b>\n" + "\n".join(win) + "\n\n"
-        if lose: txt += "💔 <b>ПРОИГРАЛИ:</b>\n" + "\n".join(lose)
+        if win: txt += "🎉 **ПОБЕДИТЕЛИ:**\n" + "\n".join(win) + "\n\n"
+        if lose: txt += "💔 **ПРОИГРАЛИ:**\n" + "\n".join(lose)
         
         try: await msg.edit_caption(caption=txt)
         except: await msg.edit_text(txt)
         
-        await asyncio.sleep(30)
-        try: await msg.delete()
-        except: pass
-        
         del active_bets[chat_id]
+
+    # ================= СУПЕР-КОМАНДА ПРОБИВ =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("пробив", "чек", "инфо")))
+    async def cmd_profile_check(message: Message):
+        target_user = None
+        
+        # Если ответили на сообщение игрока
+        if message.reply_to_message:
+            target_user = message.reply_to_message.from_user
+        # Если указали @username
+        elif len(message.text.split()) > 1:
+            username = message.text.split()[1].replace("@", "")
+            uid = get_user_id_by_username(username)
+            if uid:
+                target_user = type('obj', (object,), {'id': uid, 'username': username, 'first_name': username})
+                
+        if not target_user:
+            return await message.reply("👮‍♂️ **ПРОБИВ**\n━━━━━━━━━━━━━━\nОтветь на сообщение игрока или напиши: <code>пробив @username</code>")
+
+        uid = target_user.id
+        username = target_user.username or target_user.first_name
+        bal = get_balance(uid)
+        xp = get_xp(uid)
+        
+        conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("SELECT bank FROM users WHERE user_id = %s", (uid,))
+            row = c.fetchone()
+            bank = row[0] if row and row[0] is not None else 0
+        except: bank = 0
+        finally: c.close(); release_conn(conn)
+
+        txt = (
+            f"👮‍♂️ **ДОСЬЕ ИГРОКА**\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: **@{username}**\n"
+            f"🆔 ID: <code>{uid}</code>\n"
+            f"📊 Уровень: {xp // 100} ({xp} XP)\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"💎 Баланс: **{fmt_num(bal)}**\n"
+            f"🏦 В банке: **{fmt_num(bank)}**\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"🎮 Активных ставок: {len([b for b in active_bets.get(message.chat.id, {}).get('bets', []) if b['user_id'] == uid])}"
+        )
+        await message.reply(txt)
 
     # ================= ОПЛАТА =================
     @dp.pre_checkout_query()
