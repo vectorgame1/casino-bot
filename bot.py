@@ -473,7 +473,7 @@ async def main():
         msg = await message.reply(f"🎰 <b>СТАВКА ПРИНЯТА</b>\n👤 @{message.from_user.username or 'user'}\n🎯 {names[bet_type]}\n💰 {fmt_num(bet)}\n⚡️ Напиши <b>го</b> для запуска!")
         asyncio.create_task(delete_message_later(msg, 150))
 
-    # 2. Умный парсер диапазонов (Ловит любые цифры и дефисы)
+    # 2. Умный парсер диапазонов (Собирает ВСЕ уникальные числа)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^\d+\s+([0-9\-]+\s*)+$"))
     async def place_range_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
@@ -482,27 +482,43 @@ async def main():
         except ValueError: return
         if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно средств или ставка < 1.")
         
-        ranges = []
+        # Собираем ВСЕ числа в один уникальный список
+        bet_numbers = set()
         for p in parts[1:]:
             if "-" in p:
                 try:
                     s, e = map(int, p.split("-"))
-                    if 0 <= s <= e <= 36: ranges.append((s, e))
+                    if 0 <= s <= e <= 36:
+                        for num in range(s, e + 1):
+                            bet_numbers.add(num)
                 except: pass
             else:
                 try:
                     n = int(p)
-                    if 0 <= n <= 36: ranges.append((n, n))
+                    if 0 <= n <= 36:
+                        bet_numbers.add(n)
                 except: pass
                 
-        if not ranges: return await message.reply("❌ Ошибка в формате диапазонов.")
+        if not bet_numbers: return await message.reply("❌ Ошибка в формате диапазонов. Убедись, что числа от 0 до 36.")
+        
+        # Считаем коэффициент: (36 / кол-во чисел) * 0.95
+        count = len(bet_numbers)
+        mult = round((36 / count) * 0.95, 2)
         
         set_balance(uid, -bet)
         
         if chat_id not in active_bets: active_bets[chat_id] = {"bets": [], "timer": None}
         if active_bets[chat_id].get("timer"): active_bets[chat_id]["timer"].cancel()
         
-        active_bets[chat_id]["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "range", "ranges": ranges, "bet": bet})
+        # Сохраняем как список конкретных чисел
+        active_bets[chat_id]["bets"].append({
+            "user_id": uid, 
+            "username": message.from_user.username or "user", 
+            "type": "numbers", 
+            "numbers": list(bet_numbers), 
+            "bet": bet,
+            "mult": mult
+        })
         
         async def auto_cancel():
             await asyncio.sleep(150)
@@ -513,32 +529,14 @@ async def main():
                 del active_bets[chat_id]
         active_bets[chat_id]["timer"] = asyncio.create_task(auto_cancel())
         
-        msg = await message.reply(f"🎰 <b>СТАВКА НА ДИАПАЗОН</b>\n👤 @{message.from_user.username or 'user'}\n💰 {fmt_num(bet)}\n⚡️ Напиши <b>го</b> для запуска!")
+        msg = await message.reply(
+            f"🎰 <b>СТАВКА НА ЧИСЛА</b>\n"
+            f"👤 @{message.from_user.username or 'user'}\n"
+            f"🎯 Выбрано чисел: <b>{count}</b> (шанс ~{int((count/37)*100)}%)\n"
+            f"💰 Ставка: <b>{fmt_num(bet)}</b> (x{mult})\n"
+            f"⚡️ Напиши <b>го</b> для запуска!"
+        )
         asyncio.create_task(delete_message_later(msg, 150))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "ставки")
-    async def show_bets(message: Message):
-        chat_id = message.chat.id
-        if chat_id not in active_bets or not active_bets[chat_id]["bets"]: return await message.reply("📊 Нет активных ставок.")
-        txt = "📊 <b>АКТИВНЫЕ СТАВКИ</b>\n━━━━━━━━━━━━━━\n"; total = 0
-        for b in active_bets[chat_id]["bets"]:
-            txt += f"• @{b['username']}: <b>{fmt_num(b['bet'])}</b>\n"; total += b["bet"]
-        txt += f"━━━━━━━━━━━━━━\n💰 <b>Банк: {fmt_num(total)}</b>"
-        msg = await message.reply(txt); asyncio.create_task(delete_message_later(msg, 150))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
-    async def cancel_bets(message: Message):
-        chat_id = message.chat.id; uid = message.from_user.id
-        if chat_id in active_bets:
-            my = [b for b in active_bets[chat_id]["bets"] if b["user_id"]==uid]
-            if my:
-                set_balance(uid, sum(b["bet"] for b in my))
-                active_bets[chat_id]["bets"] = [b for b in active_bets[chat_id]["bets"] if b["user_id"]!=uid]
-                if not active_bets[chat_id]["bets"]:
-                    if active_bets[chat_id].get("timer"): active_bets[chat_id]["timer"].cancel()
-                    del active_bets[chat_id]
-                msg = await message.reply(f"❌ Твои ставки на <b>{fmt_num(sum(b['bet'] for b in my))}</b> отменены."); asyncio.create_task(delete_message_later(msg, 150)); return
-        await message.reply("📊 У тебя нет активных ставок.")
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
@@ -565,13 +563,9 @@ async def main():
             elif b["type"]=="green" and res==0: w=int(b["bet"]*35)
             elif b["type"]=="even" and res!=0 and res%2==0: w=int(b["bet"]*1.95)
             elif b["type"]=="odd" and res%2!=0: w=int(b["bet"]*1.95)
-            elif b["type"]=="range":
-                for (s, e) in b["ranges"]:
-                    if s <= res <= e:
-                        # Умный расчет: сколько чисел покрывает диапазон, такой и коэффициент
-                        total_nums_covered = sum([(e2 - s2 + 1) for (s2, e2) in b["ranges"]])
-                        w = int(b["bet"] * (36 / total_nums_covered * 0.95))
-                        break
+            elif b["type"]=="numbers":
+                if res in b["numbers"]:
+                    w = int(b["bet"] * b["mult"])
             if w > 0: 
                 set_balance(b["user_id"], w); win.append(f"🏆 @{b['username']} — <b>+{fmt_num(w)}</b>")
             else: 
@@ -584,9 +578,11 @@ async def main():
         try: await msg.edit_caption(caption=txt)
         except: await msg.edit_text(txt)
         
-        # Записываем в лог группы
+        # Логируем (проверка на существование таблицы)
         conn = get_conn(); c = conn.cursor()
-        try: c.execute("INSERT INTO group_logs (chat_id, detail) VALUES (%s, %s)", (chat_id, f"{color}{res}"))
+        try: 
+            c.execute("CREATE TABLE IF NOT EXISTS group_logs (chat_id BIGINT, detail TEXT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("INSERT INTO group_logs (chat_id, detail) VALUES (%s, %s)", (chat_id, f"{color}{res}"))
         except: pass
         finally: conn.commit(); c.close(); release_conn(conn)
         
