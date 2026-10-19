@@ -1,4 +1,4 @@
-# bot.py — ПОЛНЫЙ ФИНАЛЬНЫЙ КОД (v38)
+# bot.py — MEGA UPDATE v39 (Финальный)
 import asyncio, logging, os, random, re
 from datetime import datetime
 from aiohttp import web
@@ -38,6 +38,8 @@ class BotStates(StatesGroup):
 
 active_bets = {} 
 active_duels = {}
+is_spinning = {} # Защита от двойного запуска {chat_id: True/False}
+
 RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 BLACK = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35]
 
@@ -76,7 +78,7 @@ async def main():
             conn.commit()
         except: pass
         finally: c.close(); release_conn(conn)
-        txt = f"👋 <b>СПАСИБО ЗА ДОБАВЛЕНИЕ!</b>\n━━━━━━━━━━━━━━\nМне очень приятно!\n\n🎮 Играй: рулетка, мины, кости.\n🎁 Бонус каждый день.\n⚔️ Дуэли с друзьями.\n\nНапиши <b>игры</b> для списка команд!"
+        txt = f"👋 <b>СПАСИБО ЗА ДОБАВЛЕНИЕ!</b>\n━━━━━━━━━━━━━━\nМне очень приятно!\n\n🎮 Играй: рулетка, мины, кости.\n🎁 Бонус каждый день.\n⚔️ Дуэли с друзьями.\n\nНапиши <b>команды</b> для списка команд!"
         try: await bot.send_message(chat_id, txt)
         except: pass
 
@@ -232,6 +234,34 @@ async def main():
             else: msg = await message.reply("📜 <b>ИСТОРИЯ ЧИСЕЛ</b>\n━━━━━━━━━━━━━━\n" + "  ".join(nums))
         asyncio.create_task(delete_message_later(msg, 150))
 
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"команды", "помощь", "хелп"}))
+    async def group_commands(message: Message):
+        txt = (
+            "📜 <b>ВСЕ КОМАНДЫ БОТА</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "💳 <b>Экономика:</b>\n"
+            "• <code>б</code> — Мой баланс\n"
+            "• <code>топ</code> — Топ-10 богачей\n"
+            "• <code>п 1000</code> — Перевести токены (ответом на сообщение)\n"
+            "• <code>бонус</code> — Ежедневный бонус (5000)\n\n"
+            "🎰 <b>Рулетка:</b>\n"
+            "• <code>к 100</code>, <code>ч 100</code>, <code>з 100</code> — Цвета\n"
+            "• <code>чет 100</code> / <code>100 нечет</code> — Чёт/Нечёт\n"
+            "• <code>100 1-18</code> — Диапазон чисел\n"
+            "• <code>го</code> — Запустить (только для игроков со ставкой!)\n"
+            "• <code>отмена</code> — Отменить свою ставку\n"
+            "• <code>ставки</code> — Показать все ставки\n\n"
+            "⚔️ <b>Дуэли:</b>\n"
+            "• <code>дуэль 100</code> — Вызвать на бой (ответом на сообщение)\n\n"
+            "🎲 <b>Игры:</b>\n"
+            "• Напиши <code>игры</code> для списка всех игр.\n\n"
+            "📊 <b>Другое:</b>\n"
+            "• <code>лог</code> — История последних чисел\n"
+            "• <code>что нового</code> — Обновления бота\n"
+        )
+        msg = await message.reply(txt)
+        asyncio.create_task(delete_message_later(msg, 150))
+
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "игры")
     async def group_games_rules(message: Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -261,7 +291,7 @@ async def main():
             await call.message.edit_text("🎮 <b>ВЫБЕРИ ИГРУ</b>\n━━━━━━━━━━━━━━\n👇", reply_markup=kb)
             return await call.answer()
         info = {
-            "roulette": "🎡 <b>РУЛЕТКА</b>\n• <code>к 100</code> / <code>ч 100</code>\n• <code>100 1-18</code> (диапазон)\n• <code>го</code> — Запуск",
+            "roulette": "🎡 <b>РУЛЕТКА</b>\n• <code>к 100</code> / <code>ч 100</code>\n• <code>100 1-18</code> (диапазон)\n• <code>го</code> — Запуск (только для игроков со ставкой!)",
             "mines": "💣 <b>МИНЫ</b>\n• <code>мины 100</code>\nОткрывай клетки!",
             "dice": "🎲 <b>КОСТИ</b>\n• <code>кости 100</code>\nВыигрыш 4, 5, 6 (x1.95)",
             "slots": "🎰 <b>СЛОТЫ</b>\n• <code>спин 100</code>\nШанс 50% (x1.8)",
@@ -277,7 +307,7 @@ async def main():
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"что нового", "обнова"}))
     async def cmd_whats_new(message: Message):
-        msg = await message.reply("🚀 <b>ОБНОВЛЕНИЕ v38!</b>\n━━━━━━━━━━━━━━\n💣 Мины\n🪙 Монетка 3.0 (x10)\n⚔️ Дуэли\n🎁 Бонус\n🤝 Рефералка\n💸 Переводы\n\n🔥 Тестируй!")
+        msg = await message.reply("🚀 <b>ОБНОВЛЕНИЕ v39!</b>\n━━━━━━━━━━━━━━\n💣 Мины\n🪙 Монетка 3.0 (x10)\n⚔️ Дуэли\n🎁 Бонус\n🤝 Рефералка\n💸 Переводы\n🔥 Запуск рулетки только для игроков со ставкой!\n\n🔥 Тестируй!")
         asyncio.create_task(delete_message_later(msg, 150))
 
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "бонус")
@@ -356,26 +386,34 @@ async def main():
         await call.message.edit_text(f"❌ <b>ОТКЛОНЕНО</b>\n@{call.from_user.username or call.from_user.first_name} отказался.\n💰 {fmt_num(duel['bet'])} возвращены.")
         await call.answer("Отклонено.")
 
-    # ================= СТАВКИ =================
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(к|ч|з|чёт|нечет)\s+(\d+)$"))
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(\d+)\s+(к|ч|з|чёт|нечет)$"))
+    # ================= РУЛЕТКА (ФИНАЛЬНАЯ) =================
+    
+    # 1. Ставки на цвет / чёт (с ё и без)
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(к|ч|з|чет|чёт|нечет|нечёт)\s+(\d+)$"))
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(\d+)\s+(к|ч|з|чет|чёт|нечет|нечёт)$"))
     async def place_color_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
         word_part = None; num_part = None
         for p in parts:
             if p.isdigit(): num_part = p
-            elif p in ["к", "ч", "з", "чёт", "нечет"]: word_part = p
+            elif p in ["к", "ч", "з", "чет", "чёт", "нечет", "нечёт"]: word_part = p
         if not word_part or not num_part: return
-        bet_type = {"к":"red","ч":"black","з":"green","чёт":"even","нечет":"odd"}.get(word_part)
+        
+        bet_type = {"к":"red", "ч":"black", "з":"green", "чет":"even", "чёт":"even", "нечет":"odd", "нечёт":"odd"}.get(word_part)
         try: bet = int(num_part)
         except: return
-        if bet < 1: return await message.reply("❌ Мин. 1.")
-        if get_balance(uid) < bet: return await message.reply(f"❌ Мало. Баланс: {fmt_num(get_balance(uid))}")
+        
+        if bet < 1: return await message.reply("❌ Мин. 1 токен.")
+        bal = get_balance(uid)
+        if bal < bet: return await message.reply(f"❌ Недостаточно средств.\nТвой баланс: {fmt_num(bal)} Tokens")
+        
         set_balance(uid, -bet)
         if chat_id not in active_bets: active_bets[chat_id] = {"bets": [], "timer": None}
         if active_bets[chat_id].get("timer"): active_bets[chat_id]["timer"].cancel()
+        
         active_bets[chat_id]["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
+        
         async def auto_cancel():
             await asyncio.sleep(150)
             if chat_id in active_bets and active_bets[chat_id]["bets"]:
@@ -383,10 +421,12 @@ async def main():
                 m = await message.answer("⏰ <b>ВРЕМЯ ВЫШЛО!</b> Ставки отменены."); asyncio.create_task(delete_message_later(m, 30))
                 del active_bets[chat_id]
         active_bets[chat_id]["timer"] = asyncio.create_task(auto_cancel())
+        
         names = {"red": "🔴 КРАСНОЕ", "black": "⚫ ЧЁРНОЕ", "green": "🟢 ЗЕРО", "even": "2️⃣ ЧЁТ", "odd": "1️⃣ НЕЧЁТ"}
         msg = await message.reply(f"🎰 <b>СТАВКА</b>\n@{message.from_user.username or 'user'} | {names[bet_type]} | {fmt_num(bet)}\n⚡️ Напиши <b>го</b>!")
         asyncio.create_task(delete_message_later(msg, 150))
 
+    # 2. Ставки на диапазоны (огромные списки)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^\d+\s+([0-9\-]+\s*)+$"))
     async def place_range_bet(message: Message):
         uid = message.from_user.id; chat_id = message.chat.id
@@ -394,31 +434,38 @@ async def main():
         try: bet = int(parts[0])
         except ValueError: return
         if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Мало.")
+        
         bet_numbers = set()
         for p in parts[1:]:
             if "-" in p:
                 try:
                     s, e = map(int, p.split("-"))
-                    if 0 <= s <= e <= 36: [bet_numbers.add(num) for num in range(s, e + 1)]
+                    if 0 <= s <= e <= 36:
+                        for num in range(s, e + 1): bet_numbers.add(num)
                 except: pass
             else:
                 try:
                     n = int(p)
                     if 0 <= n <= 36: bet_numbers.add(n)
                 except: pass
+                
         if not bet_numbers: return await message.reply("❌ Ошибка диапазона.")
         count = len(bet_numbers); mult = round((36 / count) * 0.95, 2)
+        
         set_balance(uid, -bet)
         if chat_id not in active_bets: active_bets[chat_id] = {"bets": [], "timer": None}
         if active_bets[chat_id].get("timer"): active_bets[chat_id]["timer"].cancel()
+        
         active_bets[chat_id]["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": "numbers", "numbers": list(bet_numbers), "bet": bet, "mult": mult})
+        
         async def auto_cancel():
             await asyncio.sleep(150)
             if chat_id in active_bets and active_bets[chat_id]["bets"]:
                 for b in active_bets[chat_id]["bets"]: set_balance(b["user_id"], b["bet"])
-                m = await message.answer("⏰ <b>ВРЕМЯ ВЫШЛО!</b>"); asyncio.create_task(delete_message_later(m, 30))
+                m = await message.answer("⏰ <b>ВРЕМЯ ВЫШЛО!</b> Ставки отменены."); asyncio.create_task(delete_message_later(m, 30))
                 del active_bets[chat_id]
         active_bets[chat_id]["timer"] = asyncio.create_task(auto_cancel())
+        
         msg = await message.reply(f"🎰 <b>СТАВКА НА ЧИСЛА</b>\n@{message.from_user.username or 'user'} | Чисел: {count} | {fmt_num(bet)} (x{mult})\n⚡️ <b>го</b>!")
         asyncio.create_task(delete_message_later(msg, 150))
 
@@ -446,14 +493,30 @@ async def main():
                 msg = await message.reply(f"❌ Отменено на <b>{fmt_num(sum(b['bet'] for b in my))}</b>."); asyncio.create_task(delete_message_later(msg, 150)); return
         await message.reply("📊 У тебя нет ставок.")
 
+    # 3. ЗАПУСК РУЛЕТКИ (ТОЛЬКО ДЛЯ ИГРОКОВ СО СТАВКОЙ)
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
-        chat_id = message.chat.id
-        if chat_id not in active_bets or not active_bets[chat_id]["bets"]: return await message.reply("❌ Нет ставок.")
+        chat_id = message.chat.id; uid = message.from_user.id
+        
+        if is_spinning.get(chat_id, False):
+            return await message.reply("⏳ <b>РУЛЕТКА УЖЕ ЗАПУЩЕНА!</b>\nПодожди, пока закончится текущий раунд.")
+            
+        if chat_id not in active_bets or not active_bets[chat_id]["bets"]: 
+            return await message.reply("❌ Нет ставок. Сделай ставку первым!")
+        
+        # ПРОВЕРКА: Есть ли ставка у того, кто пишет "го"?
+        user_has_bet = any(b["user_id"] == uid for b in active_bets[chat_id]["bets"])
+        if not user_has_bet:
+            return await message.reply("❌ <b>ТОЛЬКО ИГРОКИ СО СТАВКОЙ МОГУТ ЗАПУСКАТЬ РУЛЕТКУ!</b>\nСначала сделай ставку (например: <code>к 100</code>).")
+        
+        is_spinning[chat_id] = True
+        
         if active_bets[chat_id].get("timer"): active_bets[chat_id]["timer"].cancel()
+            
         bets = active_bets[chat_id]["bets"]; total = sum(b["bet"] for b in bets)
         try: msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 <b>КРУТИТСЯ...</b>\n💰 {fmt_num(total)}")
         except: msg = await message.reply(f"🎡 <b>КРУТИТСЯ...</b>\n💰 {fmt_num(total)}")
+        
         await asyncio.sleep(3)
         res = random.randint(0, 36); color = get_color(res); win, lose = [], []
         for b in bets:
@@ -467,16 +530,21 @@ async def main():
                 if res in b["numbers"]: w = int(b["bet"] * b["mult"])
             if w > 0: set_balance(b["user_id"], w); win.append(f"🏆 @{b['username']} +{fmt_num(w)}")
             else: lose.append(f"💔 @{b['username']}")
+            
         txt = f"🎡 <b>ВЫПАЛО: {color} {res}</b>\n━━━━━━━━━━━━━━\n"
         if win: txt += "🎉 <b>ПОБЕДИТЕЛИ:</b>\n" + "\n".join(win) + "\n\n"
         if lose: txt += "💔 <b>ПРОИГРАЛИ:</b>\n" + "\n".join(lose)
+        
         try: await msg.edit_caption(caption=txt)
         except: await msg.edit_text(txt)
+        
         conn = get_conn(); c = conn.cursor()
         try: c.execute("INSERT INTO group_logs (chat_id, detail) VALUES (%s, %s)", (chat_id, f"{color}{res}"))
         except: pass
         finally: conn.commit(); c.close(); release_conn(conn)
+        
         del active_bets[chat_id]
+        is_spinning[chat_id] = False
 
     # ================= ИГРЫ =================
     async def play_dice_game(message: Message, game_name: str, emoji: str, win_cond, win_mult, lose_txt, win_txt):
@@ -758,7 +826,7 @@ async def main():
         if message.from_user.id != ADMIN_ID: return
         await send_clean(message, "📋 /admin\n/give @user сумма\n/ban @user\n/unban @user", reply_markup=admin_panel_kb())
 
-    # ================= ПОДДЕРЖКА =================
+   # ================= ПОДДЕРЖКА =================
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message, state: FSMContext):
         await state.clear()
