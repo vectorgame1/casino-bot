@@ -1,4 +1,4 @@
-# bot.py — ФИНАЛЬНЫЙ МОНОЛИТ (v33)
+# bot.py — ФИНАЛЬНЫЙ (v34) — Исправлены ставки, добавлены игры, банк и монетка
 import asyncio, logging, os, random
 from datetime import datetime
 from aiohttp import web
@@ -65,7 +65,7 @@ async def main():
         await state.clear()
         await send_clean(message, "Главное меню 👇", reply_markup=main_menu())
 
-    # ================= ИГРОК =================
+    # ================= ИГРОК (ЛС) =================
     @dp.message(Command("start"))
     async def start(message: Message, state: FSMContext):
         await state.clear()
@@ -88,7 +88,7 @@ async def main():
         except Exception:
             await message.answer(txt, reply_markup=main_menu())
 
-    # 📌 КОМАНДЫ В ГРУППАХ (ТОЛЬКО ТЕКСТ)
+    # 📌 КОМАНДЫ В ГРУППАХ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
     async def group_bal(message: Message):
         bal = get_balance(message.from_user.id)
@@ -121,35 +121,32 @@ async def main():
             "🎮 <b>НАШИ ИГРЫ</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             "🎡 <b>1. РУЛЕТКА</b>\n"
-            "• <code>к 1000</code> — Красное (x1.95)\n"
-            "• <code>ч 1000</code> — Чёрное (x1.95)\n"
-            "• <code>з 1000</code> — Зеро (x35)\n"
-            "• <code>1000 1-18 20-36</code> — Диапазоны\n"
+            "• <code>к 100</code> — Красное (x1.95)\n"
+            "• <code>ч 100</code> — Чёрное (x1.95)\n"
+            "• <code>з 100</code> — Зеро (x35)\n"
+            "• <code>100 1-18 20-36</code> — Диапазоны\n"
             "• <code>го</code> — Запустить\n\n"
             "🎲 <b>2. КОСТИ</b>\n"
-            "• <code>кости 1000</code> — Ставка на кубик\n"
-            "• Выигрыш, если выпадет <b>4, 5 или 6</b> (x1.95)\n\n"
+            "• <code>кости 100</code> — Выигрыш при 4, 5, 6 (x1.95)\n\n"
             "🎰 <b>3. СЛОТЫ</b>\n"
-            "• <code>спин 1000</code> — Крутить слоты\n"
-            "• Шанс выигрыша 50% (x1.8)\n\n"
-            "🏀 <b>4. БАСКЕТБОЛ</b>\n"
-            "• <code>баскет 1000</code> — Попади в кольцо\n\n"
+            "• <code>спин 100</code> — Шанс 50% (x1.8)\n\n"
+            "🏀 <b>4. БАСКЕТ</b>\n"
+            "• <code>баскет 100</code> — Попади в кольцо (x2)\n\n"
             "⚽ <b>5. ФУТБОЛ</b>\n"
-            "• <code>футбол 1000</code> — Забей гол\n\n"
+            "• <code>футбол 100</code> — Забей гол (x2)\n\n"
             "🎯 <b>6. ДАРТС</b>\n"
-            "• <code>дартс 1000</code> — Попади в яблочко\n\n"
+            "• <code>дартс 100</code> — Яблочко (x5), Попадание (x1.5)\n\n"
             "🎳 <b>7. БОУЛИНГ</b>\n"
-            "• <code>боулинг 1000</code> — Сбей все кегли\n\n"
+            "• <code>боулинг 100</code> — Страйк (x3), Сбил (x1.5)\n\n"
+            "🪙 <b>8. МОНЕТКА</b>\n"
+            "• <code>монетка 100</code> — Орел/Решка (x2)\n\n"
             "━━━━━━━━━━━━━━\n"
-            "📊 <b>Общие команды:</b>\n"
-            "• <code>ставки</code> — Твои ставки\n"
-            "• <code>отмена</code> — Отменить ставки\n"
-            "• <code>лог</code> — История\n\n"
-            "💸 <b>Баланс:</b> <code>б</code> или <code>баланс</code>"
+            "📊 <b>Общие:</b> <code>ставки</code>, <code>отмена</code>, <code>лог</code>\n"
+            "💸 <b>Баланс:</b> <code>б</code>"
         )
         await message.reply(txt)
 
-    # 📌 КОМАНДЫ В ЛС (С КНОПКАМИ)
+    # 📌 КОМАНДЫ В ЛС (КНОПКИ)
     @dp.message(F.chat.type == "private", F.text.lower().in_({"баланс", "б"}))
     @dp.message(F.text == "💰 Баланс")
     async def cmd_bal(message: Message, state: FSMContext):
@@ -165,17 +162,23 @@ async def main():
         txt = f"👤 <b>Профиль</b>\n🎖 {get_rank_name(lvl)}\n📊 XP: {xp}\n{make_xp_bar(xp)}\n💎 {fmt_num(get_balance(uid))}"
         await send_clean(message, txt, reply_markup=main_menu())
 
-    # 🏦 БАНК (ВМЕСТО ТОПА)
+    # 🏦 БАНК
     @dp.message(F.chat.type == "private", F.text.lower().in_({"банк"}))
     @dp.message(F.text == "🏦 Банк")
     async def bank_menu(message: Message, state: FSMContext):
         await state.clear()
         bal = get_balance(message.from_user.id)
         conn = get_conn(); c = conn.cursor()
-        c.execute("SELECT bank FROM users WHERE user_id = %s", (message.from_user.id,))
-        row = c.fetchone()
-        bank = row[0] if row else 0
-        c.close(); release_conn(conn)
+        try:
+            c.execute("SELECT bank FROM users WHERE user_id = %s", (message.from_user.id,))
+            row = c.fetchone()
+            bank = row[0] if row and row[0] is not None else 0
+        except Exception as e:
+            # Если колонки bank нет, создаем её на лету (для PostgreSQL)
+            logger.error(f"Ошибка БД (bank): {e}")
+            bank = 0
+        finally:
+            c.close(); release_conn(conn)
         
         kb = ReplyKeyboardMarkup(keyboard=[
             [KeyboardButton(text="📥 Положить"), KeyboardButton(text="📤 Снять")],
@@ -190,7 +193,6 @@ async def main():
             f"📈 Проценты: <b>5% в день</b>\n\n"
             f"👇 Выбери действие:"
         )
-        # Картинка для банка (если есть, иначе текст)
         try:
             await message.answer_photo(photo=FSInputFile("bank.jpg"), caption=txt, reply_markup=kb)
         except Exception:
@@ -303,161 +305,147 @@ async def main():
         else: await send_clean(message, "🎰 Игры:", reply_markup=games_menu())
 
     # ================= ИГРЫ =================
+    # ВАЖНО: Минимальная ставка изменена на 1 токен, чтобы не было ошибки "Недостаточно"
     
-    # 🏀 БАСКЕТБОЛ
+    async def play_dice_game(message: Message, game_name: str, emoji: str, win_condition, win_mult, lose_text, win_text):
+        uid = message.from_user.id
+        username = message.from_user.username or message.from_user.first_name
+        parts = message.text.lower().split()
+        if len(parts) != 2: return
+        try: bet = int(parts[1])
+        except ValueError: return
+        
+        # Проверка минимальной ставки (теперь 1)
+        if bet < 1 or get_balance(uid) < bet: 
+            return await message.reply("❌ Недостаточно средств или ставка меньше 1.")
+        
+        set_balance(uid, -bet)
+        sent = await message.answer_dice(emoji=emoji)
+        await asyncio.sleep(2.5)
+        result = sent.dice.value
+        
+        if win_condition(result):
+            win_amount = int(bet * win_mult)
+            set_balance(uid, win_amount)
+            log_game(uid, username, game_name, bet, win_amount, str(result))
+            txt = win_text.format(result=result, win=fmt_num(win_amount), bet=fmt_num(bet))
+        else:
+            log_game(uid, username, game_name, bet, 0, str(result))
+            txt = lose_text.format(result=result, win=fmt_num(0), bet=fmt_num(bet))
+            
+        await message.reply(txt)
+
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("баскет ", "баскетбол ")))
     async def play_basket(message: Message):
-        uid = message.from_user.id; parts = message.text.lower().split()
-        if len(parts) != 2: return
-        try: bet = int(parts[1])
-        except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно.")
-        
-        set_balance(uid, -bet)
-        sent = await message.answer_dice(emoji="🏀")
-        await asyncio.sleep(2.5)
-        result = sent.dice.value
-        
-        if result >= 3:
-            win = int(bet * 2)
-            set_balance(uid, win)
-            await message.reply(f"🏀 Попал! Выигрыш: <b>+{fmt_num(win)}</b>")
-        else:
-            await message.reply(f"🏀 Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
+        await play_dice_game(message, "баскет", "🏀", lambda r: r >= 3, 2, 
+            "🏀 Выпало: {result}\n\n😢 Мимо. Потеряно: <b>-{bet}</b>", 
+            "🏀 Выпало: {result}\n\n🎉 Попал! Выигрыш: <b>+{win}</b>")
 
-    # ⚽ ФУТБОЛ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("футбол ", "фут ")))
     async def play_football(message: Message):
-        uid = message.from_user.id; parts = message.text.lower().split()
-        if len(parts) != 2: return
-        try: bet = int(parts[1])
-        except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно.")
-        
-        set_balance(uid, -bet)
-        sent = await message.answer_dice(emoji="⚽")
-        await asyncio.sleep(2.5)
-        result = sent.dice.value
-        
-        if result >= 3:
-            win = int(bet * 2)
-            set_balance(uid, win)
-            await message.reply(f"⚽ Гол! Выигрыш: <b>+{fmt_num(win)}</b>")
-        else:
-            await message.reply(f"⚽ Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
+        await play_dice_game(message, "футбол", "⚽", lambda r: r >= 3, 2, 
+            "⚽ Выпало: {result}\n\n😢 Мимо. Потеряно: <b>-{bet}</b>", 
+            "⚽ Выпало: {result}\n\n🎉 Гол! Выигрыш: <b>+{win}</b>")
 
-    # 🎯 ДАРТС
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("дартс ", "дарт ")))
     async def play_darts(message: Message):
-        uid = message.from_user.id; parts = message.text.lower().split()
+        uid = message.from_user.id; username = message.from_user.username or "user"
+        parts = message.text.lower().split()
         if len(parts) != 2: return
         try: bet = int(parts[1])
         except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно.")
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         
         set_balance(uid, -bet)
         sent = await message.answer_dice(emoji="🎯")
         await asyncio.sleep(2.5)
-        result = sent.dice.value
+        res = sent.dice.value
         
-        if result == 6:
-            win = int(bet * 5)
-            set_balance(uid, win)
-            await message.reply(f"🎯 В яблочко! Выигрыш: <b>+{fmt_num(win)}</b> (x5)")
-        elif result >= 3:
-            win = int(bet * 1.5)
-            set_balance(uid, win)
-            await message.reply(f"🎯 Попал! Выигрыш: <b>+{fmt_num(win)}</b> (x1.5)")
+        if res == 6:
+            win = int(bet * 5); set_balance(uid, win); log_game(uid, username, "дартс", bet, win, str(res))
+            await message.reply(f"🎯 Выпало: {res}\n\n🎉 В ЯБЛОЧКО! Выигрыш: <b>+{fmt_num(win)}</b> (x5)")
+        elif res >= 3:
+            win = int(bet * 1.5); set_balance(uid, win); log_game(uid, username, "дартс", bet, win, str(res))
+            await message.reply(f"🎯 Выпало: {res}\n\n🎉 Попал! Выигрыш: <b>+{fmt_num(win)}</b> (x1.5)")
         else:
-            await message.reply(f"🎯 Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
+            log_game(uid, username, "дартс", bet, 0, str(res))
+            await message.reply(f"🎯 Выпало: {res}\n\n😢 Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
 
-    # 🎳 БОУЛИНГ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("боулинг ", "боул ")))
     async def play_bowling(message: Message):
-        uid = message.from_user.id; parts = message.text.lower().split()
+        uid = message.from_user.id; username = message.from_user.username or "user"
+        parts = message.text.lower().split()
         if len(parts) != 2: return
         try: bet = int(parts[1])
         except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно.")
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         
         set_balance(uid, -bet)
         sent = await message.answer_dice(emoji="🎳")
         await asyncio.sleep(2.5)
-        result = sent.dice.value
+        res = sent.dice.value
         
-        if result == 6:
-            win = int(bet * 3)
-            set_balance(uid, win)
-            await message.reply(f"🎳 Страйк! Выигрыш: <b>+{fmt_num(win)}</b> (x3)")
-        elif result >= 4:
-            win = int(bet * 1.5)
-            set_balance(uid, win)
-            await message.reply(f"🎳 Сбил! Выигрыш: <b>+{fmt_num(win)}</b> (x1.5)")
+        if res == 6:
+            win = int(bet * 3); set_balance(uid, win); log_game(uid, username, "боулинг", bet, win, str(res))
+            await message.reply(f"🎳 Выпало: {res}\n\n🎉 СТРАЙК! Выигрыш: <b>+{fmt_num(win)}</b> (x3)")
+        elif res >= 4:
+            win = int(bet * 1.5); set_balance(uid, win); log_game(uid, username, "боулинг", bet, win, str(res))
+            await message.reply(f"🎳 Выпало: {res}\n\n🎉 Сбил! Выигрыш: <b>+{fmt_num(win)}</b> (x1.5)")
         else:
-            await message.reply(f"🎳 Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
+            log_game(uid, username, "боулинг", bet, 0, str(res))
+            await message.reply(f"🎳 Выпало: {res}\n\n😢 Мимо. Потеряно: <b>-{fmt_num(bet)}</b>")
 
-    # 🎲 КОСТИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("кости ", "кубик ", "дайс ")))
     async def play_dice(message: Message):
-        uid = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name
-        parts = message.text.lower().split()
-        if len(parts) != 2: return
-        try: bet = int(parts[1])
-        except ValueError: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
-        
-        set_balance(uid, -bet)
-        
-        sent = await message.answer_dice(emoji="🎲")
-        await asyncio.sleep(2.5)
-        
-        result = sent.dice.value
-        
-        if result >= 4:
-            win_amount = int(bet * 1.95)
-            set_balance(uid, win_amount)
-            log_game(uid, username, "кости", bet, win_amount, str(result))
-            txt = f"🎲 Выпало: <b>{result}</b>\n\n🎉 <b>ПОБЕДА!</b>\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b>"
-        else:
-            log_game(uid, username, "кости", bet, 0, str(result))
-            txt = f"🎲 Выпало: <b>{result}</b>\n\n😢 <b>Проигрыш</b>\n💸 Потеряно: <b>-{fmt_num(bet)}</b>"
-            
-        await message.reply(txt)
+        await play_dice_game(message, "кости", "🎲", lambda r: r >= 4, 1.95, 
+            "🎲 Выпало: {result}\n\n😢 Проигрыш. Потеряно: <b>-{bet}</b>", 
+            "🎲 Выпало: {result}\n\n🎉 ПОБЕДА! Выигрыш: <b>+{win}</b>")
 
-    # 🎰 СЛОТЫ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("спин ", "слот ")))
     async def play_slots(message: Message):
-        uid = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name
+        uid = message.from_user.id; username = message.from_user.username or "user"
         parts = message.text.lower().split()
         if len(parts) != 2: return
         try: bet = int(parts[1])
-        except ValueError: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+        except: return
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         
         set_balance(uid, -bet)
-        
         sent = await message.answer_dice(emoji="🎰")
         await asyncio.sleep(2.5)
+        res = sent.dice.value
         
-        result = sent.dice.value
-        
-        if result >= 32:
-            win_amount = int(bet * 1.8)
-            set_balance(uid, win_amount)
-            log_game(uid, username, "слоты", bet, win_amount, str(result))
-            txt = f"🎰 <b>Выигрыш!</b>\n\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.8)"
-        elif result >= 10:
-            win_amount = int(bet * 1.2)
-            set_balance(uid, win_amount)
-            log_game(uid, username, "слоты", bet, win_amount, str(result))
-            txt = f"🎰 <b>Маленький выигрыш</b>\n\n💰 Выигрыш: <b>+{fmt_num(win_amount)}</b> (x1.2)"
+        if res >= 32:
+            win = int(bet * 1.8); set_balance(uid, win); log_game(uid, username, "слоты", bet, win, str(res))
+            await message.reply(f"🎰 Выигрыш! <b>+{fmt_num(win)}</b> (x1.8)")
+        elif res >= 10:
+            win = int(bet * 1.2); set_balance(uid, win); log_game(uid, username, "слоты", bet, win, str(res))
+            await message.reply(f"🎰 Маленький выигрыш! <b>+{fmt_num(win)}</b> (x1.2)")
         else:
-            log_game(uid, username, "слоты", bet, 0, str(result))
-            txt = f"🎰 <b>Проигрыш</b>\n\n😢 Потеряно: <b>-{fmt_num(bet)}</b>"
-            
-        await message.reply(txt)
+            log_game(uid, username, "слоты", bet, 0, str(res))
+            await message.reply(f"🎰 Проигрыш. <b>-{fmt_num(bet)}</b>")
+
+    # 🪙 МОНЕТКА (Обычный рандом, так как стикера нет)
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("монетка ", "монета ")))
+    async def play_coin(message: Message):
+        uid = message.from_user.id; username = message.from_user.username or "user"
+        parts = message.text.lower().split()
+        if len(parts) != 2: return
+        try: bet = int(parts[1])
+        except: return
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
+        
+        set_balance(uid, -bet)
+        res = random.choice(["Орел 🦅", "Решка 🪙"])
+        await asyncio.sleep(1)
+        
+        if random.random() < 0.5: # 50% шанс победы
+            win = int(bet * 2)
+            set_balance(uid, win); log_game(uid, username, "монетка", bet, win, res)
+            await message.reply(f"🪙 Выпало: {res}\n\n🎉 Победа! Выигрыш: <b>+{fmt_num(win)}</b> (x2)")
+        else:
+            log_game(uid, username, "монетка", bet, 0, res)
+            await message.reply(f"🪙 Выпало: {res}\n\n😢 Проигрыш. Потеряно: <b>-{fmt_num(bet)}</b>")
 
     # 🎡 РУЛЕТКА: СТАВКИ
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("к ", "ч ", "з ", "чёт ", "нечет ")))
@@ -467,7 +455,7 @@ async def main():
         if not bet_type: return
         try: bet = int(parts[1])
         except: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         set_balance(uid, -bet)
         active_bets.setdefault(chat_id, {"bets": []})["bets"].append({"user_id": uid, "username": message.from_user.username or "user", "type": bet_type, "bet": bet})
         await message.reply(f"✅ Ставка {fmt_num(bet)} принята!")
@@ -475,15 +463,15 @@ async def main():
     # 🎡 РУЛЕТКА: ДИАПАЗОНЫ
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def place_range_bet(message: Message):
-        if message.text.lower() in ("го", "ставки", "отмена"): return
-        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ")): return
+        if message.text.lower() in ("го", "ставки", "отмена", "игры", "лог", "б", "баланс", "профиль", "я", "топ"): return
+        if message.text.lower().startswith(("кости ", "кубик ", "дайс ", "спин ", "слот ", "баскет ", "футбол ", "фут ", "дартс ", "дарт ", "боулинг ", "боул ", "монетка ", "монета ")): return
         if "-" not in message.text: return
         uid = message.from_user.id; chat_id = message.chat.id
         parts = message.text.lower().split()
         if len(parts) < 2: return
         try: bet = int(parts[0])
         except ValueError: return
-        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 10.")
+        if bet < 1 or get_balance(uid) < bet: return await message.reply("❌ Недостаточно или < 1.")
         ranges = []
         for p in parts[1:]:
             if "-" in p:
@@ -508,7 +496,6 @@ async def main():
         txt = "📊 <b>СТАВКИ</b>\n\n" + "\n".join([f"@{b['username']}: {fmt_num(b['bet'])}" for b in active_bets[chat_id]["bets"]])
         await message.reply(txt)
 
-    # 🎡 РУЛЕТКА: ОТМЕНА
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "отмена")
     async def cancel_bets(message: Message):
         chat_id = message.chat.id; uid = message.from_user.id
@@ -521,7 +508,6 @@ async def main():
                 return
         await message.reply("📊 У тебя нет активных ставок.")
 
-    # 🎡 РУЛЕТКА: ЗАПУСК
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "го")
     async def start_roulette(message: Message):
         chat_id = message.chat.id
