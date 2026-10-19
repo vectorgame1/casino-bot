@@ -40,18 +40,14 @@ def donate_menu() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-def support_menu() -> ReplyKeyboardMarkup:
-    """Поддержка."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="💎 Tokens не пришли"), KeyboardButton(text="🎮 Что-то сломалось в игре")],
-            [KeyboardButton(text="💳 Вопрос по оплате"), KeyboardButton(text="🚫 Бан или мут")],
-            [KeyboardButton(text="🐞 Нашёл баг"),        KeyboardButton(text="📜 Правила бота")],
-            [KeyboardButton(text="✍️ Свой вопрос")],
-            [KeyboardButton(text="⬅️ Назад")],
-        ],
-        resize_keyboard=True
-    )
+def support_menu():
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="💎 Tokens не пришли"), KeyboardButton(text="🎮 Что-то сломалось в игре")],
+        [KeyboardButton(text="💳 Вопрос по оплате"), KeyboardButton(text="🚫 Бан или мут")],
+        [KeyboardButton(text="🐞 Нашёл баг"), KeyboardButton(text="📜 Правила бота")],
+        [KeyboardButton(text="✍️ Свой вопрос")],
+        [KeyboardButton(text="⬅️ Назад")]
+    ], resize_keyboard=True)
 
 def admin_panel_kb() -> ReplyKeyboardMarkup:
     """Админ-панель (Reply)."""

@@ -1006,6 +1006,24 @@ async def main():
         )
         await send_clean(message, txt, reply_markup=support_menu())
 
+    # ================= БАЛАНС (ОГРОМНЫЙ) =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
+    async def group_bal(message: Message):
+        uid = message.from_user.id
+        bal = get_balance(uid)
+        cache_balance[uid] = bal
+        
+        txt = (
+            f"💳 <b>БАЛАНС ИГРОКА</b>\n"
+            f"╔══════════════════════╗\n"
+            f"║ 👤 <b>Игрок:</b> @{message.from_user.username or 'user'}\n"
+            f"║ 💎 <b>На счету:</b> {fmt_num(bal)} Tokens\n"
+            f"╚══════════════════════╝\n\n"
+            f"<i>Чтобы пополнить, зайди в ЛС бота.</i>"
+        )
+        msg = await message.reply(txt)
+        asyncio.create_task(delete_message_later(msg, 150))
+
     # ================= ЗАПУСК =================
     await dp.start_polling(bot)
 
