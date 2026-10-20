@@ -1,5 +1,4 @@
 # keyboards.py
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 def main_menu() -> ReplyKeyboardMarkup:
@@ -80,3 +79,17 @@ def bet_actions_inline():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Повторить", callback_data="bet_repeat"), InlineKeyboardButton(text="⏫ Удвоить", callback_data="bet_double")]
     ])
+
+# --- НОВАЯ КЛАВИАТУРА ДЛЯ МОДЕРА ---
+def mod_panel_kb() -> ReplyKeyboardMarkup:
+    """Панель для младшего администратора (модера)."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🎁 Выдать токены"), KeyboardButton(text="⚠️ Предупреждение")],
+            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="📌 Закрепить")],
+            [KeyboardButton(text="🔓 Разбан"), KeyboardButton(text="📊 Мои лимиты")],
+            [KeyboardButton(text="🚨 SOS Админу"), KeyboardButton(text="❓ Помощь Модеру")],
+            [KeyboardButton(text="⬅️ В главное меню")]
+        ],
+        resize_keyboard=True
+    )
