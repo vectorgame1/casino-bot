@@ -1279,6 +1279,143 @@ async def main():
                 asyncio.create_task(delete_message_later(msg, 30))
             except: pass
 
+    # ========================================================
+    # 8. ДОПОЛНИТЕЛЬНЫЕ КОМАНДЫ (ИЗ ХЕЛПА)
+    # ========================================================
+    
+    # --- Правила и Статы ---
+    @dp.message(Command("rules"))
+    async def cmd_rules(message: Message):
+        txt = (
+            "📜 <b>ПРАВИЛА ЧАТА</b>\n\n"
+            "1. Не спамить и не флудить.\n"
+            "2. Не использовать нецензурную лексику (мат).\n"
+            "3. Не оскорблять участников.\n"
+            "4. Слушать модераторов и администрацию.\n"
+            "5. Реклама запрещена.\n\n"
+            "❌ Нарушение = предупреждение или мут."
+        )
+        await message.reply(txt)
+
+    @dp.message(Command("stats"))
+    async def cmd_stats(message: Message):
+        uid = message.from_user.id
+        if not message.reply_to_message and len(message.text.split()) == 1:
+            target_uid = uid
+        elif message.reply_to_message:
+            target_uid = message.reply_to_message.from_user.id
+        else:
+            parts = message.text.split()
+            if len(parts) == 2:
+                target = parts[1].replace("@", "")
+                target_uid = int(target) if target.isdigit() else get_user_id_by_username(target)
+            else: return await message.reply("❌ Ответь на сообщение или укажи @user.")
+
+        conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("SELECT username, balance, bank, xp FROM users WHERE user_id = %s", (target_uid,))
+            row = c.fetchone()
+            if not row: return await message.reply("❌ Игрок не найден.")
+            lvl = row[3] // 100
+            txt = f"📊 <b>СТАТА ИГРОКА</b>\n👤 @{row[0]}\n🎖 Ранг: {get_rank_name(lvl)} (Ур. {lvl})\n📈 XP: {row[3]}\n💰 Баланс: {fmt_num(row[1])}\n🏦 В банке: {fmt_num(row[2] or 0)}"
+            await message.reply(txt)
+        finally: c.close(); release_conn(conn)
+
+    # --- Переводы по нику ---
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^п\s+@([a-zA-Z0-9_]+)\s+(\d+)$"))
+    async def transfer_by_username(message: Message):
+        parts = message.text.split()
+        uid = message.from_user.id
+        try:
+            target_username = parts[1].replace("@", "")
+            amount = int(parts[2])
+        except: return
+
+        target_id = get_user_id_by_username(target_username)
+        if not target_id: return await message.reply("❌ <b>Игрок с таким ником не найден в базе!</b>")
+        if target_id == uid: return await message.reply("❌ Нельзя переводить самому себе.")
+        if amount < 10: return await message.reply("❌ Мин. 10.")
+        if get_balance(uid) < amount: return await message.reply("❌ Мало средств.")
+
+        set_balance(uid, -amount)
+        set_balance(target_id, amount)
+        await message.reply(f"💸 <b>ПЕРЕВОД</b>\n👤 От: @{message.from_user.username or 'user'}\n🎯 Кому: @{target_username}\n💰 {fmt_num(amount)}")
+
+    # --- Выдача токенов модером (лимиты) ---
+    @dp.message(Command("mod_give"))
+    async def mod_give_cmd(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        parts = message.text.split()
+        if len(parts) != 3: return await message.reply("❌ /mod_give @user 1000")
+        
+        target = parts[1].replace("@", "")
+        target_id = int(target) if target.isdigit() else get_user_id_by_username(target)
+        if not target_id: return await message.reply("❌ Не найден.")
+        
+        try: amount = int(parts[2])
+        except: return await message.reply("❌ Введи число.")
+        
+        if message.from_user.id in MODS:
+            lim = refresh_week(message.from_user.id, MOD_LIMITS)
+            if lim["given"] + amount > MAX_MOD_GIVE:
+                return await message.reply(f"❌ Лимит! Выдано {fmt_num(lim['given'])} из {fmt_num(MAX_MOD_GIVE)}.")
+            lim["given"] += amount; MOD_LIMITS[message.from_user.id] = lim; persist_mods()
+            
+        set_balance(target_id, amount)
+        await message.reply(f"✅ @{target} выдано <b>{fmt_num(amount)}</b> токенов.")
+        try: await message.bot.send_message(target_id, f"🎁 Тебе выдали {fmt_num(amount)} токенов!")
+        except: pass
+
+    @dp.message(Command("mod_list"))
+    async def mod_list_cmd(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        if not MODS: return await message.reply("📜 Список модеров пуст.")
+        txt = "👑 <b>СПИСОК МОДЕРАТОРОВ</b>\n\n"
+        for i, uid in enumerate(MODS, 1):
+            txt += f"{i}. <code>{uid}</code>\n"
+        await message.reply(txt)
+
+    # --- Чат-команды (pin, unpin, say, clear) ---
+    @dp.message(Command("pin"))
+    async def admin_pin(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        if not message.reply_to_message: return await message.reply("❌ Ответь на сообщение.")
+        try:
+            await message.bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
+            await message.reply("📌 Сообщение закреплено!")
+        except: await message.reply("❌ Не могу закрепить.")
+
+    @dp.message(Command("unpin"))
+    async def admin_unpin(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        try:
+            await message.bot.unpin_chat_message(message.chat.id)
+            await message.reply("📌 Сообщение откреплено!")
+        except: await message.reply("❌ Не могу открепить.")
+
+    @dp.message(Command("say"))
+    async def admin_say(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        text = message.text.replace("/say", "").strip()
+        if not text: return await message.reply("❌ Напиши текст: <code>/say Привет!</code>")
+        try: await message.delete()
+        except: pass
+        await message.answer(f"📢 <b>ОБЪЯВЛЕНИЕ</b>\n\n{text}")
+
+    @dp.message(Command("clear"))
+    async def admin_clear(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        deleted = 0
+        try:
+            async for m in message.bot.get_chat_history(message.chat.id, limit=100):
+                try: await m.delete(); deleted += 1
+                except: pass
+        except: pass
+        try:
+            info = await message.answer(f"🧹 Удалено сообщений: <b>{deleted}</b>")
+            await asyncio.sleep(3); await info.delete()
+        except: pass
+
     # Хелпы для инлайн-кнопок
     @dp.callback_query(F.data == "help_adm_ru")
     async def help_adm_ru(call: CallbackQuery):
