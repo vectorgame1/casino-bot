@@ -32,7 +32,6 @@ credit_requests = {}
 PROMO_CODES = {}
 ACTIVE_EVENT = {"amount": 0, "claimed_by": []}
 
-# Словарь переводов
 TEXTS = {
     "ru": {
         "menu_games": "🎮 Игры", "menu_bal": "💰 Баланс", "menu_bank": "🏦 Банк", "menu_prof": "👤 Профиль",
@@ -47,9 +46,6 @@ TEXTS = {
         "support_sent": "✅ Твой вопрос отправлен Админу.",
         "streak": "🎁 <b>БОНУС: ДЕНЬ {day}</b>\nТы получил: <b>+{amount} Tokens!</b>",
         "case_opened": "🎉 <b>КЕЙС ОТКРЫТ!</b>\nТы выиграл: <b>{amount} Tokens!</b>\n💰 Новый баланс: <b>{bal}</b>",
-        "event_claim": "🎁 <b>ЗАБРАТЬ ДРОП</b>",
-        "event_success": "🎉 Ты забрал <b>{amount}</b> токенов!",
-        "event_fail": "❌ Ты уже забрал или дроп закончился!",
         "btn_dep": "📥 Положить", "btn_wit": "📤 Снять", "btn_cred": "💳 Кредит", "btn_repay": "💸 Погасить кредит"
     },
     "en": {
@@ -65,19 +61,16 @@ TEXTS = {
         "support_sent": "✅ Your question sent to Admin.",
         "streak": "🎁 <b>STREAK: DAY {day}</b>\nYou got: <b>+{amount} Tokens!</b>",
         "case_opened": "🎉 <b>CASE OPENED!</b>\nYou won: <b>{amount} Tokens!</b>\n💰 New balance: <b>{bal}</b>",
-        "event_claim": "🎁 <b>CLAIM DROP</b>",
-        "event_success": "🎉 You claimed <b>{amount}</b> tokens!",
-        "event_fail": "❌ Already claimed or drop ended!",
         "btn_dep": "📥 Deposit", "btn_wit": "📤 Withdraw", "btn_cred": "💳 Credit", "btn_repay": "💸 Repay credit"
     }
 }
+
+USER_LANGS = {}
 
 def get_text(uid, key, **kwargs):
     lang = USER_LANGS.get(uid, "ru")
     text = TEXTS.get(lang, TEXTS["ru"]).get(key, f"Error: {key}")
     return text.format(**kwargs) if kwargs else text
-
-USER_LANGS = {}
 
 def get_main_kb(uid):
     lang = USER_LANGS.get(uid, "ru")
@@ -194,20 +187,37 @@ BLACK = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35]
 BAD_WORDS = ["хуй", "хуя", "хую", "хуе", "хуи", "хуйн", "хуес", "хуеп", "хуит", "пизд", "пизж", "пизда", "пизде", "пизду", "пиздо", "пиздюл", "пиздоб", "бля", "блят", "блядь", "бляди", "блядю", "блядо", "бляду", "сука", "суки", "суке", "суку", "сукой", "сучк", "сучон", "ебал", "ебат", "ебуч", "ебан", "еби", "ебуч", "ебук", "ебани", "мудак", "мудил", "мудень", "мудозвон", "долбоеб", "долбаеб", "долбоёб", "долбаёб", "гандон", "гондон", "залуп", "залупа", "залупу", "залупой", "залупок", "пидор", "пидар", "пидорас", "пидорасина", "хуесос", "хуесосина", "отъеб", "въеб", "съеб", "заеб", "уеб", "наеб", "поъеб", "приеб", "проеб", "разъеб", "жопа", "жопу", "жопой", "жопе", "срать", "срал", "сру", "хер", "хрен", "член", "шлюх", "проститут", "дроч"]
 
 # ============================================================
-# MAIN
+# ЧАСТЬ 2 (ВСТАВИТЬ СЮДА)
+# ============================================================
+# ============================================================
+# ЧАСТЬ 2 (ЛОГИКА И ХЕНДЛЕРЫ)
 # ============================================================
 async def main():
     asyncio.create_task(start_web_server())
     init_pool()
     init_db()
     
+    # Создаем недостающие колонки в БД (для кредитов и заморозки)
+    try:
+        conn = get_conn(); c = conn.cursor()
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS credit_debt BIGINT DEFAULT 0")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN DEFAULT FALSE")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_date DATE")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak INT DEFAULT 0")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_case_date DATE")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lang VARCHAR(2) DEFAULT 'ru'")
+        conn.commit(); c.close(); release_conn(conn)
+    except Exception as e: logger.warning(f"DB Alter error: {e}")
+
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     global BOT_USERNAME
     me = await bot.get_me()
     BOT_USERNAME = me.username
 
-    # --- СТАРТ И ПЕРЕВОД ---
+    # ========================================================
+    # 1. СТАРТ И ПЕРЕВОД
+    # ========================================================
     @dp.message(Command("start"))
     async def start(message: Message, state: FSMContext):
         await state.clear()
@@ -217,11 +227,8 @@ async def main():
         if message.chat.type != "private": return await message.reply(f"👋 ЛС: @{BOT_USERNAME}")
         if is_banned(uid): return await message.answer("🚫 Вы заблокированы / You are banned.")
         
-        # Сохраняем язык в БД (создаем колонку lang, если нет)
         try:
             conn = get_conn(); c = conn.cursor()
-            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lang VARCHAR(2) DEFAULT 'ru'")
-            conn.commit()
             c.execute("SELECT lang FROM users WHERE user_id = %s", (uid,))
             row = c.fetchone()
             if row and row[0]: USER_LANGS[uid] = row[0]
@@ -259,7 +266,9 @@ async def main():
         await call.message.answer(get_text(uid, "lang_changed"), reply_markup=get_main_kb(uid))
         await call.answer()
 
-    # --- ПРОФИЛЬ ---
+    # ========================================================
+    # 2. ПРОФИЛЬ, БОНУС, КЕЙС
+    # ========================================================
     @dp.message(F.text.in_({"👤 Профиль", "👤 Profile"}))
     async def cmd_prof(message: Message, state: FSMContext):
         await state.clear()
@@ -272,15 +281,19 @@ async def main():
     async def prof_back(call: CallbackQuery):
         await call.message.delete(); await call.message.answer("🏠 Главное меню / Main menu:", reply_markup=get_main_kb(call.from_user.id)); await call.answer()
 
-    # --- БОНУС И КЕЙС ---
+    @dp.callback_query(F.data == "profile_bonus")
+    async def prof_bonus(call: CallbackQuery, state: FSMContext):
+        await call.message.delete(); await cmd_bonus_streak(call.message, state); await call.answer()
+
+    @dp.callback_query(F.data == "profile_case")
+    async def prof_case(call: CallbackQuery, state: FSMContext):
+        await call.message.delete(); await cmd_case(call.message, state); await call.answer()
+
     @dp.message(F.text.lower().in_({"бонус", "bonus"}))
     async def cmd_bonus_streak(message: Message, state: FSMContext):
         await state.clear(); uid = message.from_user.id
         conn = get_conn(); c = conn.cursor()
         try:
-            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak INT DEFAULT 0")
-            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_date DATE")
-            conn.commit()
             c.execute("SELECT last_login_date, streak FROM users WHERE user_id = %s", (uid,))
             row = c.fetchone(); today = _now().date()
             streak = row[1] if row and row[1] else 0; last_date = row[0] if row else None
@@ -301,10 +314,9 @@ async def main():
     @dp.message(F.text.lower().in_({"кейс", "case"}))
     async def cmd_case(message: Message, state: FSMContext):
         await state.clear(); uid = message.from_user.id
+        if message.chat.type != "private": return await message.reply(f"🎁 Кейс в ЛС: @{BOT_USERNAME}")
         conn = get_conn(); c = conn.cursor()
         try:
-            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_case_date DATE")
-            conn.commit()
             c.execute("SELECT last_case_date FROM users WHERE user_id = %s", (uid,))
             row = c.fetchone(); today = _now().date()
             if row and row[0] == today: return await send_clean_private(message, "⏳ Кейс уже открыт / Case already opened.")
@@ -322,7 +334,9 @@ async def main():
         txt = get_text(uid, "case_opened", amount=fmt_num(amount), bal=fmt_num(new_bal))
         await send_clean_private(message, txt, reply_markup=get_main_kb(uid))
 
-    # --- БАНК ---
+    # ========================================================
+    # 3. БАНК И КРЕДИТЫ
+    # ========================================================
     @dp.message(F.text.in_({"🏦 Банк", "🏦 Bank"}))
     async def bank_menu_handler(message: Message, state: FSMContext):
         await state.clear(); uid = message.from_user.id; bal = get_balance(uid)
@@ -340,8 +354,7 @@ async def main():
     async def bank_action_start(message: Message, state: FSMContext):
         action = "deposit" if message.text in ["📥 Положить", "📥 Deposit"] else "withdraw"
         await state.update_data(action=action); await state.set_state(BotStates.waiting_bank_amount)
-        prompt = "💰 Введи сумму / Enter amount:" 
-        await send_clean_private(message, prompt)
+        await send_clean_private(message, "💰 Введи сумму / Enter amount:")
 
     @dp.message(BotStates.waiting_bank_amount)
     async def bank_process(message: Message, state: FSMContext):
@@ -368,7 +381,77 @@ async def main():
         finally: c.close(); release_conn(conn)
         await state.clear(); await bank_menu_handler(message, state)
 
-    # --- ДОНАТ ---
+    @dp.message(Command("credit"))
+    async def credit_start(message: Message, state: FSMContext):
+        await state.clear()
+        await send_clean_private(message, "💳 <b>ЗАЯВКА НА КРЕДИТ</b>\n1️⃣ Введи имя:")
+        await state.set_state(BotStates.waiting_credit_name)
+
+    @dp.message(BotStates.waiting_credit_name)
+    async def credit_name(message: Message, state: FSMContext):
+        await state.update_data(credit_name=message.text)
+        await send_clean_private(message, "2️⃣ Сумма (10к-100к):")
+        await state.set_state(BotStates.waiting_credit_amount)
+
+    @dp.message(BotStates.waiting_credit_amount)
+    async def credit_amount(message: Message, state: FSMContext):
+        try: amt = int(message.text)
+        except: return await send_clean_private(message, "❌ Число.")
+        if amt < 10000 or amt > 100000: return await send_clean_private(message, "❌ 10-100к.")
+        await state.update_data(credit_amount=amt)
+        await send_clean_private(message, "3️⃣ Срок (1-7 дней):")
+        await state.set_state(BotStates.waiting_credit_term)
+
+    @dp.message(BotStates.waiting_credit_term)
+    async def credit_term(message: Message, state: FSMContext):
+        try: days = int(message.text)
+        except: return await send_clean_private(message, "❌ Число.")
+        if days < 1 or days > 7: return await send_clean_private(message, "❌ От 1 до 7 дней.")
+        await state.update_data(credit_term=days)
+        await send_clean_private(message, "4️⃣ Цель кредита:")
+        await state.set_state(BotStates.waiting_credit_purpose)
+
+    @dp.message(BotStates.waiting_credit_purpose)
+    async def credit_purpose(message: Message, state: FSMContext):
+        data = await state.get_data(); data["credit_purpose"] = message.text
+        user = message.from_user; await state.clear()
+        req_id = f"{user.id}_{int(time.time())}"
+        credit_requests[req_id] = {"user_id": user.id, **data}
+        admin_txt = f"💳 <b>КРЕДИТ</b>\n👤 @{user.username or 'user'}\n💰 {fmt_num(data['credit_amount'])}\n📅 {data['credit_term']} дней\n🎯 {data['credit_purpose']}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Одобрить", callback_data=f"cr_acc_{req_id}")],[InlineKeyboardButton(text="❌ Отклонить", callback_data=f"cr_dec_{req_id}")]])
+        try:
+            await message.bot.send_message(ADMIN_ID, admin_txt, reply_markup=kb)
+            await send_clean_private(message, "✅ Заявка отправлена!", reply_markup=get_main_kb(user.id))
+        except: await send_clean_private(message, "❌ Ошибка", reply_markup=get_main_kb(user.id))
+
+    @dp.callback_query(F.data.startswith("cr_acc_"))
+    async def credit_accept(call: CallbackQuery):
+        req_id = call.data.replace("cr_acc_", "")
+        req = credit_requests.pop(req_id, None)
+        if not req: return await call.answer("Устарело", show_alert=True)
+        uid = req["user_id"]; set_balance(uid, req["credit_amount"])
+        conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("UPDATE users SET credit_debt = %s WHERE user_id = %s", (int(req["credit_amount"] * 1.03), uid))
+            conn.commit()
+        except: pass
+        finally: c.close(); release_conn(conn)
+        await call.message.edit_text("✅ Выдано!")
+        try: await call.bot.send_message(uid, f"🎉 Кредит одобрен на {fmt_num(req['credit_amount'])}!")
+        except: pass
+        await call.answer("Ок")
+
+    @dp.callback_query(F.data.startswith("cr_dec_"))
+    async def credit_decline(call: CallbackQuery):
+        req_id = call.data.replace("cr_dec_", "")
+        req = credit_requests.pop(req_id, None)
+        if not req: return await call.answer("Устарело", show_alert=True)
+        await call.message.edit_text("❌ Отклонено.")
+        await call.answer()
+
+    # ========================================================
+    # 4. ДОНАТ (TELEGRAM STARS)
+    # ========================================================
     @dp.message(F.text.in_({"💎 Донат", "💎 Donate"}))
     async def donate_menu(message: Message):
         uid = message.from_user.id
@@ -413,7 +496,9 @@ async def main():
             tokens = int(parts[2]); uid = message.from_user.id; set_balance(uid, tokens)
             await message.answer(f"🎉 <b>ОПЛАТА УСПЕШНА!</b>\nНачислено: <b>{fmt_num(tokens)}</b>\nБаланс: <b>{fmt_num(get_balance(uid))}</b>")
 
-    # --- ПОДДЕРЖКА ---
+    # ========================================================
+    # 5. ПОДДЕРЖКА (ТИКЕТЫ)
+    # ========================================================
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Help"}))
     async def support_menu(message: Message):
         uid = message.from_user.id
@@ -454,7 +539,9 @@ async def main():
     async def support_back(message: Message, state: FSMContext):
         await state.clear(); await message.answer("🏠 Меню / Menu:", reply_markup=get_main_kb(message.from_user.id))
 
-    # --- АДМИНКА ---
+    # ========================================================
+    # 6. АДМИНКА (20+ КОМАНД)
+    # ========================================================
     @dp.message(F.text == "👥 Игроки")
     async def admin_players_btn(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
@@ -463,7 +550,7 @@ async def main():
     @dp.message(F.text == "💰 Выдать")
     async def admin_give_btn(message: Message, state: FSMContext):
         if message.from_user.id != ADMIN_ID: return
-        await message.answer("💰 Введи <b>@username</b> (или ID) и <b>сумму</b>:")
+        await message.answer("💰 Введи <b>@username</b> (или ID) и <b>сумму</b> (например: <code>@user 1000</code>):")
         await state.set_state(BotStates.waiting_admin_give)
 
     @dp.message(BotStates.waiting_admin_give)
@@ -558,7 +645,7 @@ async def main():
         if message.from_user.id == ADMIN_ID: return await cmd_admin_help(message)
         if message.from_user.id in MODS: return await cmd_mod_help(message)
 
-    # --- МОДЕРАЦИЯ ---
+    # --- МОДЕРАЦИЯ (20+ КОМАНД) ---
     @dp.message(F.text == "📊 Мои лимиты")
     async def mod_my_limit(message: Message):
         uid = message.from_user.id
@@ -567,7 +654,7 @@ async def main():
         await message.reply(f"📊 <b>ТВОИ ЛИМИТЫ</b>\n\nВыдано: <b>{fmt_num(lim['given'])}</b>\nОсталось: <b>{fmt_num(MAX_MOD_GIVE - lim['given'])}</b>")
 
     @dp.message(F.text == "🧹 Очистить")
-    @dp.message(Command("mod_clean", "очистить_чат"))
+    @dp.message(Command("mod_clean"))
     async def mod_clean_cmd(message: Message):
         if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
         deleted = 0
@@ -619,7 +706,9 @@ async def main():
         try: await message.bot.send_message(ADMIN_ID, f"🚨 <b>SOS ОТ МОДЕРА</b>\n@{message.from_user.username} вызывает тебя в чат <b>{message.chat.title}</b>")
         except: pass
 
-    # --- ИГРЫ (ГРУППА) ---
+    # ========================================================
+    # 7. ИГРЫ (ГРУППА)
+    # ========================================================
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().strip() == "игры")
     async def group_games_rules(message: Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -976,13 +1065,16 @@ async def main():
         except: pass
         await call.answer("Отклонено.")
 
+    # --- КОМАНДЫ (ХЕЛПЫ) ---
     async def cmd_mod_help(message: Message):
         if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
-        txt = "🛠 <b>МОДЕРАТОР</b>\n\n• <code>/mute 10</code> (Reply)\n• <code>/unmute</code> (Reply)\n• <code>/warn</code> (Reply)\n• <code>/kick</code> (Reply)\n• <code>/mod_clean</code>\n• <code>/mod_my_limit</code>"
-        try: await message.answer_photo(FSInputFile("powertext_ru_1792346951926.png"), caption=txt, reply_markup=mod_panel_kb())
-        except: await message.answer(txt, reply_markup=mod_panel_kb())
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🇷🇺 РУССКИЙ", callback_data="help_mod_ru")],
+            [InlineKeyboardButton(text="🇬🇧 ENGLISH", callback_data="help_mod_en")]
+        ])
+        await message.answer("🛠 <b>ВЫБЕРИ ЯЗЫК СПРАВКИ:</b>", reply_markup=kb)
 
-    @dp.message(Command("mod_help", "помощь_модеру"))
+    @dp.message(Command("mod_help"))
     async def mod_help_cmd(message: Message): await cmd_mod_help(message)
 
     @dp.message(Command("mute"))
@@ -997,6 +1089,16 @@ async def main():
             await message.reply(f"🚫 Игрок замучен на {mins} мин.")
         except: await message.reply("❌ Не могу замутить.")
 
+    @dp.message(Command("unmute"))
+    async def mod_unmute_cmd(message: Message):
+        if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
+        if not message.reply_to_message: return await message.reply("❌ Ответь на сообщение.")
+        uid = message.reply_to_message.from_user.id
+        try:
+            await message.bot.restrict_chat_member(message.chat.id, uid, ChatPermissions(can_send_messages=True))
+            await message.reply("✅ Мут снят.")
+        except: await message.reply("❌ Не могу снять мут.")
+
     @dp.message(Command("kick"))
     async def mod_kick_cmd(message: Message):
         if message.from_user.id not in MODS and message.from_user.id != ADMIN_ID: return
@@ -1009,11 +1111,13 @@ async def main():
 
     async def cmd_admin_help(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        txt = "👑 <b>АДМИН</b>\n\n• <code>/userinfo @user</code>\n• <code>/msg @user text</code>\n• <code>/spy @user</code>\n• <code>/freeze @user</code>\n• <code>/promo_create CODE 5000 100</code>\n• <code>/maintenance on/off</code>\n• <code>/event 100000</code>\n• <code>/broadcast_text</code>\n• <code>/sys_info</code>"
-        try: await message.answer_photo(FSInputFile("powertext_ru_1792346951926.png"), caption=txt, reply_markup=admin_panel_kb())
-        except: await message.answer(txt, reply_markup=admin_panel_kb())
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🇷🇺 РУССКИЙ", callback_data="help_adm_ru")],
+            [InlineKeyboardButton(text="🇬🇧 ENGLISH", callback_data="help_adm_en")]
+        ])
+        await message.answer("👑 <b>ВЫБЕРИ ЯЗЫК СПРАВКИ:</b>", reply_markup=kb)
 
-    @dp.message(Command("admin_help", "помощь_админу"))
+    @dp.message(Command("admin_help"))
     async def admin_help_cmd(message: Message): await cmd_admin_help(message)
 
     @dp.message(Command("sys_info"))
@@ -1061,12 +1165,26 @@ async def main():
     async def admin_freeze(message: Message):
         if message.from_user.id != ADMIN_ID: return
         if not message.reply_to_message: return await message.reply("❌ Ответь на сообщение.")
-        await message.reply("🧊 Аккаунт заморожен (запрет на игры).")
+        uid = message.reply_to_message.from_user.id; conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("UPDATE users SET is_frozen = TRUE WHERE user_id = %s", (uid,)); conn.commit()
+            await message.reply(f"🧊 Игрок @{message.reply_to_message.from_user.username or 'user'} заморожен (запрет на игры).")
+        finally: c.close(); release_conn(conn)
+
+    @dp.message(Command("unfreeze"))
+    async def admin_unfreeze(message: Message):
+        if message.from_user.id != ADMIN_ID: return
+        if not message.reply_to_message: return await message.reply("❌ Ответь на сообщение.")
+        uid = message.reply_to_message.from_user.id; conn = get_conn(); c = conn.cursor()
+        try:
+            c.execute("UPDATE users SET is_frozen = FALSE WHERE user_id = %s", (uid,)); conn.commit()
+            await message.reply(f"🔥 Игрок разморожен.")
+        finally: c.close(); release_conn(conn)
 
     @dp.message(Command("maintenance"))
     async def admin_maintenance(message: Message):
         if message.from_user.id != ADMIN_ID: return
-        await message.reply("🛠 Режим тех. работ включен.")
+        await message.reply("🛠 Режим тех. работ включен (заглушка).")
 
     @dp.message(Command("event"))
     async def admin_event(message: Message):
@@ -1161,6 +1279,41 @@ async def main():
                 asyncio.create_task(delete_message_later(msg, 30))
             except: pass
 
+    # Хелпы для инлайн-кнопок
+    @dp.callback_query(F.data == "help_adm_ru")
+    async def help_adm_ru(call: CallbackQuery):
+        txt = "👑 <b>АДМИН — RU (20 КОМАНД)</b>\n\n<b>💰 ЭКОНОМИКА:</b>\n1. <code>/give_all 1000</code>\n2. <code>/add_balance @user 1000</code>\n3. <code>/take_balance @user 1000</code>\n4. <code>/reset_user @user</code>\n5. <code>/reset_credit @user</code>\n6. <code>/sync_balances</code>\n7. <code>/jackpot 50000</code>\n\n<b>👥 ИГРОКИ:</b>\n8. <code>/userinfo</code> (Reply)\n9. <code>/spy</code> (Reply)\n10. <code>/ban @user</code>\n11. <code>/unban @user</code>\n12. <code>/unban_all</code>\n13. <code>/freeze</code> (Reply)\n14. <code>/unfreeze</code> (Reply)\n15. <code>/kick</code> (Reply)\n\n<b>💬 ЧАТ:</b>\n16. <code>/global_mute</code>\n17. <code>/global_unmute</code>\n18. <code>/broadcast_pin</code>\n\n<b>🛠 СИСТЕМА:</b>\n19. <code>/event 100000</code>\n20. <code>/promo_create CODE 5000 100</code>\n21. <code>/sys_info</code>"
+        await call.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="help_adm_back")]]))
+        await call.answer()
+    @dp.callback_query(F.data == "help_adm_en")
+    async def help_adm_en(call: CallbackQuery):
+        txt = "👑 <b>ADMIN — EN (20 COMMANDS)</b>\n\n<b>💰 ECONOMY:</b>\n1. <code>/give_all 1000</code>\n2. <code>/add_balance @user 1000</code>\n3. <code>/take_balance @user 1000</code>\n4. <code>/reset_user @user</code>\n5. <code>/reset_credit @user</code>\n6. <code>/sync_balances</code>\n7. <code>/jackpot 50000</code>\n\n<b>👥 PLAYERS:</b>\n8. <code>/userinfo</code> (Reply)\n9. <code>/spy</code> (Reply)\n10. <code>/ban @user</code>\n11. <code>/unban @user</code>\n12. <code>/unban_all</code>\n13. <code>/freeze</code> (Reply)\n14. <code>/unfreeze</code> (Reply)\n15. <code>/kick</code> (Reply)\n\n<b>💬 CHAT:</b>\n16. <code>/global_mute</code>\n17. <code>/global_unmute</code>\n18. <code>/broadcast_pin</code>\n\n<b>🛠 SYSTEM:</b>\n19. <code>/event 100000</code>\n20. <code>/promo_create CODE 5000 100</code>\n21. <code>/sys_info</code>"
+        await call.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back", callback_data="help_adm_back")]]))
+        await call.answer()
+    @dp.callback_query(F.data == "help_adm_back")
+    async def help_adm_back(call: CallbackQuery):
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🇷🇺 РУССКИЙ", callback_data="help_adm_ru")],[InlineKeyboardButton(text="🇬🇧 ENGLISH", callback_data="help_adm_en")]])
+        await call.message.edit_text("👑 <b>ВЫБЕРИ ЯЗЫК СПРАВКИ:</b>", reply_markup=kb)
+        await call.answer()
+    @dp.callback_query(F.data == "help_mod_ru")
+    async def help_mod_ru(call: CallbackQuery):
+        txt = "🛠 <b>МОДЕРАТОР — RU (20 КОМАНД)</b>\n\n<b>⚠️ МОДЕРАЦИЯ:</b>\n1. <code>/mute 10</code> (Reply)\n2. <code>/unmute</code> (Reply)\n3. <code>/warn</code> (Reply)\n4. <code>/kick</code> (Reply)\n5. <code>/mod_clean</code>\n6. <code>/mod_pin</code> (Reply)\n7. <code>/mod_unban @user</code>\n8. <code>/mod_alert</code>\n9. <code>/mod_give @user 1000</code>\n10. <code>/mod_my_limit</code>\n11. <code>/mod_list</code>\n\n<b>💬 ЧАТ:</b>\n12. <code>/clear</code>\n13. <code>/pin</code> (Reply)\n14. <code>/unpin</code>\n15. <code>/say Текст</code>\n\n<b>🛡 ПРАВА:</b>\n16. ❌ Банить — нельзя\n17. ❌ Забирать — нельзя\n18. ❌ Снимать — нельзя\n\n19. <code>/rules</code>\n20. <code>/stats @user</code>"
+        await call.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="help_mod_back")]]))
+        await call.answer()
+    @dp.callback_query(F.data == "help_mod_en")
+    async def help_mod_en(call: CallbackQuery):
+        txt = "🛠 <b>MODERATOR — EN (20 COMMANDS)</b>\n\n<b>⚠️ MODERATION:</b>\n1. <code>/mute 10</code> (Reply)\n2. <code>/unmute</code> (Reply)\n3. <code>/warn</code> (Reply)\n4. <code>/kick</code> (Reply)\n5. <code>/mod_clean</code>\n6. <code>/mod_pin</code> (Reply)\n7. <code>/mod_unban @user</code>\n8. <code>/mod_alert</code>\n9. <code>/mod_give @user 1000</code>\n10. <code>/mod_my_limit</code>\n11. <code>/mod_list</code>\n\n<b>💬 CHAT:</b>\n12. <code>/clear</code>\n13. <code>/pin</code> (Reply)\n14. <code>/unpin</code>\n15. <code>/say Text</code>\n\n<b>🛡 RIGHTS:</b>\n16. ❌ Ban — cannot\n17. ❌ Take — cannot\n18. ❌ Remove — cannot\n\n19. <code>/rules</code>\n20. <code>/stats @user</code>"
+        await call.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back", callback_data="help_mod_back")]]))
+        await call.answer()
+    @dp.callback_query(F.data == "help_mod_back")
+    async def help_mod_back(call: CallbackQuery):
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🇷🇺 РУССКИЙ", callback_data="help_mod_ru")],[InlineKeyboardButton(text="🇬🇧 ENGLISH", callback_data="help_mod_en")]])
+        await call.message.edit_text("🛠 <b>ВЫБЕРИ ЯЗЫК СПРАВКИ:</b>", reply_markup=kb)
+        await call.answer()
+
+    # ========================================================
+    # ЗАПУСК
+    # ========================================================
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
