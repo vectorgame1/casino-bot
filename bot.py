@@ -1,4 +1,4 @@
-# bot.py — FINAL v53 (Чистый, красивый, рабочий)
+# bot.py — FINAL v55 (11 игр, Админка, Все функции)
 import asyncio, logging, os, random, re, time
 from datetime import datetime
 from aiohttp import web
@@ -35,6 +35,8 @@ class BotStates(StatesGroup):
     waiting_credit_term = State()
     waiting_credit_purpose = State()
     waiting_custom_support = State()
+    waiting_broadcast_target = State()
+    waiting_broadcast_text = State()
 
 active_bets = {} 
 is_spinning = {} 
@@ -78,7 +80,9 @@ async def main():
         
         if is_banned(user_id): return await send_clean(message, "🚫 Вы заблокированы.")
         if message.chat.type != "private": return await message.reply(f"👋 ЛС: @{bot.username}")
-        if user_id == ADMIN_ID: return await send_clean(message, "👑 АДМИНКА", reply_markup=admin_panel_kb())
+        
+        # Если зашел админ - показываем админку
+        if user_id == ADMIN_ID: return await cmd_admin(message, state)
         
         is_new = check_and_give_bonus(user_id, START_BONUS)
         bonus = f"🎁 Бонус: +{fmt_num(START_BONUS)}\n\n" if is_new else ""
@@ -95,25 +99,7 @@ async def main():
         txt = f"👤 <b>ПРОФИЛЬ</b>\n🎖 Ранг: {get_rank_name(lvl)}\n📊 XP: {xp}\n{make_xp_bar(xp)}\n💰 Баланс: <b>{fmt_num(bal)}</b>"
         await send_clean(message, txt, reply_markup=profile_menu_inline())
 
-    @dp.callback_query(F.data == "profile_bonus")
-    async def prof_bonus(call: CallbackQuery):
-        await call.message.delete()
-        await call.message.answer("🎁 Для бонуса напиши: <code>бонус</code>")
-        await call.answer()
-
-    @dp.callback_query(F.data == "profile_case")
-    async def prof_case(call: CallbackQuery):
-        await call.message.delete()
-        await call.message.answer("📦 Для кейса напиши: <code>кейс</code>")
-        await call.answer()
-
-    @dp.callback_query(F.data == "profile_back")
-    async def prof_back(call: CallbackQuery):
-        await call.message.delete()
-        await call.message.answer("🏠 Главное меню:", reply_markup=main_menu())
-        await call.answer()
-
-    # ================= БОНУС И КЕЙС =================
+    # ================= БОНУС, КЕЙС, БАНК =================
     @dp.message(F.text.lower() == "бонус")
     async def cmd_bonus(message: Message, state: FSMContext):
         await state.clear()
@@ -153,7 +139,6 @@ async def main():
         set_balance(uid, amount)
         await send_clean(message, f"🎉 <b>КЕЙС ОТКРЫТ!</b>\nТы выиграл: <b>{fmt_num(amount)} Tokens!</b>", reply_markup=main_menu())
 
-    # ================= БАНК И КРЕДИТЫ =================
     @dp.message(F.text == "🏦 Банк")
     async def bank_menu_handler(message: Message, state: FSMContext):
         await state.clear()
@@ -195,41 +180,35 @@ async def main():
             await send_clean(message, f"✅ Снято <b>{fmt_num(amount)}</b>.")
         await state.clear(); await bank_menu_handler(message, state)
 
-    # КРЕДИТ (Красивый текст)
+    # ================= КРЕДИТЫ =================
     @dp.message(F.text == "💳 Кредит")
     async def credit_start(message: Message, state: FSMContext):
         await state.clear()
-        txt = (
-            "💳 <b>ЗАЯВКА НА КРЕДИТ</b>\n\n"
-            "Условия: от 10 000 до 100 000 под 3% в день.\n"
-            "Максимальный срок: 7 дней.\n\n"
-            "1️⃣ Введи свое <b>Имя и Фамилию</b>:"
-        )
-        await send_clean(message, txt)
+        await send_clean(message, "💳 <b>ЗАЯВКА НА КРЕДИТ</b>\n1️⃣ Введи имя:")
         await state.set_state(BotStates.waiting_credit_name)
 
     @dp.message(BotStates.waiting_credit_name)
     async def credit_name(message: Message, state: FSMContext):
         await state.update_data(credit_name=message.text)
-        await send_clean(message, "2️⃣ Введи <b>желаемую сумму</b> (от 10 000 до 100 000):")
+        await send_clean(message, "2️⃣ Сумма (10к-100к):")
         await state.set_state(BotStates.waiting_credit_amount)
 
     @dp.message(BotStates.waiting_credit_amount)
     async def credit_amount(message: Message, state: FSMContext):
         try: amt = int(message.text)
-        except: return await send_clean(message, "❌ Введи число.")
-        if amt < 10000 or amt > 100000: return await send_clean(message, "❌ От 10 000 до 100 000.")
+        except: return await send_clean(message, "❌ Число.")
+        if amt < 10000 or amt > 100000: return await send_clean(message, "❌ 10-100к.")
         await state.update_data(credit_amount=amt)
-        await send_clean(message, "3️⃣ На какой <b>срок</b> (в днях, от 1 до 7)?")
+        await send_clean(message, "3️⃣ Срок (1-7 дней):")
         await state.set_state(BotStates.waiting_credit_term)
 
     @dp.message(BotStates.waiting_credit_term)
     async def credit_term(message: Message, state: FSMContext):
         try: days = int(message.text)
-        except: return await send_clean(message, "❌ Введи число.")
+        except: return await send_clean(message, "❌ Число.")
         if days < 1 or days > 7: return await send_clean(message, "❌ От 1 до 7 дней.")
         await state.update_data(credit_term=days)
-        await send_clean(message, "4️⃣ На какую <b>цель</b> берешь кредит?")
+        await send_clean(message, "4️⃣ Цель кредита:")
         await state.set_state(BotStates.waiting_credit_purpose)
 
     @dp.message(BotStates.waiting_credit_purpose)
@@ -238,7 +217,7 @@ async def main():
         user = message.from_user; await state.clear()
         req_id = f"{user.id}_{int(time.time())}"
         credit_requests[req_id] = {"user_id": user.id, **data}
-        admin_txt = f"💳 <b>НОВАЯ ЗАЯВКА</b>\n👤 @{user.username or 'user'}\n💰 {fmt_num(data['credit_amount'])}\n📅 {data['credit_term']} дней\n🎯 {data['credit_purpose']}"
+        admin_txt = f"💳 <b>КРЕДИТ</b>\n👤 @{user.username or 'user'}\n💰 {fmt_num(data['credit_amount'])}\n📅 {data['credit_term']} дней\n🎯 {data['credit_purpose']}"
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Одобрить", callback_data=f"cr_acc_{req_id}")],[InlineKeyboardButton(text="❌ Отклонить", callback_data=f"cr_dec_{req_id}")]])
         try: await message.bot.send_message(ADMIN_ID, admin_txt, reply_markup=kb); await send_clean(message, "✅ Заявка отправлена!", reply_markup=main_menu())
         except: await send_clean(message, "❌ Ошибка", reply_markup=main_menu())
@@ -302,6 +281,250 @@ async def main():
         await message.reply(f"💸 <b>ПЕРЕВОД</b>\n👤 От: @{message.from_user.username or 'user'}\n🎯 Кому: <code>{target_id}</code>\n💰 {fmt_num(amount)}")
 
     # ================= ИГРЫ =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "игры")
+    async def group_games_rules(message: Message):
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎡 Рулетка", callback_data="game_info_roulette"), InlineKeyboardButton(text="💣 Мины", callback_data="game_info_mines")],
+            [InlineKeyboardButton(text="🃏 Блэкджек", callback_data="game_info_bj"), InlineKeyboardButton(text="⚔️ Дуэли", callback_data="game_info_duel")],
+            [InlineKeyboardButton(text="🎲 Кости", callback_data="game_info_dice"), InlineKeyboardButton(text="🎰 Слоты", callback_data="game_info_slots")],
+            [InlineKeyboardButton(text="🏀 Баскет", callback_data="game_info_basket"), InlineKeyboardButton(text="⚽ Футбол", callback_data="game_info_football")],
+            [InlineKeyboardButton(text="🎯 Дартс", callback_data="game_info_darts"), InlineKeyboardButton(text="🎳 Боулинг", callback_data="game_info_bowling")],
+            [InlineKeyboardButton(text="🪙 Монетка", callback_data="game_info_coin")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data="game_info_close")]
+        ])
+        msg = await message.reply("🎮 <b>ВЫБЕРИ ИГРУ</b>\n👇 Нажми на кнопку, чтобы узнать правила:", reply_markup=kb)
+        asyncio.create_task(delete_message_later(msg, 150))
+
+    @dp.callback_query(F.data.startswith("game_info_"))
+    async def game_info_handler(call: CallbackQuery):
+        game = call.data.replace("game_info_", "")
+        if game == "close": await call.message.delete(); return await call.answer("Меню закрыто.")
+        if game == "back":
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🎡 Рулетка", callback_data="game_info_roulette"), InlineKeyboardButton(text="💣 Мины", callback_data="game_info_mines")],
+                [InlineKeyboardButton(text="🃏 Блэкджек", callback_data="game_info_bj"), InlineKeyboardButton(text="⚔️ Дуэли", callback_data="game_info_duel")],
+                [InlineKeyboardButton(text="🎲 Кости", callback_data="game_info_dice"), InlineKeyboardButton(text="🎰 Слоты", callback_data="game_info_slots")],
+                [InlineKeyboardButton(text="🏀 Баскет", callback_data="game_info_basket"), InlineKeyboardButton(text="⚽ Футбол", callback_data="game_info_football")],
+                [InlineKeyboardButton(text="🎯 Дартс", callback_data="game_info_darts"), InlineKeyboardButton(text="🎳 Боулинг", callback_data="game_info_bowling")],
+                [InlineKeyboardButton(text="🪙 Монетка", callback_data="game_info_coin")],
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data="game_info_close")]
+            ])
+            await call.message.edit_text("🎮 <b>ВЫБЕРИ ИГРУ</b>\n👇 Нажми на кнопку, чтобы узнать правила:", reply_markup=kb)
+            return await call.answer()
+
+        info = {
+            "roulette": "🎡 <b>РУЛЕТКА</b>\n• <code>к 100</code> / <code>ч 100</code>\n• <code>100 1-18</code>\n• <code>го</code> — Запуск",
+            "mines": "💣 <b>МИНЫ</b>\n• <code>мины 100</code>\nОткрывай клетки, собирай кэш!",
+            "bj": "🃏 <b>БЛЭКДЖЕК</b>\n• <code>бж 100</code>\nНабери 21 очко, чтобы победить!",
+            "duel": "⚔️ <b>ДУЭЛИ</b>\nОтветь на сообщение игрока:\n• <code>дуэль 100</code>",
+            "dice": "🎲 <b>КОСТИ</b>\n• <code>кости 100</code>\nВыигрыш 4, 5, 6 (x1.95)",
+            "slots": "🎰 <b>СЛОТЫ</b>\n• <code>спин 100</code>\nШанс 50% (x1.8)",
+            "basket": "🏀 <b>БАСКЕТ</b>\n• <code>баскет 100</code>\nПопал (x2)",
+            "football": "⚽ <b>ФУТБОЛ</b>\n• <code>футбол 100</code>\nГол (x2)",
+            "darts": "🎯 <b>ДАРТС</b>\n• <code>дартс 100</code>\nЯблочко (x5)",
+            "bowling": "🎳 <b>БОУЛИНГ</b>\n• <code>боулинг 100</code>\nСтрайк (x3)",
+            "coin": "🪙 <b>МОНЕТКА</b>\n• <code>монетка 100 орел</code>\nОрел/Решка x2, Ребро x10"
+        }
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="game_info_back"), InlineKeyboardButton(text="❌ Закрыть", callback_data="game_info_close")]])
+        await call.message.edit_text(info.get(game, "Информация не найдена."), reply_markup=kb)
+        await call.answer()
+
+    # --- МИНЫ (С ТАЙМЕРОМ) ---
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith("мины "))
+    async def play_mines_start(message: Message, state: FSMContext):
+        parts = message.text.lower().split()
+        if len(parts) != 2: return await message.reply("❌ <code>мины 100</code>")
+        try: bet = int(parts[1])
+        except: return
+        uid = message.from_user.id
+        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Мин. 10 или мало средств.")
+        
+        set_balance(uid, -bet)
+        mines = random.sample(list(range(25)), 3)
+        await state.update_data(bet=bet, mines=mines, opened=[], mult=1.0)
+        await state.set_state(BotStates.mines_game)
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬜", callback_data=f"mine_{r*5+c}") for c in range(5)] for r in range(5)])
+        kb.inline_keyboard.append([InlineKeyboardButton(text="💰 ЗАБРАТЬ (x1.0)", callback_data="mine_cashout")])
+        
+        msg = await message.reply(f"💣 <b>МИНЫ</b>\n💰 Ставка: <b>{fmt_num(bet)}</b>\n💣 Мин: 3\n⏳ Время: 5 минут\n\nОткрывай клетки!", reply_markup=kb)
+        
+        async def auto_fail():
+            await asyncio.sleep(300)
+            data = await state.get_data()
+            if data.get("bet"):
+                await state.clear()
+                await msg.edit_text(f"⏰ <b>ВРЕМЯ ВЫШЛО!</b>\n😢 Ставка <b>{fmt_num(data['bet'])}</b> сгорела.")
+        asyncio.create_task(auto_fail())
+
+    @dp.callback_query(F.data.startswith("mine_"))
+    async def mines_handler(call: CallbackQuery, state: FSMContext):
+        data = await state.get_data()
+        if not data: return await call.answer("Игра устарела.")
+        bet, mines, opened, mult = data["bet"], data["mines"], data["opened"], data["mult"]
+        
+        if call.data == "mine_cashout":
+            win = int(bet * mult); set_balance(call.from_user.id, win); await state.clear()
+            await call.message.edit_text(f"💰 <b>ЗАБРАЛ!</b>\n💎 Выигрыш: <b>+{fmt_num(win)}</b>\n📈 x{mult:.2f}"); return await call.answer("Зачислено!")
+            
+        idx = int(call.data.split("_")[1])
+        if idx in opened: return await call.answer("Уже открыто!")
+        if idx in mines:
+            await state.clear()
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💣" if r*5+c in mines else ("💎" if r*5+c in opened else "⬜"), callback_data="none") for c in range(5)] for r in range(5)])
+            await call.message.edit_text(f"💥 <b>БУМ!</b>\n😢 Ставка <b>{fmt_num(bet)}</b> сгорела.", reply_markup=kb); return await call.answer("БУМ!")
+            
+        opened.append(idx)
+        mult = round(1.0 + (len(opened) * 0.15), 2)
+        await state.update_data(opened=opened, mult=mult)
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎" if r*5+c in opened else "⬜", callback_data=f"mine_{r*5+c}" if r*5+c not in opened else "none") for c in range(5)] for r in range(5)])
+        kb.inline_keyboard.append([InlineKeyboardButton(text=f"💰 ЗАБРАТЬ (x{mult:.2f})", callback_data="mine_cashout")])
+        await call.message.edit_text(f"💣 <b>МИНЫ</b>\n💰 {fmt_num(bet)}\n📈 Выигрыш: <b>{fmt_num(int(bet * mult))}</b> (x{mult:.2f})\n\nОткрывай дальше!", reply_markup=kb); await call.answer("Безопасно!")
+
+    # --- БЛЭКДЖЕК ---
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith("бж "))
+    async def play_bj(message: Message):
+        parts = message.text.lower().split()
+        if len(parts) != 2: return await message.reply("❌ <code>бж 100</code>")
+        try: bet = int(parts[1])
+        except: return
+        uid = message.from_user.id
+        if bet < 10 or get_balance(uid) < bet: return await message.reply("❌ Мин. 10 или мало средств.")
+        
+        set_balance(uid, -bet)
+        
+        # Раздаем карты
+        p1, p2 = random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11]), random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11])
+        d1, d2 = random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11]), random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11])
+        
+        player_sum = p1 + p2
+        dealer_sum = d1 + d2
+        
+        bj_games[uid] = {"bet": bet, "player": [p1, p2], "dealer": [d1, d2], "chat_id": message.chat.id}
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🃏 Взять", callback_data=f"bj_hit_{uid}"), InlineKeyboardButton(text="🛑 Хватит", callback_data=f"bj_stand_{uid}")]
+        ])
+        
+        await message.reply(
+            f"🃏 <b>БЛЭКДЖЕК</b>\n"
+            f"💰 Ставка: {fmt_num(bet)}\n\n"
+            f"👤 Твои карты: <b>{p1} + {p2} = {player_sum}</b>\n"
+            f"🤖 Дилер: <b>{d1} + ?</b>",
+            reply_markup=kb
+        )
+
+    @dp.callback_query(F.data.startswith("bj_hit_"))
+    async def bj_hit(call: CallbackQuery):
+        uid = int(call.data.split("_")[2])
+        if call.from_user.id != uid: return await call.answer("Это не твоя игра!", show_alert=True)
+        if uid not in bj_games: return await call.answer("Игра не найдена", show_alert=True)
+        
+        game = bj_games[uid]
+        new_card = random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11])
+        game["player"].append(new_card)
+        player_sum = sum(game["player"])
+        
+        if player_sum > 21:
+            set_balance(uid, -game["bet"])
+            del bj_games[uid]
+            return await call.message.edit_text(f"🃏 <b>ПЕРЕБОР!</b>\nТы набрал {player_sum}. Ставка {fmt_num(game['bet'])} сгорела.")
+            
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🃏 Взять", callback_data=f"bj_hit_{uid}"), InlineKeyboardButton(text="🛑 Хватит", callback_data=f"bj_stand_{uid}")]
+        ])
+        await call.message.edit_text(
+            f"🃏 <b>БЛЭКДЖЕК</b>\n"
+            f"💰 Ставка: {fmt_num(game['bet'])}\n\n"
+            f"👤 Твои карты: <b>{' + '.join(map(str, game['player']))} = {player_sum}</b>\n"
+            f"🤖 Дилер: <b>{game['dealer'][0]} + ?</b>",
+            reply_markup=kb
+        )
+        await call.answer(f"Выпала карта: {new_card}")
+
+    @dp.callback_query(F.data.startswith("bj_stand_"))
+    async def bj_stand(call: CallbackQuery):
+        uid = int(call.data.split("_")[2])
+        if call.from_user.id != uid: return await call.answer("Это не твоя игра!", show_alert=True)
+        if uid not in bj_games: return await call.answer("Игра не найдена", show_alert=True)
+        
+        game = bj_games[uid]
+        player_sum = sum(game["player"])
+        dealer_sum = sum(game["dealer"])
+        
+        # Дилер добирает до 17
+        while dealer_sum < 17:
+            game["dealer"].append(random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11]))
+            dealer_sum = sum(game["dealer"])
+            
+        if dealer_sum > 21 or player_sum > dealer_sum:
+            win = int(game["bet"] * 1.8)
+            set_balance(uid, win)
+            result = f"🎉 <b>ТЫ ВЫИГРАЛ!</b>\nВыигрыш: <b>+{fmt_num(win)}</b>"
+        elif player_sum == dealer_sum:
+            set_balance(uid, game["bet"])
+            result = f"🤝 <b>НИЧЬЯ!</b>\nСтавка возвращена."
+        else:
+            result = f"😢 <b>ТЫ ПРОИГРАЛ!</b>\nСтавка сгорела."
+            
+        del bj_games[uid]
+        await call.message.edit_text(f"🃏 <b>БЛЭКДЖЕК</b>\n\n👤 Твои карты: {player_sum}\n🤖 Дилер: {dealer_sum}\n\n{result}")
+        await call.answer("Игра окончена!")
+
+    # --- ДУЭЛИ (С ПОДТВЕРЖДЕНИЕМ И СТИКЕРАМИ) ---
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith("дуэль "))
+    async def play_duel(message: Message):
+        if not message.reply_to_message: return await message.reply("⚔️ Ответь на сообщение соперника и напиши <code>дуэль 100</code>.")
+        challenger = message.from_user; opponent = message.reply_to_message.from_user
+        if challenger.id == opponent.id or opponent.is_bot: return await message.reply("❌ Нельзя.")
+        parts = message.text.lower().split()
+        if len(parts) != 2: return await message.reply("❌ Формат: <code>дуэль 100</code>")
+        try: bet = int(parts[1])
+        except: return
+        if bet < 10: return await message.reply("❌ Мин. 10.")
+        if get_balance(challenger.id) < bet or get_balance(opponent.id) < bet: return await message.reply("❌ Мало средств.")
+        
+        set_balance(challenger.id, -bet)
+        chat_id = message.chat.id; duel_id = f"{chat_id}_{challenger.id}_{opponent.id}"
+        active_duels[duel_id] = {"challenger_id": challenger.id, "challenger_name": challenger.username or challenger.first_name, "opponent_id": opponent.id, "opponent_name": opponent.username or opponent.first_name, "bet": bet}
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ ПРИНЯТЬ", callback_data=f"duel_accept_{duel_id}")],[InlineKeyboardButton(text="❌ ОТКЛОНИТЬ", callback_data=f"duel_decline_{duel_id}")]])
+        await message.reply(f"⚔️ <b>ВЫЗОВ!</b>\n👤 @{challenger.username or challenger.first_name} VS @{opponent.username or opponent.first_name}\n💰 {fmt_num(bet)}\n\n@{opponent.username or opponent.first_name}, жми кнопку!", reply_markup=kb)
+
+    @dp.callback_query(F.data.startswith("duel_accept_"))
+    async def duel_accept_handler(call: CallbackQuery):
+        duel_id = call.data.replace("duel_accept_", "")
+        if duel_id not in active_duels: return await call.answer("❌ Устарело.", show_alert=True)
+        duel = active_duels[duel_id]
+        if call.from_user.id != duel["opponent_id"]: return await call.answer("❌ Не твой вызов.", show_alert=True)
+        if get_balance(duel["opponent_id"]) < duel["bet"]: return await call.answer("❌ Мало средств.", show_alert=True)
+        set_balance(duel["opponent_id"], -duel["bet"]); del active_duels[duel_id]
+        await call.message.edit_text(f"⚔️ <b>ДУЭЛЬ!</b>\n🔵 @{duel['challenger_name']}\n🔴 @{duel['opponent_name']}\n💰 {fmt_num(duel['bet'] * 2)}\n\n🎲 Бросаем...")
+        await call.answer("Принято!")
+        await asyncio.sleep(1.5)
+        d1 = await call.bot.send_dice(chat_id=call.message.chat.id, emoji="🎲"); await asyncio.sleep(0.5)
+        d2 = await call.bot.send_dice(chat_id=call.message.chat.id, emoji="🎲"); await asyncio.sleep(3.5)
+        v1, v2 = d1.dice.value, d2.dice.value
+        if v1 == v2:
+            set_balance(duel["challenger_id"], duel["bet"]); set_balance(duel["opponent_id"], duel["bet"])
+            return await call.message.reply(f"🤝 <b>НИЧЬЯ!</b> ({v1} и {v2}). Ставки возвращены.")
+        if v1 > v2: w_id, w_name, w_d, l_d = duel["challenger_id"], duel["challenger_name"], v1, v2
+        else: w_id, w_name, w_d, l_d = duel["opponent_id"], duel["opponent_name"], v2, v1
+        set_balance(w_id, duel["bet"] * 2)
+        await call.message.reply(f"🏆 <b>ПОБЕДИТЕЛЬ</b>\n🥇 @{w_name} ({w_d})\n💔 ({l_d})\n💰 +{fmt_num(duel['bet'] * 2)}")
+
+    @dp.callback_query(F.data.startswith("duel_decline_"))
+    async def duel_decline_handler(call: CallbackQuery):
+        duel_id = call.data.replace("duel_decline_", "")
+        if duel_id not in active_duels: return await call.answer("❌ Устарело.", show_alert=True)
+        duel = active_duels[duel_id]
+        if call.from_user.id != duel["opponent_id"]: return await call.answer("❌ Не твой вызов.", show_alert=True)
+        set_balance(duel["challenger_id"], duel["bet"]); del active_duels[duel_id]
+        await call.message.edit_text(f"❌ <b>ОТКЛОНЕНО</b>\n@{call.from_user.username or call.from_user.first_name} отказался.\n💰 {fmt_num(duel['bet'])} возвращены.")
+        await call.answer("Отклонено.")
+
+    # --- ОСТАЛЬНЫЕ ИГРЫ (Кости, Баскет и т.д.) ---
     async def play_dice_game(message: Message, game_name: str, emoji: str, win_cond, win_mult, lose_txt, win_txt):
         uid = message.from_user.id; username = message.from_user.username or message.from_user.first_name
         parts = message.text.lower().split()
@@ -330,6 +553,7 @@ async def main():
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().startswith(("кости ", "кубик ", "дайс ")))
     async def play_dice(message: Message): await play_dice_game(message, "кости", "🎲", lambda r: r >= 4, 1.95, "🎲 {result}\n😢 -{bet}", "🎲 {result}\n🎉 +{win}")
 
+    # --- РУЛЕТКА (С ЗАЩИТОЙ И КНОПКАМИ) ---
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(к|ч|з|чет|чёт|нечет|нечёт)\s+(\d+)$"))
     @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^(\d+)\s+(к|ч|з|чет|чёт|нечет|нечёт)$"))
     async def place_color_bet(message: Message):
@@ -383,7 +607,7 @@ async def main():
         except: await msg.edit_text(txt)
         del active_bets[chat_id]; is_spinning[chat_id] = False
 
-    # ================= ПОДДЕРЖКА (КРАСИВАЯ) =================
+    # ================= ПОДДЕРЖКА =================
     @dp.message(F.text.in_({"🆘 Помощь", "🆘 Поддержка"}))
     async def support_main(message: Message, state: FSMContext):
         await state.clear()
@@ -580,66 +804,6 @@ async def main():
         )
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
-    # ================= БАЛАНС В ГРУППЕ (ЖЕСТКИЙ ФИКС) =================
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
-    async def group_bal_fix(message: Message):
-        uid = message.from_user.id
-        bal = get_balance(uid)
-        
-        # Инлайн-кнопка для кейса в ЛС
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{bot.username}?start=case")]
-        ])
-        
-        txt = (
-            f"💳 <b>БАЛАНС</b>\n"
-            f"👤 @{message.from_user.username or 'user'}\n"
-            f"💰 <b>{fmt_num(bal)}</b> Tokens\n\n"
-            f"👇 <i>Нажми на кнопку, чтобы открыть кейс!</i>"
-        )
-        msg = await message.reply(txt, reply_markup=kb)
-        asyncio.create_task(delete_message_later(msg, 120))
-
-    # ================= ПЕРЕВОД ПО ID (ЖЕСТКИЙ ФИКС) =================
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^п\s+(\d+)\s+(\d+)$"))
-    async def transfer_by_id_fix(message: Message):
-        parts = message.text.split()
-        uid = message.from_user.id
-        try: 
-            target_id = int(parts[1])
-            amount = int(parts[2])
-        except: 
-            return
-        
-        if amount < 10: return await message.reply("❌ Мин. 10 токенов.")
-        if get_balance(uid) < amount: return await message.reply("❌ Недостаточно средств.")
-        
-        set_balance(uid, -amount)
-        set_balance(target_id, amount)
-        await message.reply(f"💸 <b>ПЕРЕВОД</b>\n👤 От: @{message.from_user.username or 'user'}\n🎯 Кому: <code>{target_id}</code>\n💰 {fmt_num(amount)}")
-
-    # ================= ИГРЫ И ЧТО НОВОГО (ЖЕСТКИЙ ФИКС) =================
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "игры")
-    async def group_games_fix(message: Message):
-        txt = (
-            "🎮 <b>НАШИ ИГРЫ</b>\n\n"
-            "🎡 <b>РУЛЕТКА</b>\n"
-            "• <code>к 100</code> / <code>ч 100</code> / <code>з 100</code>\n"
-            "• <code>го</code> — Запуск\n\n"
-            "🎲 <b>КОСТИ</b> / 🎰 <b>СЛОТЫ</b> / 🏀 <b>БАСКЕТ</b> / ⚽ <b>ФУТБОЛ</b>\n"
-            "• <code>кости 100</code> и т.д.\n\n"
-            "💣 <b>МИНЫ</b> | ⚔️ <b>ДУЭЛИ</b> | 🪙 <b>МОНЕТКА</b>\n\n"
-            "🎁 <b>Бонус:</b> <code>бонус</code>"
-        )
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 150))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"что нового", "обнова"}))
-    async def cmd_whats_new_fix(message: Message):
-        txt = "🚀 <b>ОБНОВЛЕНИЕ v53!</b>\n\n💣 Мины\n🪙 Монетка 3.0\n⚔️ Дуэли\n🎁 Кейс\n💸 Переводы\n⚡ Скорость\n\n🔥 <i>Тестируй!</i>"
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 120))
-        
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
