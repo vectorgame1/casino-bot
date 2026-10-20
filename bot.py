@@ -514,7 +514,7 @@ async def main():
 
     @dp.message(F.text.lower() == "бонус")
     async def cmd_bonus(message: Message, state: FSMContext):
-        await state.clear()
+        # await state.clear() <- УБРАНО
         uid = message.from_user.id
         conn = get_conn(); c = conn.cursor()
         try:
@@ -531,7 +531,7 @@ async def main():
 
     @dp.message(F.text.lower() == "кейс")
     async def daily_case(message: Message, state: FSMContext):
-        await state.clear()
+        # await state.clear() <- УБРАНО
         if message.chat.type != "private":
             return await message.reply(f"🎁 Кейс в ЛС: @{BOT_USERNAME}")
         uid = message.from_user.id
@@ -551,6 +551,7 @@ async def main():
             conn.commit()
         finally:
             c.close(); release_conn(conn)
+        # ... дальше твой код с case.gif и начислением
         if uid in last_bot_message:
             try:
                 await message.bot.delete_message(chat_id=message.chat.id, message_id=last_bot_message[uid])
@@ -1523,7 +1524,8 @@ async def main():
             c.close(); release_conn(conn)
             
         # Очищаем ставки текущего раунда, но не удаляем сообщение сразу, чтобы юзер увидел кнопки
-        del active_bets[chat_id]
+        if chat_id in active_bets:
+            active_bets[chat_id]["bets"] = []  # Очищаем ставки, но оставляем структуру
         is_spinning[chat_id] = False
         asyncio.create_task(delete_message_later(msg, 120))
 
@@ -2503,14 +2505,20 @@ async def main():
         uid = message.from_user.id
         try:
             bal = get_balance(uid)
-            if isinstance(bal, (tuple, list)): bal = bal[0]
-            if bal is None: bal = 0
+            # Если база вернула кортеж/список/словарь - достаем число
+            if isinstance(bal, (tuple, list)):
+                bal = bal[0]
+            elif isinstance(bal, dict):
+                bal = list(bal.values())[0]
+            if bal is None:
+                bal = 0
         except Exception as e:
-            logger.error(f"Error getting balance: {e}")
-            bal = 0
+            logger.error(f"DB ERROR in group_bal: {e}")
+            await message.reply(f"❌ Ошибка базы данных: {e}")
+            return
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{bot.username}?start=case")]
+            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{BOT_USERNAME}?start=case")]
         ])
         txt = (
             f"💳 <b>БАЛАНС</b>\n"
@@ -2525,21 +2533,39 @@ async def main():
     async def group_top(message: Message):
         try:
             top = get_top(10)
+            if not top:
+                return await message.reply("🏆 Топ пуст.")
+            
+            txt = "🏆 <b>ТОП-10 ИГРОКОВ</b>\n\n"
+            for i, row in enumerate(top, 1):
+                if isinstance(row, (tuple, list)):
+                    name = row[0]
+                    bal = row[1] if len(row) > 1 else 0
+                elif isinstance(row, dict):
+                    name = row.get("username", "user")
+                    bal = row.get("balance", 0)
+                else:
+                    name = str(row)
+                    bal = 0
+                txt += f"{i}. @{name} — <b>{fmt_num(bal)}</b>\n"
+                
+            msg = await message.reply(txt)
+            asyncio.create_task(delete_message_later(msg, 120))
         except Exception as e:
-            logger.error(f"Error getting top: {e}")
-            top = []
+            logger.error(f"DB ERROR in group_top: {e}")
+            await message.reply(f"❌ Ошибка базы данных в топе: {e}")
             
-        if not top:
-            return await message.reply("🏆 Топ пуст.")
-            
-        txt = "🏆 <b>ТОП-10 ИГРОКОВ</b>\n\n"
-        for i, row in enumerate(top, 1):
-            name = row[0]
-            bal = row[1]
-            txt += f"{i}. @{name} — <b>{fmt_num(bal)}</b>\n"
-            
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 120))
+            txt = "🏆 <b>ТОП-10 ИГРОКОВ</b>\n\n"
+            for i, row in enumerate(top, 1):
+                name = row[0] if isinstance(row, (list, tuple)) else row
+                bal = row[1] if isinstance(row, (list, tuple)) and len(row) > 1 else 0
+                txt += f"{i}. @{name} — <b>{fmt_num(bal)}</b>\n"
+                
+            msg = await message.reply(txt)
+            asyncio.create_task(delete_message_later(msg, 120))
+        except Exception as e:
+            logger.error(f"DB ERROR in group_top: {e}")
+            await message.reply(f"❌ Ошибка базы данных в топе: {e}")
 
     # ================= МОДЕРАТОР =================
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
