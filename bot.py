@@ -580,6 +580,66 @@ async def main():
         )
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
+    # ================= БАЛАНС В ГРУППЕ (ЖЕСТКИЙ ФИКС) =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
+    async def group_bal_fix(message: Message):
+        uid = message.from_user.id
+        bal = get_balance(uid)
+        
+        # Инлайн-кнопка для кейса в ЛС
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{bot.username}?start=case")]
+        ])
+        
+        txt = (
+            f"💳 <b>БАЛАНС</b>\n"
+            f"👤 @{message.from_user.username or 'user'}\n"
+            f"💰 <b>{fmt_num(bal)}</b> Tokens\n\n"
+            f"👇 <i>Нажми на кнопку, чтобы открыть кейс!</i>"
+        )
+        msg = await message.reply(txt, reply_markup=kb)
+        asyncio.create_task(delete_message_later(msg, 120))
+
+    # ================= ПЕРЕВОД ПО ID (ЖЕСТКИЙ ФИКС) =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^п\s+(\d+)\s+(\d+)$"))
+    async def transfer_by_id_fix(message: Message):
+        parts = message.text.split()
+        uid = message.from_user.id
+        try: 
+            target_id = int(parts[1])
+            amount = int(parts[2])
+        except: 
+            return
+        
+        if amount < 10: return await message.reply("❌ Мин. 10 токенов.")
+        if get_balance(uid) < amount: return await message.reply("❌ Недостаточно средств.")
+        
+        set_balance(uid, -amount)
+        set_balance(target_id, amount)
+        await message.reply(f"💸 <b>ПЕРЕВОД</b>\n👤 От: @{message.from_user.username or 'user'}\n🎯 Кому: <code>{target_id}</code>\n💰 {fmt_num(amount)}")
+
+    # ================= ИГРЫ И ЧТО НОВОГО (ЖЕСТКИЙ ФИКС) =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "игры")
+    async def group_games_fix(message: Message):
+        txt = (
+            "🎮 <b>НАШИ ИГРЫ</b>\n\n"
+            "🎡 <b>РУЛЕТКА</b>\n"
+            "• <code>к 100</code> / <code>ч 100</code> / <code>з 100</code>\n"
+            "• <code>го</code> — Запуск\n\n"
+            "🎲 <b>КОСТИ</b> / 🎰 <b>СЛОТЫ</b> / 🏀 <b>БАСКЕТ</b> / ⚽ <b>ФУТБОЛ</b>\n"
+            "• <code>кости 100</code> и т.д.\n\n"
+            "💣 <b>МИНЫ</b> | ⚔️ <b>ДУЭЛИ</b> | 🪙 <b>МОНЕТКА</b>\n\n"
+            "🎁 <b>Бонус:</b> <code>бонус</code>"
+        )
+        msg = await message.reply(txt)
+        asyncio.create_task(delete_message_later(msg, 150))
+
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"что нового", "обнова"}))
+    async def cmd_whats_new_fix(message: Message):
+        txt = "🚀 <b>ОБНОВЛЕНИЕ v53!</b>\n\n💣 Мины\n🪙 Монетка 3.0\n⚔️ Дуэли\n🎁 Кейс\n💸 Переводы\n⚡ Скорость\n\n🔥 <i>Тестируй!</i>"
+        msg = await message.reply(txt)
+        asyncio.create_task(delete_message_later(msg, 120))
+        
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
