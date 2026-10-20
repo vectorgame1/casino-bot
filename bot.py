@@ -1168,6 +1168,131 @@ async def main():
         set_banned(uid, False)
         await message.reply(f"✅ Игрок @{target} разбанен.")
 
+    # ================= АДМИН-ПАНЕЛЬ (КНОПКИ) =================
+    @dp.message(F.text == "👥 Игроки")
+    async def admin_players_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        kb = ReplyKeyboardMarkup(keyboard=[
+            [KeyboardButton(text="🔍 Скан")],
+            [KeyboardButton(text="💰 Выдать"), KeyboardButton(text="💸 Забрать")],
+            [KeyboardButton(text="🚫 Бан"), KeyboardButton(text="✅ Разбан")],
+            [KeyboardButton(text="⬅️ Назад в админку")]
+        ], resize_keyboard=True)
+        txt = (
+            "👥 <b>УПРАВЛЕНИЕ ИГРОКАМИ</b>\n\n"
+            "• 🔍 <b>Скан</b> — посмотреть досье\n"
+            "• 💰 <b>Выдать</b> — добавить токены\n"
+            "• 💸 <b>Забрать</b> — списать токены\n"
+            "• 🚫 <b>Бан</b> — заблокировать\n"
+            "• ✅ <b>Разбан</b> — разблокировать"
+        )
+        await send_clean_private(message, txt, reply_markup=kb)
+
+    @dp.message(F.text == "🎮 Игры")
+    async def admin_games_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM game_log")
+        tg = c.fetchone()[0]
+        c.close(); release_conn(conn)
+        txt = f"🎮 <b>ИГРЫ</b>\n\n📊 Всего сыграно: <b>{tg}</b>\n✅ Все системы работают."
+        await send_clean_private(message, txt, reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "💰 Экономика")
+    async def admin_economy_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
+        tu, tb = c.fetchone()
+        c.close(); release_conn(conn)
+        txt = f"💰 <b>ЭКОНОМИКА</b>\n\n👥 Игроков: <b>{tu}</b>\n💎 Общий баланс: <b>{fmt_num(tb)}</b> Tokens\n\n💱 Курс: 1 ⭐ = {STARS_RATE} Tokens"
+        await send_clean_private(message, txt, reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "📊 Мониторинг")
+    async def admin_monitor_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        conn = get_conn(); c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = FALSE"); a = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM users WHERE banned = TRUE"); b = c.fetchone()[0]
+        c.close(); release_conn(conn)
+        txt = f"📊 <b>МОНИТОРИНГ</b>\n\n🟢 Активных: <b>{a}</b>\n🔴 Забанено: <b>{b}</b>\n\n👑 Админ: @{message.from_user.username}"
+        await send_clean_private(message, txt, reply_markup=admin_panel_kb())
+
+    # --- ВОТ ТУТ ТА САМАЯ РАСШИРЕННАЯ ШПАРГАЛКА ---
+    @dp.message(F.text == "📋 Все команды")
+    async def admin_commands_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        
+        txt = (
+            "📋 <b>ПОЛНЫЙ СПИСОК КОМАНД БОТА</b>\n\n"
+            
+            "👑 <b>ГЛАВНЫЙ АДМИН (Ты):</b>\n"
+            "• <code>/admin</code> — Панель управления\n"
+            "• <code>/help</code> — Помощь по командам\n"
+            "• <code>/give_all 1000</code> — Выдать токены всем\n"
+            "• <code>/stats</code> — Полная статистика\n"
+            "• <code>/history @user</code> — История игр игрока\n"
+            "• <code>/spy @user</code> — Активность за 24 часа\n"
+            "• <code>/reset_user @user</code> — Обнулить игрока\n"
+            "• <code>/reset_credit @user</code> — Простить долг\n"
+            "• <code>/ban @user</code> — Забанить в боте\n"
+            "• <code>/unban @user</code> — Разбанить\n"
+            "• <code>/kick</code> — Кикнуть из чата (ответом)\n"
+            "• <code>/mute_all</code> — Заглушить всех на 1 час\n"
+            "• <code>/say Текст</code> — Написать от лица бота\n"
+            "• <code>/drop 10000</code> — Дроп (кто первый)\n"
+            "• <code>/jackpot 50000</code> — Накрутить банк\n"
+            "• <code>/broadcast_photo</code> — Рассылка с фото\n"
+            "• <code>/pin</code> / <code>/unpin</code> — Закрепить/открепить\n"
+            "• <code>/top_games</code> — Топ-5 игр\n\n"
+            
+            "🛡 <b>МОДЕРАТОРЫ:</b>\n"
+            "• <code>/mod_add @user</code> — Назначить модера\n"
+            "• <code>/mod_remove @user</code> — Снять модера\n"
+            "• <code>/mod_list</code> — Список модеров\n"
+            "• <code>/mod_give @user 1000</code> — Выдать токены (лимит 10кк)\n"
+            "• <code>/mod_my_limit</code> — Проверить лимит\n"
+            "• <code>/mod_warn</code> — Предупреждение (ответом)\n"
+            "• <code>/mod_clean</code> — Очистить чат\n"
+            "• <code>/mod_pin</code> — Закрепить (ответом)\n"
+            "• <code>/mod_unban @user</code> — Разбанить\n"
+            "• <code>/mod_alert</code> — SOS Админу\n"
+            "• <code>/mod_help</code> — Помощь модеру\n\n"
+            
+            "👤 <b>ИГРОКИ (В ЛС):</b>\n"
+            "• <code>/start</code> — Запуск\n"
+            "• <code>/ref</code> — Рефералка\n"
+            "• <code>/promo КОД</code> — Промокод\n"
+            "• <code>бонус</code> — Ежедневный бонус\n"
+            "• <code>кейс</code> — Ежедневный кейс\n"
+            "• <code>профиль</code> — Профиль\n\n"
+            
+            "🎮 <b>ИГРЫ (В ГРУППЕ):</b>\n"
+            "• <code>б</code> — Баланс\n"
+            "• <code>игры</code> — Меню игр\n"
+            "• <code>топ</code> — Топ-10\n"
+            "• <code>лог</code> — История чисел\n"
+            "• <code>п 123456 1000</code> — Перевод по ID\n"
+            "• <code>к 100</code> / <code>ч 100</code> / <code>з 100</code> — Рулетка\n"
+            "• <code>го</code> — Запуск рулетки\n"
+            "• <code>кости 100</code> / <code>баскет 100</code> / <code>футбол 100</code>\n"
+            "• <code>дартс 100</code> / <code>боулинг 100</code> / <code>слот 100</code>\n"
+            "• <code>мины 100</code> / <code>бж 100</code> / <code>монетка 100 орел</code>\n"
+            "• <code>дуэль 100</code> — Вызов (ответом)\n"
+        )
+        await send_clean_private(message, txt, reply_markup=admin_panel_kb())
+
+    @dp.message(F.text == "🛒 Контент")
+    async def admin_content_btn(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean_private(message, "🛒 <b>КОНТЕНТ</b>\n\nВ разработке.", reply_markup=admin_panel_kb())
+
     # ================= МОДЕРАТОР =================
     @dp.message(F.chat.type.in_({"group", "supergroup"}))
     async def auto_moderator(message: Message):
