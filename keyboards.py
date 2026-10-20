@@ -2,94 +2,54 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 def main_menu() -> ReplyKeyboardMarkup:
-    """Главное меню."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎰 Игры"),     KeyboardButton(text="💰 Баланс")],
+            [KeyboardButton(text="🎮 Игры"),     KeyboardButton(text="💰 Баланс")],
             [KeyboardButton(text="🏦 Банк"),     KeyboardButton(text="👤 Профиль")],
-            [KeyboardButton(text="🏪 Донат"),    KeyboardButton(text="🆘 Помощь")],
+            [KeyboardButton(text="💎 Донат"),    KeyboardButton(text="🆘 Помощь")],
+            [KeyboardButton(text="🌐 Язык")]
         ],
         resize_keyboard=True
     )
 
-def games_menu() -> ReplyKeyboardMarkup:
-    """Меню игр (для групп)."""
+def bank_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎰 Рулетка"),  KeyboardButton(text="🎲 Кости")],
-            [KeyboardButton(text="🃏 Блэкджек"), KeyboardButton(text="💣 Мины")],
-            [KeyboardButton(text="🎡 Колесо"),   KeyboardButton(text="🪙 Монетка")],
-            [KeyboardButton(text="🎰 Слоты"),    KeyboardButton(text="⚔️ Дуэль")],
-            [KeyboardButton(text="⬅️ Назад")],
+            [KeyboardButton(text="📥 Положить"), KeyboardButton(text="📤 Снять")],
+            [KeyboardButton(text="💳 Кредит"), KeyboardButton(text="💸 Погасить кредит")],
+            [KeyboardButton(text="⬅️ Назад")]
         ],
         resize_keyboard=True
     )
 
-def donate_menu() -> ReplyKeyboardMarkup:
-    """Донат-магазин (только токены)."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="💎 50 000 Tokens — 7 ⭐")],
-            [KeyboardButton(text="💎 150 000 Tokens — 20 ⭐")],
-            [KeyboardButton(text="💎 300 000 Tokens — 40 ⭐")],
-            [KeyboardButton(text="💎 1 000 000 Tokens — 125 ⭐")],
-            [KeyboardButton(text="💎 2 000 000 Tokens — 265 ⭐")],
-            [KeyboardButton(text="💎 Своя сумма")],
-            [KeyboardButton(text="⬅️ Назад")],
-        ],
-        resize_keyboard=True
-    )
-
-def support_menu():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="💎 Tokens не пришли"), KeyboardButton(text="🎮 Что-то сломалось в игре")],
-        [KeyboardButton(text="💳 Вопрос по оплате"), KeyboardButton(text="🚫 Бан или мут")],
-        [KeyboardButton(text="🐞 Нашёл баг"), KeyboardButton(text="📜 Правила бота")],
-        [KeyboardButton(text="✍️ Свой вопрос")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ], resize_keyboard=True)
-
-def admin_panel_kb() -> ReplyKeyboardMarkup:
-    """Админ-панель (Reply)."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="👥 Игроки"), KeyboardButton(text="🎮 Игры")],
-            [KeyboardButton(text="🛒 Контент"), KeyboardButton(text="💰 Экономика")],
-            [KeyboardButton(text="📢 Связь"), KeyboardButton(text="📊 Мониторинг")],
-            [KeyboardButton(text="📋 Все команды")],
-            [KeyboardButton(text="⬅️ Назад в админку")],
-        ],
-        resize_keyboard=True
-    )
-
-def bank_menu():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📥 Положить"), KeyboardButton(text="📤 Снять")],
-        [KeyboardButton(text="💳 Кредит"), KeyboardButton(text="💸 Погасить кредит")],
-        [KeyboardButton(text="⬅️ Назад")]
-    ], resize_keyboard=True)
-
-def profile_menu_inline():
+def profile_menu_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Бонус", callback_data="profile_bonus"), InlineKeyboardButton(text="📦 Кейс", callback_data="profile_case")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="profile_back")]
     ])
 
-def bet_actions_inline():
+def bet_actions_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Повторить", callback_data="bet_repeat"), InlineKeyboardButton(text="⏫ Удвоить", callback_data="bet_double")]
     ])
 
-# --- НОВАЯ КЛАВИАТУРА ДЛЯ МОДЕРА ---
 def mod_panel_kb() -> ReplyKeyboardMarkup:
-    """Панель для младшего администратора (модера)."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎁 Выдать токены"), KeyboardButton(text="⚠️ Предупреждение")],
-            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="📌 Закрепить")],
-            [KeyboardButton(text="🔓 Разбан"), KeyboardButton(text="📊 Мои лимиты")],
-            [KeyboardButton(text="🚨 SOS Админу"), KeyboardButton(text="❓ Помощь Модеру")],
-            [KeyboardButton(text="⬅️ В главное меню")]
+            [KeyboardButton(text="📊 Мои лимиты"), KeyboardButton(text="🧹 Очистить")],
+            [KeyboardButton(text="⚠️ Предупреждение"), KeyboardButton(text="📌 Закрепить")],
+            [KeyboardButton(text="🔓 Разбан"), KeyboardButton(text="🚨 SOS Админу")],
+            [KeyboardButton(text="📖 Хелп"), KeyboardButton(text="⬅️ В главное меню")]
+        ],
+        resize_keyboard=True
+    )
+
+def admin_panel_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👥 Игроки"), KeyboardButton(text="👑 Админ-панель")],
+            [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="📢 Рассылка")],
+            [KeyboardButton(text="📖 Хелп"), KeyboardButton(text="⬅️ В главное меню")]
         ],
         resize_keyboard=True
     )
