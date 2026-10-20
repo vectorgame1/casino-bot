@@ -168,6 +168,7 @@ async def start_web_server():
         return web.Response(text="OK")
     app = web.Application()
     app.router.add_get('/', health)
+    app.router.add_get('/health', health)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
@@ -805,101 +806,6 @@ async def main():
             c.close(); release_conn(conn)
         await send_clean_private(message, f"✅ Кредит погашен! Списано: {fmt_num(debt)}", reply_markup=bank_menu())
 
-    # ========================================================
-    # БЛОК 9. ГРУППА: БАЛАНС, ПЕРЕВОД, ТОП, ЛОГ
-    # ========================================================
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().in_({"б", "баланс"}))
-    async def group_bal(message: Message):
-        uid = message.from_user.id
-        bal = get_balance(uid)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{bot.username}?start=case")]
-        ])
-        txt = (
-            f"💳 <b>БАЛАНС</b>\n"
-            f"👤 @{message.from_user.username or 'user'}\n"
-            f"💰 {fmt_num(bal)} Tokens\n\n"
-            f"👇 <i>Кейс в ЛС!</i>"
-        )
-        msg = await message.reply(txt, reply_markup=kb)
-        asyncio.create_task(delete_message_later(msg, 60))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"(?i)^п\s+(\d+)\s+(\d+)$"))
-    async def transfer_by_id(message: Message):
-        parts = message.text.split()
-        uid = message.from_user.id
-        try:
-            target_id = int(parts[1])
-            amount = int(parts[2])
-        except Exception:
-            return
-        if amount < 10:
-            return await message.reply("❌ Мин. 10.")
-        if get_balance(uid) < amount:
-            return await message.reply("❌ Мало.")
-        set_balance(uid, -amount)
-        set_balance(target_id, amount)
-        await message.reply(
-            f"💸 <b>ПЕРЕВОД</b>\n"
-            f"👤 От: @{message.from_user.username or 'user'}\n"
-            f"🎯 Кому: <code>{target_id}</code>\n"
-            f"💰 {fmt_num(amount)}"
-        )
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "топ")
-    async def group_top(message: Message):
-        try:
-            top = get_top(10)
-        except Exception:
-            top = []
-        if not top:
-            return await message.reply("🏆 Топ пуст.")
-        txt = "🏆 <b>ТОП-10 ИГРОКОВ</b>\n\n"
-        for i, (name, bal) in enumerate(top, 1):
-            txt += f"{i}. @{name} — <b>{fmt_num(bal)}</b>\n"
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 120))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "лог")
-    async def group_log(message: Message):
-        chat_id = message.chat.id
-        conn = get_conn(); c = conn.cursor()
-        try:
-            c.execute("CREATE TABLE IF NOT EXISTS group_logs (chat_id BIGINT, detail TEXT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("SELECT detail FROM group_logs WHERE chat_id = %s ORDER BY time DESC LIMIT 10", (chat_id,))
-            rows = c.fetchall()
-        except Exception:
-            rows = []
-        finally:
-            c.close(); release_conn(conn)
-        if not rows:
-            return await message.reply("📜 <b>ИСТОРИЯ ПУСТА</b>\nВ этой группе еще не было игр.")
-        txt = "📜 <b>ПОСЛЕДНИЕ 10 ЧИСЕЛ</b>\n\n"
-        for i, (detail,) in enumerate(rows, 1):
-            if detail.startswith("🔴"):
-                txt += f"{i}. 🔴 <b>{detail[1:]}</b>\n"
-            elif detail.startswith("⚫"):
-                txt += f"{i}. ⚫ <b>{detail[1:]}</b>\n"
-            elif detail.startswith("🟢"):
-                txt += f"{i}. 🟢 <b>{detail[1:]}</b>\n"
-            else:
-                txt += f"{i}. {detail}\n"
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 120))
-
-    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower() == "что нового")
-    async def group_whats_new(message: Message):
-        txt = (
-            "🆕 <b>ЧТО НОВОГО</b>\n\n"
-            "✨ Переработан модератор — больше не ломает игры\n"
-            "✨ Новые приветствия для новичков\n"
-            "✨ Кейс теперь прибавляет к балансу, а не перезаписывает\n"
-            "✨ Лимит модера: 5 000 000/неделя\n"
-            "✨ Хелпы на RU + EN: /help, /mod_help, /admin_help\n\n"
-            "🎮 <i>Удачи и больших выигрышей!</i>"
-        )
-        msg = await message.reply(txt)
-        asyncio.create_task(delete_message_later(msg, 120))
 
     # ========================================================
     # БЛОК 10. ИГРЫ
@@ -2572,6 +2478,119 @@ async def main():
         set_banned(uid, False)
         await send_clean_private(message, f"✅ Игрок @{target} разбанен.", reply_markup=admin_reply_kb())
         await state.clear()
+
+    # ================= ГРУППА: БАЛАНС, ТОП, ЛОГ =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().strip().in_({"б", "баланс"}))
+    async def group_bal(message: Message):
+        uid = message.from_user.id
+        try:
+            bal = get_balance(uid)
+            if isinstance(bal, (tuple, list)): bal = bal[0]
+            if bal is None: bal = 0
+        except Exception as e:
+            logger.error(f"Error getting balance: {e}")
+            bal = 0
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 Открыть кейс", url=f"https://t.me/{bot.username}?start=case")]
+        ])
+        txt = (
+            f"💳 <b>БАЛАНС</b>\n"
+            f"👤 @{message.from_user.username or 'user'}\n"
+            f"💰 {fmt_num(bal)} Tokens\n\n"
+            f"👇 <i>Кейс в ЛС!</i>"
+        )
+        msg = await message.reply(txt, reply_markup=kb)
+        asyncio.create_task(delete_message_later(msg, 60))
+
+    @dp.message(F.chat.type.in_({"group", "supergroup"}), F.text.lower().strip() == "топ")
+    async def group_top(message: Message):
+        try:
+            top = get_top(10)
+        except Exception as e:
+            logger.error(f"Error getting top: {e}")
+            top = []
+            
+        if not top:
+            return await message.reply("🏆 Топ пуст.")
+            
+        txt = "🏆 <b>ТОП-10 ИГРОКОВ</b>\n\n"
+        for i, row in enumerate(top, 1):
+            name = row[0]
+            bal = row[1]
+            txt += f"{i}. @{name} — <b>{fmt_num(bal)}</b>\n"
+            
+        msg = await message.reply(txt)
+        asyncio.create_task(delete_message_later(msg, 120))
+
+    # ================= МОДЕРАТОР =================
+    @dp.message(F.chat.type.in_({"group", "supergroup"}))
+    async def auto_moderator(message: Message):
+        if message.from_user.id == ADMIN_ID or message.from_user.is_bot: return
+        
+        # Пропускаем команды и кнопки бота, чтобы не ломать игры
+        if message.text and (message.text.startswith("/") or message.text.lower().strip() in ["б", "баланс", "игры", "топ", "лог", "бонус", "кейс", "го", "что нового", "отмена", "ставки"]): return
+        if message.reply_to_message and message.reply_to_message.from_user.id == message.bot.id: return
+        
+        uid = message.from_user.id
+        now = datetime.now(TZ_MINSK)
+        
+        # 1. Глобальный мут
+        if GLOBAL_MUTE and uid != ADMIN_ID:
+            try: await message.delete()
+            except: pass
+            return
+            
+        # 2. Проверка на мут
+        if uid in muted_users:
+            if now < muted_users[uid]:
+                try: await message.delete()
+                except: pass
+                return 
+            else: del muted_users[uid]
+                
+        # 3. Анализ текста
+        is_bad = False
+        if message.text:
+            text_lower = message.text.lower()
+            if any(word in text_lower for word in BAD_WORDS): is_bad = True
+                
+        is_caps = False
+        if message.text and len(message.text) > 5:
+            caps_count = sum(1 for c in message.text if c.isupper())
+            if caps_count / len(message.text) > 0.7: is_caps = True
+                
+        is_spam = False
+        if uid in user_warns and user_warns[uid].get("last_msg") == message.text:
+            user_warns[uid]["spam_count"] = user_warns[uid].get("spam_count", 0) + 1
+            if user_warns[uid]["spam_count"] >= 5: is_spam = True
+        else:
+            if uid in user_warns: user_warns[uid]["spam_count"] = 0
+                
+        # 4. Если есть нарушение — наказываем
+        if is_bad or is_caps or is_spam:
+            try: await message.delete()
+            except: pass
+            
+            if uid not in user_warns: user_warns[uid] = {"count": 0, "time": now, "last_msg": None, "spam_count": 0}
+            if (now - user_warns[uid]["time"]).total_seconds() > 3600: user_warns[uid]["count"] = 0
+            
+            user_warns[uid]["count"] += 1
+            user_warns[uid]["time"] = now
+            user_warns[uid]["last_msg"] = message.text
+            count = user_warns[uid]["count"]
+            reason = "мат" if is_bad else ("капс" if is_caps else "спам")
+            
+            if count >= 3 or is_spam:
+                mute_time = 10 if is_spam else 24
+                muted_users[uid] = now + timedelta(minutes=mute_time)
+                del user_warns[uid]
+                await message.answer(f"🚫 <b>МУТ</b>\n@{message.from_user.username or message.from_user.first_name} получил мут на {mute_time} мин. за {reason}.")
+            else:
+                msg = await message.reply(f"⚠️ <b>ПРЕДУПРЕЖДЕНИЕ {count}/3</b>\n@{message.from_user.username or message.from_user.first_name}, не пиши {reason}!")
+                asyncio.create_task(delete_message_later(msg, 30))
+            
+            return # ВАЖНО: Если нарушение было, дальше не идем
 
     # ========================================================
     # ЗАПУСК
