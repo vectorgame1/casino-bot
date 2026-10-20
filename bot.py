@@ -478,7 +478,7 @@ async def main():
     # ========================================================
     # БЛОК 7. ЛС: ПРОФИЛЬ, БОНУС, КЕЙС, РЕФ, ПРОМО
     # ========================================================
-    @dp.message(F.text == "👤 Профиль")
+    @dp.message(F.text.lower().strip().in_({"👤 профиль", "профиль"}))
     async def cmd_prof(message: Message, state: FSMContext):
         await state.clear()
         uid = message.from_user.id
@@ -533,7 +533,7 @@ async def main():
     async def daily_case(message: Message, state: FSMContext):
         await state.clear()
         if message.chat.type != "private":
-            return await message.reply(f"🎁 Кейс в ЛС: @{bot.username}")
+            return await message.reply(f"🎁 Кейс в ЛС: @{BOT_USERNAME}")
         uid = message.from_user.id
         conn = get_conn(); c = conn.cursor()
         try:
@@ -1455,15 +1455,28 @@ async def main():
             return await message.reply("❌ Нет ставок.")
         if not any(b["user_id"] == uid for b in active_bets[chat_id]["bets"]):
             return await message.reply("❌ ТОЛЬКО ИГРОКИ СО СТАВКОЙ!")
+        
         is_spinning[chat_id] = True
         if active_bets[chat_id].get("timer"):
             active_bets[chat_id]["timer"].cancel()
+        
         bets = active_bets[chat_id]["bets"]
         total = sum(b["bet"] for b in bets)
+        
+        # Отправляем гифку с кнопками (Удвоить / Повторить)
+        kb = bet_actions_inline() # Берем кнопки из keyboards.py
         try:
-            msg = await message.reply_animation(FSInputFile("roulette.gif"), caption=f"🎡 КРУТИТСЯ...\n💰 {fmt_num(total)}")
+            msg = await message.reply_animation(
+                FSInputFile("roulette.gif"), 
+                caption=f"🎡 КРУТИТСЯ...\n💰 {fmt_num(total)}\n\n👇 Хочешь еще?", 
+                reply_markup=kb
+            )
         except Exception:
-            msg = await message.reply(f"🎡 КРУТИТСЯ...\n💰 {fmt_num(total)}")
+            msg = await message.reply(
+                f"🎡 КРУТИТСЯ...\n💰 {fmt_num(total)}\n\n👇 Хочешь еще?", 
+                reply_markup=kb
+            )
+            
         await asyncio.sleep(3)
         res = random.randint(0, 36)
         color = get_color(res)
@@ -1485,18 +1498,21 @@ async def main():
                 win.append(f"🏆 @{b['username']} +{fmt_num(w)}")
             else:
                 lose.append(f"💔 @{b['username']}")
+                
         txt = f"🎡 <b>ВЫПАЛО: {color} {res}</b>\n"
         if win:
             txt += "🎉 <b>ПОБЕДИТЕЛИ:</b>\n" + "\n".join(win) + "\n\n"
         if lose:
             txt += "💔 <b>ПРОИГРАЛИ:</b>\n" + "\n".join(lose)
+            
         try:
-            await msg.edit_caption(caption=txt)
+            await msg.edit_caption(caption=txt) # Убираем кнопки после окончания
         except Exception:
             try:
                 await msg.edit_text(txt)
             except Exception:
                 pass
+                
         conn = get_conn(); c = conn.cursor()
         try:
             c.execute("INSERT INTO group_logs (chat_id, detail) VALUES (%s, %s)", (chat_id, f"{color}{res}"))
@@ -1505,6 +1521,8 @@ async def main():
             pass
         finally:
             c.close(); release_conn(conn)
+            
+        # Очищаем ставки текущего раунда, но не удаляем сообщение сразу, чтобы юзер увидел кнопки
         del active_bets[chat_id]
         is_spinning[chat_id] = False
         asyncio.create_task(delete_message_later(msg, 120))
