@@ -203,6 +203,9 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
+    global BOT_USERNAME
+    me = await bot.get_me()
+    BOT_USERNAME = me.username
 
     # ========================================================
     # БЛОК 4. ПРИВЕТСТВИЕ БОТА И НОВЫХ ИГРОКОВ
@@ -252,7 +255,6 @@ async def main():
     # ========================================================
     @dp.message(Command("help", "помощь"))
     async def cmd_help(message: Message):
-        uid = message.from_user.id
         txt = (
             "════════════════════════════════\n"
             "🇷🇺 <b>РУССКИЙ</b>\n"
@@ -293,9 +295,7 @@ async def main():
             "• <code>к/ч/з 100</code> — roulette\n"
             "• <code>чет/нечет 100</code> — even/odd\n"
             "• <code>го</code> — spin\n"
-            "• <code>кости/баскет/футбол/дартс/боулинг/слот/монетка/мины/бж/дуэль + amount</code>\n\n"
-            "🛠 <b>МОДЕРАТОР:</b> <code>/mod_help</code>\n"
-            "👑 <b>АДМИН:</b> <code>/admin_help</code>"
+            "• <code>кости/баскет/футбол/дартс/боулинг/слот/монетка/мины/бж/дуэль + amount</code>"
         )
         await send_clean_private(message, txt)
 
