@@ -804,6 +804,82 @@ async def main():
         )
         await send_clean(message, txt, reply_markup=admin_panel_kb())
 
+    @dp.message(F.text == "📢 Связь")
+    async def admin_comm(message: Message, state: FSMContext):
+        await state.clear()
+        if message.from_user.id != ADMIN_ID: return
+        kb = ReplyKeyboardMarkup(keyboard=[
+            [KeyboardButton(text="📢 Всем")],
+            [KeyboardButton(text="🎯 По @username"), KeyboardButton(text="🆔 По ID")],
+            [KeyboardButton(text="⬅️ Назад в админку")]
+        ], resize_keyboard=True)
+        await send_clean(message, "📢 <b>РАССЫЛКА</b>\n\nКому отправить сообщение?", reply_markup=kb)
+
+    @dp.message(F.text == "📢 Всем")
+    async def broadcast_all_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "📢 Напиши текст для всех игроков:")
+        await state.set_state(BotStates.waiting_broadcast_text)
+        await state.update_data(target="all")
+
+    @dp.message(F.text == "🎯 По @username")
+    async def broadcast_user_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🎯 Введи @username игрока:")
+        await state.set_state(BotStates.waiting_broadcast_target)
+        await state.update_data(mode="user")
+
+    @dp.message(F.text == "🆔 По ID")
+    async def broadcast_id_start(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        await send_clean(message, "🆔 Введи ID игрока:")
+        await state.set_state(BotStates.waiting_broadcast_target)
+        await state.update_data(mode="id")
+
+    @dp.message(BotStates.waiting_broadcast_target)
+    async def broadcast_target_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        data = await state.get_data()
+        target = message.text.strip()
+        uid = get_user_id_by_username(target.replace("@", "")) if data["mode"] == "user" else (int(target) if target.isdigit() else None)
+        
+        if not uid:
+            await state.clear()
+            return await send_clean(message, "❌ Игрок не найден.")
+            
+        await state.update_data(target=uid)
+        await send_clean(message, "✍️ Теперь напиши текст сообщения:")
+        await state.set_state(BotStates.waiting_broadcast_text)
+
+    @dp.message(BotStates.waiting_broadcast_text)
+    async def broadcast_text_process(message: Message, state: FSMContext):
+        if message.from_user.id != ADMIN_ID: return
+        data = await state.get_data()
+        target = data.get("target")
+        
+        if target == "all":
+            conn = get_conn(); c = conn.cursor()
+            c.execute("SELECT user_id FROM users")
+            users = c.fetchall()
+            c.close(); release_conn(conn)
+            
+            sent = 0
+            await send_clean(message, f"⏳ Рассылка на {len(users)} игроков...")
+            for (uid,) in users:
+                try:
+                    await message.bot.send_message(uid, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}")
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                except: pass
+            await send_clean(message, f"✅ Отправлено: {sent} игрокам.")
+        else:
+            try:
+                await message.bot.send_message(target, f"📢 <b>ОТ АДМИНИСТРАЦИИ</b>\n\n{message.text}")
+                await send_clean(message, "✅ Отправлено игроку!")
+            except Exception as e:
+                await send_clean(message, f"❌ Ошибка: {e}")
+        await state.clear()
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
