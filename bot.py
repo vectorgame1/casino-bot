@@ -44,7 +44,7 @@ PR_SALARY = 50000
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-bot = Bot(token="8636948865:AAHxwsvpuIHQGgsZzifIeWHMYTDWxbWbIyI", default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token="8636948865:AAEm5XgykvgqJgx5Bfdu6JCgcG8MEiGKuns", default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
@@ -601,11 +601,6 @@ async def admin_reply(message: Message):
 # ==============================================================================
 # ИГРЫ В ГРУППАХ
 # ==============================================================================
-
-@group_router.message(Command("игры"))
-async def cmd_games(message: Message):
-    if message.chat.type not in ["group", "supergroup"]: return
-    await message.answer("🎮 <b>Выберите игру:</b>", reply_markup=get_games_inline("ru"))
 
 @group_router.callback_query(F.data == "close_games")
 async def close_games(callback: CallbackQuery):
@@ -1257,6 +1252,101 @@ async def pr_back(message: Message):
     builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
     builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
     await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+# ==============================================================================
+# ПАТЧ 5: ВОЗВРАЩАЕМ КОМАНДЫ ДЛЯ ГРУПП (Б, БАЛАНС, ТОП, ЛОГ, ПЕРЕВОД)
+# ==============================================================================
+
+@group_router.message(F.text.in_(["б", "баланс"]))
+async def cmd_balance_group(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    user = get_user(message.from_user.id)
+    await message.reply(f"💰 Баланс: <b>{format_money(user[4])}</b>")
+
+@group_router.message(F.text.lower() == "топ")
+async def cmd_top(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    top_users = db_execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
+    text = "🏆 <b>Топ-10 игроков:</b>\n\n"
+    for i, u in enumerate(top_users, 1):
+        text += f"{i}. ID {u[0]} — {format_money(u[1])}\n"
+    await message.reply(text)
+
+@group_router.message(F.text.lower() == "лог")
+async def cmd_log(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    logs = db_execute("SELECT action, amount FROM logs ORDER BY id DESC LIMIT 5", fetchall=True)
+    text = "📜 <b>Последние операции:</b>\n\n"
+    for log in logs:
+        text += f"{log[0]}: {log[1]}\n"
+    await message.reply(text)
+
+@group_router.message(F.text.regexp(r"(?i)^п\s+(\d+)\s+(\d+)$"))
+async def cmd_transfer(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    parts = message.text.split()
+    target_id = int(parts[1])
+    amount = int(parts[2])
+    
+    if target_id == message.from_user.id:
+        return await message.reply("❌ Нельзя переводить самому себе.")
+        
+    sender = get_user(message.from_user.id)
+    if sender[4] < amount:
+        return await message.reply("❌ Недостаточно средств.")
+        
+    update_balance(message.from_user.id, -amount)
+    update_balance(target_id, amount)
+    await message.reply(f"✅ Перевод {format_money(amount)} пользователю <a href='tg://user?id={target_id}'>{target_id}</a> выполнен.")
+
+# ==============================================================================
+# ПАТЧ 6: ИСПРАВЛЕНИЕ БАГОВ (БОНУС, ПОДДЕРЖКА, ЛОГИ)
+# ==============================================================================
+
+# 1. Исправленный бонус
+@user_router.message(F.text.in_(["🎁 Бонус", "🎁 Bonus, бонус"]))
+async def claim_bonus_fix(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
+    last_bonus = user[7] # last_bonus находится под индексом 7
+    
+    if last_bonus:
+        last_bonus_dt = datetime.datetime.fromisoformat(last_bonus)
+        if now - last_bonus_dt < datetime.timedelta(hours=24):
+            time_left = datetime.timedelta(hours=24) - (now - last_bonus_dt)
+            return await send_clean(message, f"⏳ Следующий бонус через {time_left.seconds//3600} ч. {(time_left.seconds%3600)//60} мин.", reply_markup=get_profile_menu(user[2]))
+            
+    streak = user[8] + 1 if last_bonus and (now - last_bonus_dt).days == 1 else 1
+    bonus_amount = 5000 if streak < 7 else 10000
+    
+    db_execute("UPDATE users SET balance = balance + ?, last_bonus = ?, streak = ? WHERE user_id = ?", (bonus_amount, now.isoformat(), streak, user[0]))
+    await send_clean(message, f"🎁 Бонус: {format_money(bonus_amount)}!\n🔥 Стрик: {streak} дн.", reply_markup=get_profile_menu(user[2]))
+
+# 2. Текст поддержки (замена "бреда")
+# Можешь поменять @TokensChange на свой ник!
+@user_router.message(F.text.in_(["🎮 Проблема с игрой", "💳 Вопрос по оплате", "🚫 Бан или мут", "🐞 Нашёл баг"]))
+async def support_fix(message: Message):
+    user = get_user(message.from_user.id)
+    await send_clean(message, 
+        "🆘 <b>Служба поддержки</b>\n\n"
+        "Пожалуйста, опишите вашу проблему одним сообщением, и мы ответим вам в ближайшее время.\n"
+        "Также вы можете написать нашему администратору: @vctorw", 
+        reply_markup=get_help_menu(user[2])
+    )
+
+# 3. Вызов игр текстом (без слэша)
+@group_router.message(F.text.lower().in_(["игры", "games", "играть"]))
+async def cmd_games_text(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    await message.answer("🎮 <b>Выберите игру:</b>", reply_markup=get_games_inline("ru"))
+
+# 4. Логирование ошибок (чтобы ты знал, если упадет)
+import sys
+
 
 async def main():
     init_db()
