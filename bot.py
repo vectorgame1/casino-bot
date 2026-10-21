@@ -34,7 +34,7 @@ from database import (
 )
 from utils import (
     send_clean, fmt_num, make_xp_bar, get_rank_name,
-    clamp, clamp_balance, send_temp, strip_html
+    clamp, clamp_balance
 )
 from state_manager import load_mods, save_mods, refresh_week, load_prs, save_prs
 
