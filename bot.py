@@ -25,7 +25,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import (
     BOT_TOKEN, BOT_NAME, ADMIN_ID, START_BONUS, TZ_MINSK,
-    MAX_BALANCE, MAX_BANK, MAX_BET, MIN_BET, MAX_WIN
+    MAX_BALANCE, MAX_BANK, MAX_BET, MAX_WIN
 )
 from database import (
     init_pool, init_db, get_balance, set_balance, ensure_user,
@@ -1430,7 +1430,7 @@ async def main():
     # Переопределяем фоновую задачу (старую можно закомментировать выше)
     asyncio.create_task(updated_background_tasks())
 
-    
+
     
     # ========================================================
     # ЗАПУСК
