@@ -591,20 +591,6 @@ async def start_roulette(message: Message):
 async def roulette_repeat(callback: CallbackQuery):
     await callback.answer("Напишите вашу ставку и 'го'!", show_alert=True)
 
-@group_router.message(F.text.regexp(r"(?i)^(кости|баскет|футбол|дартс|боулинг|слот)\s+(\d+)$"))
-async def play_simple_games(message: Message):
-    parts = message.text.lower().split()
-    amount = int(parts[1])
-    user = get_user(message.from_user.id)
-    if user[3] < amount: return await message.reply("❌ Мало средств.")
-    update_balance(message.from_user.id, -amount)
-    await message.answer(f"🎲 Играем в {parts[0].capitalize()}...")
-    await asyncio.sleep(2)
-    if random.random() < 0.45:
-        update_balance(message.from_user.id, amount * 2)
-        await message.reply(f"🎉 Победа! Выиграли {format_money(amount*2)}!")
-    else:
-        await message.reply("😢 Проиграли.")
 
 @group_router.message(F.text.regexp(r"(?i)^монетка\s+(\d+)(?:\s+(орел|решка))?$"))
 async def play_coin(message: Message):
