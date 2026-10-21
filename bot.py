@@ -585,7 +585,7 @@ async def start_roulette(message: Message):
             winners.append(f"👤 <a href='tg://user?id={u_id}'>{u_id}</a> выиграл {format_money(prize)}")
     text += "\n".join(winners) if winners else "😢 Победителей нет."
     builder = InlineKeyboardBuilder().row(InlineKeyboardButton(text="🔄 Повторить", callback_data="r_rep"), InlineKeyboardButton(text="⏫ Удвоить", callback_data="r_dbl"))
-    await msg.edit_text(text, reply_markup=builder.as_markup())
+    await message.answer(text, reply_markup=builder.as_markup())
 
 @group_router.callback_query(F.data.in_(["r_rep", "r_dbl"]))
 async def roulette_repeat(callback: CallbackQuery):
@@ -1056,6 +1056,141 @@ async def process_game_callback(message: Message):
     elif game == "duel": await message.message.edit_text("⚔️ <b>Дуэли</b>\n\nОтветь (Reply) на сообщение игрока и напиши: <code>дуэль 100</code>")
     elif game == "coin": await message.message.edit_text("🪙 <b>Монетка</b>\n\nНапиши в чат: <code>монетка 100 орел</code>")
     await message.answer()
+
+# ==============================================================================
+# ПАТЧ 13: УМНЫЙ СТАРТ (АДМИНКА ДЛЯ РОЛЕЙ)
+# ==============================================================================
+
+# 1. Переопределяем /start для проверки ролей
+@user_router.message(CommandStart())
+async def smart_start(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    
+    # Если это админ
+    if message.from_user.id == ADMIN_ID:
+        await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
+        return
+        
+    # Если это модер
+    if user[10] == "moderator":
+        builder = ReplyKeyboardBuilder()
+        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
+        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
+        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
+        builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+        await send_clean(message, get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+        return
+        
+    # Если это пиарщик
+    if user[10] == "promoter":
+        builder = ReplyKeyboardBuilder()
+        builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
+        builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+        await send_clean(message, get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+        return
+
+    # Если это обычный игрок (или новый)
+    if not user[1] or user[1] == "Unknown":
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
+        builder.button(text="🇬🇧 English", callback_data="set_lang_en")
+        await message.answer(get_text("ru", "choose_lang"), reply_markup=builder.as_markup())
+        return
+
+    lang = user[2]
+    photo_path = "assets/welcome.jpg"
+    if os.path.exists(photo_path):
+        try:
+            await bot.send_photo(chat_id=message.chat.id, photo=types.FSInputFile(photo_path), caption=get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+            return
+        except Exception: pass
+    await send_clean(message, get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+
+# 2. Кнопка "В меню" для модера (возвращает его панель)
+@mod_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
+async def mod_back_fix(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+# 3. Кнопка "В меню" для пиарщика
+@pr_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
+async def pr_back_fix(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+# 4. Кнопка "Назад" для Админа
+@admin_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
+async def admin_back_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    user = get_user(message.from_user.id)
+    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
+
+# ==============================================================================
+# ПАТЧ 14: ФИКС РУЛЕТКИ И ОЧИСТКИ ЛС
+# ==============================================================================
+
+# Переопределяем send_clean, чтобы он 100% удалял сообщения
+async def send_clean_final(message: Message, text: str, reply_markup=None):
+    chat_id = message.chat.id
+    if chat_id in last_messages:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=last_messages[chat_id])
+        except Exception:
+            pass
+    msg = await message.answer(text, reply_markup=reply_markup)
+    last_messages[chat_id] = msg.message_id
+    return msg
+
+# Переопределяем рулетку (чтобы она писала результат новым сообщением, а не редактировала гифку)
+@group_router.message(F.text.lower() == "го")
+async def start_roulette_fix(message: Message):
+    chat_id = message.chat.id
+    if chat_id not in active_roulette_bets or not active_roulette_bets[chat_id]: return
+    
+    bets = active_roulette_bets.pop(chat_id)
+    active_roulette_bets[chat_id] = {}
+    
+    gif_path = "assets/roulette.gif"
+    if os.path.exists(gif_path):
+        try: 
+            await message.answer_animation(types.FSInputFile(gif_path))
+        except Exception: 
+            await message.answer("🎡 Рулетка крутится...")
+    else: 
+        await message.answer("🎡 Рулетка крутится...")
+        
+    await asyncio.sleep(4)
+    
+    result = random.choice(["к", "ч", "з"])
+    res_name = {"к": "Красное 🔴", "ч": "Черное ⚫", "з": "Зеро 🟢"}[result]
+    text = f"🎯 Выпало: <b>{res_name}</b>\n\n"
+    winners = []
+    
+    for u_id, bet in bets.items():
+        mult = 0
+        if result == bet["type"]: mult = 2
+        elif result == "з" and bet["type"] == "з": mult = 14
+        elif result == "з" and bet["type"] in ["к", "ч", "красное", "черное", "чет", "нечет"]: mult = 0
+        
+        if mult > 0:
+            prize = bet["amount"] * mult
+            update_balance(u_id, prize)
+            winners.append(f"👤 <a href='tg://user?id={u_id}'>{u_id}</a> выиграл {format_money(prize)}")
+            
+    text += "\n".join(winners) if winners else "😢 Победителей нет."
+    builder = InlineKeyboardBuilder().row(InlineKeyboardButton(text="🔄 Повторить", callback_data="r_rep"), InlineKeyboardButton(text="⏫ Удвоить", callback_data="r_dbl"))
+    await message.answer(text, reply_markup=builder.as_markup()) # Отправляем НОВОЕ сообщение
 
 # ==============================================================================
 # ЗАПУСК И ПИНГ
