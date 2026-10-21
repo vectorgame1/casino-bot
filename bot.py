@@ -1147,6 +1147,237 @@ async def mod_check_limit(message: Message):
         
     await message.answer(f"📊 Ваш лимит:\nВыдано: {format_money(given)}\nОсталось: {format_money(5000000 - given)}")
 
+# ==============================================================================
+# ПАТЧ: ПОЛНОЦЕННЫЙ ФУНКЦИОНАЛ ДЛЯ МОДЕРОВ, ПИАРЩИКОВ И АДМИНА
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. АДМИНСКИЕ КОМАНДЫ
+# ------------------------------------------------------------------------------
+
+@admin_router.message(Command("give_all"))
+async def cmd_give_all(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2: return await message.reply("Формат: /give_all 1000")
+    
+    try:
+        amount = int(args[1])
+    except ValueError:
+        return await message.reply("❌ Введите число.")
+        
+    db_execute("UPDATE users SET balance = balance + ?", (amount,))
+    await message.reply(f"✅ Всем игрокам выдано по {format_money(amount)}.")
+
+@admin_router.message(Command("sys_info"))
+async def cmd_sys_info(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    import platform
+    import psutil # Если нет psutil, просто удали эту строку и строку с memory
+    
+    uptime = datetime.datetime.now() - datetime.datetime.fromtimestamp(psutil.boot_time()) if 'psutil' in globals() else "N/A"
+    total_users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
+    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
+    
+    text = (
+        f"🖥 <b>Состояние сервера</b>\n\n"
+        f"🐍 Python: {platform.python_version()}\n"
+        f"📅 ОС: {platform.system()}\n"
+        f"👥 Игроков: {total_users}\n"
+        f"💰 Общий баланс: {format_money(bal)}\n"
+    )
+    await message.reply(text)
+
+@admin_router.message(Command("secret"))
+async def cmd_secret(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 3: return await message.reply("Формат: /secret СУММА ВРЕМЯ_В_СЕКУНДАХ")
+    
+    try:
+        amount = int(args[1])
+        time_sec = int(args[2])
+    except ValueError:
+        return await message.reply("❌ Неверный формат.")
+        
+    builder = InlineKeyboardBuilder().button(text="🎁 ЗАБРАТЬ", callback_data=f"secret_{amount}")
+    msg = await message.answer(f"🎁 <b>СЕКРЕТНЫЙ ДРОП!</b>\nКто первый нажмет кнопку, получит {format_money(amount)}!", reply_markup=builder.as_markup())
+    
+    await asyncio.sleep(time_sec)
+    try: await msg.delete()
+    except Exception: pass
+
+@admin_router.callback_query(F.data.startswith("secret_"))
+async def claim_secret(callback: CallbackQuery):
+    amount = int(callback.data.split("_")[-1])
+    try: await callback.message.delete()
+    except Exception: pass
+    update_balance(callback.from_user.id, amount)
+    try: await bot.send_message(callback.from_user.id, f"🎉 Вы забрали секретный дроп: {format_money(amount)}!")
+    except Exception: pass
+
+@admin_router.message(F.text.in_([TEXTS["ru"]["btn_admin_event"], TEXTS["en"]["btn_admin_event"]]))
+async def admin_event_btn(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.reply("🎁 Используйте команду <code>/secret 50000 60</code> для ивента.")
+
+@admin_router.message(F.text.in_([TEXTS["ru"]["btn_admin_manage"], TEXTS["en"]["btn_admin_manage"]]))
+async def admin_manage_btn(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.reply("🛠 Управление:\n/mod_add ID\n/pr_add ID\n/give_all СУММА\n/secret СУММА ВРЕМЯ")
+
+
+# ------------------------------------------------------------------------------
+# 2. КНОПКИ МОДЕРАТОРА (Модер)
+# ------------------------------------------------------------------------------
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_clean"], TEXTS["en"]["btn_mod_clean"]]))
+async def mod_clean_btn(message: Message):
+    await message.reply("🧹 Чтобы очистить чат, напишите <code>/mod_clean 10</code> (где 10 — кол-во сообщений)")
+
+@mod_router.message(Command("mod_clean"))
+async def cmd_mod_clean(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    
+    args = message.text.split()
+    count = int(args[1]) if len(args) > 1 else 10
+    await message.delete()
+    for i in range(1, count + 1):
+        try: await bot.delete_message(message.chat.id, message.message_id - i)
+        except Exception: pass
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_pin"], TEXTS["en"]["btn_mod_pin"]]))
+async def mod_pin_btn(message: Message):
+    await message.reply("📌 Чтобы закрепить сообщение, ответьте (Reply) на него и напишите <code>/mod_pin</code>")
+
+@mod_router.message(Command("mod_pin"))
+async def cmd_mod_pin(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    if not message.reply_to_message: return await message.reply("❌ Нужен Reply на сообщение.")
+    
+    try:
+        await message.reply_to_message.pin()
+        await message.reply("📌 Сообщение закреплено.")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_unban"], TEXTS["en"]["btn_mod_unban"]]))
+async def mod_unban_btn(message: Message):
+    await message.reply("🔓 Чтобы разбанить, напишите <code>/mod_unban ID</code>")
+
+@mod_router.message(Command("mod_unban"))
+async def cmd_mod_unban(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    
+    args = message.text.split()
+    if len(args) != 2: return await message.reply("Формат: /mod_unban ID")
+    
+    try:
+        target_id = int(args[1])
+        await bot.unban_chat_member(message.chat.id, target_id)
+        await message.reply(f"✅ Пользователь {target_id} разбанен.")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_sos"], TEXTS["en"]["btn_mod_sos"]]))
+async def mod_sos_btn(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    
+    try:
+        await bot.send_message(ADMIN_ID, f"🚨 <b>SOS!</b>\nМодер @{message.from_user.username} (ID: {user[0]}) просит помощи в чате!")
+        await message.reply("🚨 Сигнал отправлен Админу.")
+    except Exception: pass
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_help"], TEXTS["en"]["btn_mod_help"]]))
+async def mod_help_btn(message: Message):
+    text = (
+        "📖 <b>Помощь Модератора:</b>\n\n"
+        "🔨 <code>/mod_warn</code> (Reply) — выдать варн\n"
+        "🔇 <code>/mod_mute 60</code> (Reply) — замутить на N минут\n"
+        "🧹 <code>/mod_clean 10</code> — удалить 10 сообщений\n"
+        "📌 <code>/mod_pin</code> (Reply) — закрепить\n"
+        "🔓 <code>/mod_unban ID</code> — разбанить\n"
+        "💰 <code>/mod_give ID СУММА</code> — выдать деньги"
+    )
+    await message.reply(text)
+
+@mod_router.message(Command("mod_warn"))
+async def cmd_mod_warn(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    if not message.reply_to_message: return await message.reply("❌ Нужен Reply на нарушителя.")
+    
+    target_id = message.reply_to_message.from_user.id
+    db_execute("UPDATE users SET warns = warns + 1 WHERE user_id = ?", (target_id,))
+    warns = db_execute("SELECT warns FROM users WHERE user_id = ?", (target_id,), fetchone=True)[0]
+    
+    await message.reply(f"⚠️ Выдан варн. Всего: {warns}/3")
+    if warns >= 3:
+        try:
+            await bot.ban_chat_member(message.chat.id, target_id)
+            await message.answer("🚫 Пользователь забанен за 3 варна.")
+            db_execute("UPDATE users SET warns = 0 WHERE user_id = ?", (target_id,))
+        except Exception: pass
+
+@mod_router.message(Command("mod_mute"))
+async def cmd_mod_mute(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    if not message.reply_to_message: return await message.reply("❌ Нужен Reply на нарушителя.")
+    
+    args = message.text.split()
+    minutes = int(args[1]) if len(args) > 1 else 60
+    
+    target_id = message.reply_to_message.from_user.id
+    try:
+        await bot.restrict_chat_member(
+            message.chat.id, target_id, 
+            permissions=types.ChatPermissions(can_send_messages=False), 
+            until_date=datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+        )
+        await message.reply(f"🔇 Пользователь замучен на {minutes} минут.")
+    except Exception as e: await message.reply(f"❌ Ошибка: {e}")
+
+# ------------------------------------------------------------------------------
+# 3. КНОПКИ ПИАРЩИКА
+# ------------------------------------------------------------------------------
+
+@pr_router.message(F.text.in_([TEXTS["ru"]["btn_pr_stats"], TEXTS["en"]["btn_pr_stats"]]))
+async def pr_stats_btn(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    
+    texts_taken = db_execute("SELECT COUNT(*) FROM logs WHERE user_id = ? AND action = 'pr_text_taken'", (user[0],), fetchone=True)[0]
+    await message.reply(f"📊 <b>Ваша статистика пиарщика:</b>\nВыдано текстов: {texts_taken}")
+
+@pr_router.message(Command("pr_stats"))
+async def cmd_pr_stats(message: Message):
+    await pr_stats_btn(message)
+
+# Перехватываем кнопку получения текста, чтобы записывать статистику
+@pr_router.message(F.text.in_([TEXTS["ru"]["btn_pr_text"], TEXTS["en"]["btn_pr_text"]]))
+async def pr_get_text_stat(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    
+    db_execute("INSERT INTO logs (user_id, action, amount, date) VALUES (?, ?, ?, ?)", 
+               (user[0], "pr_text_taken", 0, datetime.datetime.now().isoformat()))
+    
+    texts = [
+        "🔥 <b>Лучший бот для заработка!</b>\nЗаходи, получай стартовый бонус 5000 и играй в игры прямо в чате! @{bot}",
+        "💎 <b>Хочешь стать богаче?</b>\nНаш бот дает крутые бонусы и игры. Забирай свои 5000 прямо сейчас! @{bot}",
+        "🎮 <b>Играй и зарабатывай!</b>\nРулетка, кейсы, лотереи. Стартовый бонус уже ждет тебя! @{bot}"
+    ]
+    bot_info = await bot.get_me()
+    text = random.choice(texts).format(bot=bot_info.username)
+    
+    await message.answer(f"📋 <b>Ваш текст для рассылки:</b>\n\n{text}")
+
 async def main():
     init_db()
     scheduler.add_job(lottery_draw, "cron", hour=20, minute=0)
