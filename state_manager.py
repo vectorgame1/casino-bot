@@ -8,12 +8,15 @@ STATE_FILE = "state.json"
 
 def _load() -> dict:
     if not os.path.exists(STATE_FILE):
-        return {"mods": [], "mod_limits": {}}
+        return {"mods": [], "mod_limits": {}, "prs": []}
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            if "prs" not in data:
+                data["prs"] = []
+            return data
     except Exception:
-        return {"mods": [], "mod_limits": {}}
+        return {"mods": [], "mod_limits": {}, "prs": []}
 
 
 def _save(data: dict):
@@ -40,15 +43,14 @@ def load_mods():
 
 
 def save_mods(mods: list, limits: dict):
-    data = {
-        "mods": list(mods),
-        "mod_limits": {
-            str(uid): {
-                "week_start": (lim.get("week_start") or date.today()).isoformat(),
-                "given": int(lim.get("given", 0)),
-            }
-            for uid, lim in limits.items()
-        },
+    data = _load()
+    data["mods"] = list(mods)
+    data["mod_limits"] = {
+        str(uid): {
+            "week_start": (lim.get("week_start") or date.today()).isoformat(),
+            "given": int(lim.get("given", 0)),
+        }
+        for uid, lim in limits.items()
     }
     _save(data)
 
@@ -61,3 +63,16 @@ def refresh_week(uid: int, limits: dict) -> dict:
         lim = {"week_start": today, "given": 0}
     limits[uid] = lim
     return lim
+
+
+# ================= ПИАРЩИКИ (НОВЫЕ ФУНКЦИИ) =================
+
+def load_prs():
+    data = _load()
+    return list(data.get("prs", []))
+
+
+def save_prs(prs: list):
+    data = _load()
+    data["prs"] = list(prs)
+    _save(data)
