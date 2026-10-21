@@ -44,7 +44,7 @@ PR_SALARY = 50000
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-bot = Bot(token="8636948865:AAFy1WQp99r7-bxql_uBRw7A-XEELke0Iro", default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token="8636948865:AAHxwsvpuIHQGgsZzifIeWHMYTDWxbWbIyI", default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
@@ -593,36 +593,6 @@ async def admin_reply(message: Message):
     else:
         await message.reply("❌ Не найден игрок.")
 
-# ==============================================================================
-# ПАНЕЛЬ АДМИНА (Reply)
-# ==============================================================================
-
-def get_admin_menu(lang):
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text(lang, "btn_admin_players")), KeyboardButton(text=get_text(lang, "btn_admin_stats")))
-    builder.row(KeyboardButton(text=get_text(lang, "btn_admin_broadcast")), KeyboardButton(text=get_text(lang, "btn_admin_event")))
-    builder.row(KeyboardButton(text=get_text(lang, "btn_admin_manage")), KeyboardButton(text=get_text(lang, "btn_admin_report")))
-    builder.row(KeyboardButton(text=get_text(lang, "menu_back")))
-    return builder.as_markup(resize_keyboard=True)
-
-@admin_router.message(Command("admin"))
-async def admin_panel_cmd(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    user = get_user(message.from_user.id)
-    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
-
-@admin_router.message(F.text.in_([TEXTS["ru"]["btn_admin_players"], TEXTS["en"]["btn_admin_players"]]))
-async def admin_players(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    total = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    await message.answer(f"👥 Всего игроков: <b>{total}</b>")
-
-@admin_router.message(F.text.in_([TEXTS["ru"]["btn_admin_report"], TEXTS["en"]["btn_admin_report"]]))
-async def admin_report(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    total = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
-    await message.answer(f"📊 <b>Отчет:</b>\n👥 Игроков: {total}\n💰 Общий баланс: {format_money(bal)}")
 
 # ==============================================================================
 # ЧАСТЬ 3: ИГРЫ, МОДЕРАЦИЯ, ПИАРЩИКИ, ПЛАНИРОВЩИК, ЗАПУСК
@@ -970,65 +940,6 @@ async def decline_duel(callback: CallbackQuery):
     await callback.message.edit_text("❌ Дуэль отклонена.")
     await callback.answer()
 
-# ==============================================================================
-# МОДЕРАЦИЯ И ПИАРЩИКИ
-# ==============================================================================
-
-@admin_router.message(Command("mod_add"))
-async def add_mod(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) != 2: return await message.reply("Формат: /mod_add ID")
-    
-    target_id = int(args[1].replace("@", ""))
-    db_execute("UPDATE users SET role = 'moderator' WHERE user_id = ?", (target_id,))
-    
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    
-    try:
-        await bot.send_message(target_id, get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-        await message.reply("✅ Модер назначен.")
-    except Exception:
-        await message.reply("❌ Ошибка (закрыты ЛС).")
-
-@admin_router.message(Command("pr_add"))
-async def add_pr(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) != 2: return await message.reply("Формат: /pr_add ID")
-    
-    target_id = int(args[1].replace("@", ""))
-    db_execute("UPDATE users SET role = 'promoter' WHERE user_id = ?", (target_id,))
-    
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    
-    try:
-        await bot.send_message(target_id, get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-        await message.reply("✅ Пиарщик назначен.")
-    except Exception:
-        await message.reply("❌ Ошибка (закрыты ЛС).")
-
-@pr_router.message(Command("pr_text"))
-@pr_router.message(F.text.in_([TEXTS["ru"]["btn_pr_text"], TEXTS["en"]["btn_pr_text"]]))
-async def pr_get_text(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    
-    texts = [
-        "🔥 <b>Лучший бот для заработка!</b>\nЗаходи, получай стартовый бонус 5000 и играй в игры прямо в чате! @{bot}",
-        "💎 <b>Хочешь стать богаче?</b>\nНаш бот дает крутые бонусы и игры. Забирай свои 5000 прямо сейчас! @{bot}",
-        "🎮 <b>Играй и зарабатывай!</b>\nРулетка, кейсы, лотереи. Стартовый бонус уже ждет тебя! @{bot}"
-    ]
-    bot_info = await bot.get_me()
-    text = random.choice(texts).format(bot=bot_info.username)
-    
-    await message.answer(f"📋 <b>Текст:</b>\n\n{text}")
 
 # ==============================================================================
 # ПЛАНИРОВЩИК И ЗАПУСК
@@ -1092,60 +1003,6 @@ async def process_broadcast(message: Message, state: FSMContext):
             
     await status_msg.edit_text(f"✅ Рассылка завершена!\nУспешно: {success}\nОшибок (заблокировали бота): {fail}")
 
-# --- 2. ЛИМИТЫ МОДЕРА ---
-@mod_router.message(Command("mod_give"))
-async def mod_give(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
-    
-    args = message.text.split()
-    if len(args) != 3: return await message.reply("Формат: /mod_give ID СУММА")
-    
-    try:
-        target_id = int(args[1].replace("@", ""))
-        amount = int(args[2])
-    except ValueError:
-        return await message.reply("❌ Неверный формат ID или суммы.")
-        
-    # Проверка лимита (только для модеров, у админа лимита нет)
-    if message.from_user.id != ADMIN_ID:
-        limit_data = db_execute("SELECT given_amount, last_reset FROM mod_limits WHERE user_id = ?", (user[0],), fetchone=True)
-        now = datetime.datetime.now()
-        
-        if not limit_data:
-            db_execute("INSERT INTO mod_limits (user_id, given_amount, last_reset) VALUES (?, 0, ?)", (user[0], now.isoformat()))
-            given = 0
-        else:
-            given, last_reset = limit_data
-            # Сброс лимита раз в 7 дней
-            if now - datetime.datetime.fromisoformat(last_reset) > datetime.timedelta(days=7):
-                given = 0
-                db_execute("UPDATE mod_limits SET given_amount = 0, last_reset = ? WHERE user_id = ?", (now.isoformat(), user[0]))
-                
-        if given + amount > 5000000:
-            return await message.reply(f"❌ Лимит превышен! Вы выдали {format_money(given)} из 5 000 000. Осталось: {format_money(5000000 - given)}.")
-            
-        db_execute("UPDATE mod_limits SET given_amount = given_amount + ? WHERE user_id = ?", (amount, user[0]))
-        
-    update_balance(target_id, amount)
-    await message.reply(f"✅ Вы выдали {format_money(amount)} игроку {target_id}.")
-
-@mod_router.message(F.text.in_([TEXTS["ru"]["btn_mod_limit"], TEXTS["en"]["btn_mod_limit"]]))
-async def mod_check_limit(message: Message):
-    user = get_user(message.from_user.id)
-    if message.from_user.id == ADMIN_ID: return await message.answer("👑 У вас безлимит.")
-    
-    limit_data = db_execute("SELECT given_amount, last_reset FROM mod_limits WHERE user_id = ?", (user[0],), fetchone=True)
-    if not limit_data:
-        return await message.answer("📊 Вы еще не выдавали средства. Лимит: 5 000 000.")
-        
-    given, last_reset = limit_data
-    now = datetime.datetime.now()
-    if now - datetime.datetime.fromisoformat(last_reset) > datetime.timedelta(days=7):
-        given = 0
-        db_execute("UPDATE mod_limits SET given_amount = 0, last_reset = ? WHERE user_id = ?", (now.isoformat(), user[0]))
-        
-    await message.answer(f"📊 Ваш лимит:\nВыдано: {format_money(given)}\nОсталось: {format_money(5000000 - given)}")
 
 # ==============================================================================
 # ПАТЧ: ПОЛНОЦЕННЫЙ ФУНКЦИОНАЛ ДЛЯ МОДЕРОВ, ПИАРЩИКОВ И АДМИНА
@@ -1174,9 +1031,6 @@ async def cmd_sys_info(message: Message):
     if message.from_user.id != ADMIN_ID: return
     
     import platform
-    import psutil # Если нет psutil, просто удали эту строку и строку с memory
-    
-    uptime = datetime.datetime.now() - datetime.datetime.fromtimestamp(psutil.boot_time()) if 'psutil' in globals() else "N/A"
     total_users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
     bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
     
@@ -1378,10 +1232,37 @@ async def pr_get_text_stat(message: Message):
     
     await message.answer(f"📋 <b>Ваш текст для рассылки:</b>\n\n{text}")
 
+# ==============================================================================
+# ПАТЧ 4: КНОПКИ "НАЗАД" ДЛЯ РОЛЕЙ
+# ==============================================================================
+
+@mod_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
+async def mod_back(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+@pr_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
+async def pr_back(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
 async def main():
     init_db()
     scheduler.add_job(lottery_draw, "cron", hour=20, minute=0)
-    scheduler.add_job(pay_salaries, "cron", day="*/3", hour=12, minute=0)
+    # Запускаем ЗП через 3 дня после старта, а потом каждые 3 дня
+    scheduler.add_job(pay_salaries, "interval", days=3, next_run_time=datetime.datetime.now() + datetime.timedelta(days=3))
     scheduler.start()
     logger.info("Бот запущен!")
     await dp.start_polling(bot)
