@@ -221,10 +221,14 @@ def get_games_inline(lang):
     builder.button(text="💣 Мины", callback_data="game_mines")
     builder.button(text="🃏 Блэкджек", callback_data="game_blackjack")
     builder.button(text="🎲 Кости", callback_data="game_dice")
+    builder.button(text="🏀 Баскет", callback_data="game_basket")
+    builder.button(text="⚽ Футбол", callback_data="game_football")
+    builder.button(text="🎯 Дартс", callback_data="game_darts")
+    builder.button(text="🎳 Боулинг", callback_data="game_bowling")
     builder.button(text="⚔️ Дуэли", callback_data="game_duel")
     builder.button(text="🪙 Монетка", callback_data="game_coin")
     builder.button(text="❌ Закрыть", callback_data="close_games")
-    builder.adjust(2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2, 1)
     return builder.as_markup()
 
 # ==============================================================================
@@ -1347,6 +1351,127 @@ async def cmd_games_text(message: Message):
 # 4. Логирование ошибок (чтобы ты знал, если упадет)
 import sys
 
+# ==============================================================================
+# ПАТЧ 8 (ЧАСТЬ 1): 10 ИГР, СТИКЕРЫ, АДМИНКА, МОДЕРЫ, ПИАРЩИКИ
+# ==============================================================================
+
+# --- 1. ОБРАБОТКА ВСЕХ 10 ИГР ЧЕРЕЗ ИНЛАЙН ---
+
+@group_router.callback_query(F.data.startswith("game_"))
+async def process_game_callback(callback: CallbackQuery):
+    game = callback.data.split("_")[-1]
+    
+    if game == "roulette":
+        await callback.message.edit_text("🎡 <b>Рулетка</b>\n\nНапиши в чат: <code>к 100</code> и затем <code>го</code>")
+    elif game == "mines":
+        await callback.message.edit_text("💣 <b>Мины</b>\n\nНапиши в чат: <code>мины 100</code>")
+    elif game == "blackjack":
+        await callback.message.edit_text("🃏 <b>Блэкджек</b>\n\nНапиши в чат: <code>бж 100</code>")
+    elif game == "dice":
+        await callback.message.edit_text("🎲 <b>Кости</b>\n\nНапиши в чат: <code>кости 100</code> (или используй кнопку ниже!)")
+    elif game == "basket":
+        await callback.message.edit_text("🏀 <b>Баскет</b>\n\nНапиши в чат: <code>баскет 100</code>")
+    elif game == "football":
+        await callback.message.edit_text("⚽ <b>Футбол</b>\n\nНапиши в чат: <code>футбол 100</code>")
+    elif game == "darts":
+        await callback.message.edit_text("🎯 <b>Дартс</b>\n\nНапиши в чат: <code>дартс 100</code>")
+    elif game == "bowling":
+        await callback.message.edit_text("🎳 <b>Боулинг</b>\n\nНапиши в чат: <code>боулинг 100</code>")
+    elif game == "duel":
+        await callback.message.edit_text("⚔️ <b>Дуэли</b>\n\nОтветь (Reply) на сообщение игрока и напиши: <code>дуэль 100</code>")
+    elif game == "coin":
+        await callback.message.edit_text("🪙 <b>Монетка</b>\n\nНапиши в чат: <code>монетка 100 орел</code>")
+        
+    await callback.answer()
+
+# --- 2. СТИКЕРЫ ИГР (DICE) ---
+# Бот будет кидать реальные анимированные стикеры Telegram!
+
+@group_router.message(F.text.regexp(r"(?i)^(кости|баскет|футбол|дартс|боулинг)\s+(\d+)$"))
+async def play_dice_games(message: Message):
+    parts = message.text.lower().split()
+    game = parts[0]
+    amount = int(parts[1])
+    
+    user = get_user(message.from_user.id)
+    if user[4] < amount: return await message.reply("❌ Мало средств.")
+    
+    update_balance(message.from_user.id, -amount)
+    
+    # Отправляем стикер
+    if game == "кости":
+        msg = await message.answer_dice(emoji="🎲")
+    elif game == "баскет":
+        msg = await message.answer_dice(emoji="🏀")
+    elif game == "футбол":
+        msg = await message.answer_dice(emoji="⚽")
+    elif game == "дартс":
+        msg = await message.answer_dice(emoji="🎯")
+    elif game == "боулинг":
+        msg = await message.answer_dice(emoji="🎳")
+        
+    await asyncio.sleep(3) # Ждем, пока стикер прокрутится
+    
+    # Проверяем результат (в Telegram у стикеров есть value)
+    dice_value = msg.dice.value
+    
+    # Логика: если выпало больше половины (например, у кубика 4,5,6), то выигрыш
+    win = False
+    if game == "кости" and dice_value >= 4: win = True
+    elif game == "баскет" and dice_value >= 3: win = True
+    elif game == "футбол" and dice_value >= 4: win = True
+    elif game == "дартс" and dice_value >= 4: win = True
+    elif game == "боулинг" and dice_value >= 4: win = True
+    
+    if win:
+        update_balance(message.from_user.id, amount * 2)
+        await message.reply(f"🎉 Победа! Выпало {dice_value}. Выиграли {format_money(amount*2)}!")
+    else:
+        await message.reply(f"😢 Проиграли. Выпало {dice_value}.")
+
+# --- 3. АДМИН-ПАНЕЛЬ (Принудительный вызов) ---
+@admin_router.message(Command("admin"))
+async def admin_panel_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    user = get_user(message.from_user.id)
+    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
+
+# --- 4. МОДЕРЫ (Выдача прав) ---
+@admin_router.message(Command("mod_add"))
+async def add_mod_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /mod_add ID")
+    
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'moderator' WHERE user_id = ?", (target_id,))
+    
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="⬅️ В меню"))
+    try:
+        await bot.send_message(target_id, "🛠 <b>Вам выданы права модератора!</b>\nПишите команды для модерации.", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.reply("✅ Модер назначен.")
+    except Exception:
+        await message.reply("❌ Ошибка (закрыты ЛС).")
+
+# --- 5. ПИАРЩИКИ (Выдача прав) ---
+@admin_router.message(Command("pr_add"))
+async def add_pr_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /pr_add ID")
+    
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'promoter' WHERE user_id = ?", (target_id,))
+    
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📝 Получить текст"))
+    builder.row(KeyboardButton(text="⬅️ В меню"))
+    try:
+        await bot.send_message(target_id, "📢 <b>Вам выданы права пиарщика!</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.reply("✅ Пиарщик назначен.")
+    except Exception:
+        await message.reply("❌ Ошибка (закрыты ЛС).")
 
 async def main():
     init_db()
