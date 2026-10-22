@@ -339,7 +339,7 @@ async def go_back(message: Message):
 @user_router.message(F.text.in_([TEXTS["ru"]["menu_games"], TEXTS["en"]["menu_games"]]))
 async def games_unavail(message: Message):
     user = get_user(message.from_user.id)
-    await send_clean(message, "Играй в нашем чате: @TokensChange", reply_markup=get_main_menu(user[2]))
+    await send_clean(message, "Играй в нашем чате: https://t.me/tokenplays", reply_markup=get_main_menu(user[2]))
 
 # ==============================================================================
 # ДОНАТ И VIP
@@ -1093,6 +1093,107 @@ async def pr_get_text(message: Message):
     bot_info = await bot.get_me()
     text = random.choice(texts).format(bot=bot_info.username)
     await message.answer(f"📋 <b>Ваш текст для рассылки:</b>\n\n{text}")
+
+# ==============================================================================
+# ПАТЧ 16: КНОПКИ НАЗАД, ИНСТРУКЦИИ, ПРАВИЛА И СЛОТЫ В ГРУППАХ
+# ==============================================================================
+
+# --- 1. КНОПКА "НАЗАД" И ИНСТРУКЦИИ ДЛЯ РОЛЕЙ ---
+
+@admin_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
+async def admin_back_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    user = get_user(message.from_user.id)
+    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
+
+@mod_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
+async def mod_back_fix(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
+    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+@pr_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
+async def pr_back_fix(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
+    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
+    await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
+
+# --- 2. ПРАВИЛА ДЛЯ ИГРОКОВ (ХЕЛП) ---
+
+@user_router.message(Command("help"))
+async def help_command(message: Message):
+    text = (
+        "📖 <b>ПРАВИЛА И ПОМОЩЬ</b>\n\n"
+        "🎮 <b>Игры:</b> Чтобы играть, переходи в наш чат (ссылка в кнопке Игры). Там пиши 'игры' и выбирай.\n"
+        "💰 <b>Баланс:</b> Зарабатывай в играх, кейсах, колесе и бонусах.\n"
+        "🎁 <b>Бонус:</b> Заходи каждый день и забирай до 10к токенов!\n"
+        "💎 <b>Донат:</b> Покупай Stars и VIP для крутых плюшек.\n\n"
+        "🆘 Если что-то сломалось — пиши в поддержку через кнопку «Помощь»."
+    )
+    await message.answer(text)
+
+# --- 3. ИНСТРУКЦИИ ДЛЯ МОДЕРОВ И ПИАРЩИКОВ ---
+
+@mod_router.message(F.text.in_(["📖 Хелп", "📖 Help"]))
+async def mod_help_text(message: Message):
+    text = (
+        "🛡 <b>ИНСТРУКЦИЯ МОДЕРАТОРА</b>\n\n"
+        "1. Вы имеете право выдавать до 5 000 000 токенов в неделю (/mod_give).\n"
+        "2. Запрещено выдавать токены себе или друзьям без причины.\n"
+        "3. Все варны и муты должны быть обоснованы (/mod_warn, /mod_mute).\n"
+        "4. При серьезных проблемах пишите SOS Админу.\n"
+        "5. За хорошую работу вы получаете ЗП 50 000 раз в 3 дня."
+    )
+    await message.answer(text)
+
+@pr_router.message(F.text.in_(["📊 Статистика", "📊 Stats"]))
+async def pr_stats_text(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    stats = db_execute("SELECT COUNT(*) FROM logs WHERE user_id = ? AND action = 'pr_text_taken'", (user[0],), fetchone=True)[0]
+    await message.reply(
+        f"📢 <b>ИНСТРУКЦИЯ ПИАРЩИКА</b>\n\n"
+        f"1. Вы получаете рекламный текст по кнопке «Получить текст».\n"
+        f"2. Раскидывайте его по чатам, группам и каналам.\n"
+        f"3. За привлеченных игроков вы получаете ЗП 50 000 раз в 3 дня.\n"
+        f"4. Ваша текущая статистика: <b>{stats}</b> выданных текстов."
+    )
+
+# --- 4. СЛОТЫ В ГРУППАХ (СО СТИКЕРОМ) ---
+
+@group_router.message(F.text.regexp(r"(?i)^слот\s+(\d+)$"))
+async def play_slots_dice_group(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    amount = int(message.text.split()[1])
+    user = get_user(message.from_user.id)
+    
+    if user[3] < amount: 
+        return await message.reply("❌ Мало средств.")
+        
+    update_balance(message.from_user.id, -amount)
+    
+    # Кидаем анимированный стикер слот-машины
+    msg = await message.answer_dice(emoji="🎰")
+    await asyncio.sleep(3) # Ждем, пока прокрутится
+    
+    dice_value = msg.dice.value
+    
+    # Выигрышные значения для слота (примерно 1/4 шанс)
+    if dice_value in [1, 22, 43, 64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]: 
+        prize = amount * 3
+        update_balance(message.from_user.id, prize)
+        await message.reply(f"🎰 <b>Выигрыш!</b>\nВыпало: {dice_value}\nПолучено: <b>{format_money(prize)}</b>")
+    else:
+        await message.reply(f"🎰 <b>Проигрыш.</b>\nВыпало: {dice_value}\nПотеряно: {format_money(amount)}")
 
 # ==============================================================================
 # ЗАПУСК И ПИНГ
