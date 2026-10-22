@@ -274,51 +274,6 @@ async def send_clean(message: Message, text: str, reply_markup=None):
     last_messages[chat_id] = msg.message_id
     return msg
 
-# ==============================================================================
-# СТАРТ И РОЛИ
-# ==============================================================================
-
-@user_router.message(CommandStart())
-async def smart_start(message: Message, state: FSMContext):
-    if message.chat.type != "private": return
-    user = get_user(message.from_user.id)
-    
-    if message.from_user.id == ADMIN_ID:
-        await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
-        return
-    if user[10] == "moderator":
-        builder = ReplyKeyboardBuilder()
-        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
-        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
-        builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
-        builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-        await send_clean(message, get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-        return
-    if user[10] == "promoter":
-        builder = ReplyKeyboardBuilder()
-        builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
-        builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-        await send_clean(message, get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-        return
-
-    if not user[1] or user[1] == "Unknown":
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
-        builder.button(text="🇬🇧 English", callback_data="set_lang_en")
-        await message.answer(get_text("ru", "choose_lang"), reply_markup=builder.as_markup())
-        return
-
-    lang = user[2]
-    await send_clean(message, get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
-
-@user_router.callback_query(F.data.startswith("set_lang_"))
-async def set_language(callback: CallbackQuery):
-    lang = callback.data.split("_")[-1]
-    db_execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, callback.from_user.id))
-    try: await callback.message.delete()
-    except Exception: pass
-    await callback.message.answer(get_text(lang, "welcome", name=callback.from_user.first_name), reply_markup=get_main_menu(lang))
-    await callback.answer(get_text(lang, "lang_changed"))
 
 # ==============================================================================
 # ПРОФИЛЬ, БАЛАНС, НАЗАД
@@ -485,37 +440,6 @@ async def lottery_menu(message: Message):
     update_balance(user[0], -LOTTERY_TICKET_PRICE)
     db_execute("INSERT INTO lottery (user_id) VALUES (?)", (user[0],))
     await send_clean(message, "🎟 Билет куплен! Удачи в 20:00.", reply_markup=get_profile_menu(lang))
-
-# ==============================================================================
-# СТИКЕРЫ (СЛОТЫ В ЛС)
-# ==============================================================================
-
-@user_router.message(F.text.in_([TEXTS["ru"]["btn_slots"], TEXTS["en"]["btn_slots"]]))
-async def slots_menu(message: Message):
-    user = get_user(message.from_user.id)
-    await send_clean(message, "🎰 <b>Слоты</b>\nНапиши в чат сумму ставки (например, <code>слот 100</code>)", reply_markup=get_profile_menu(user[2]))
-
-@user_router.message(F.text.regexp(r"(?i)^слот\s+(\d+)$"))
-async def play_slots_dice(message: Message):
-    if message.chat.type != "private": return
-    amount = int(message.text.split()[1])
-    user = get_user(message.from_user.id)
-    if user[3] < amount: return await message.reply("❌ Мало средств.")
-    update_balance(user[0], -amount)
-    
-    msg = await message.answer_dice(emoji="🎰") # Анимированный слот!
-    await asyncio.sleep(3)
-    
-    dice_value = msg.dice.value
-    # В слот-машине Telegram значения от 1 до 64.
-    # Если выпадает 1, 2, 3, 4 (джекпот/три семерки/фрукты) - выигрыш
-    if dice_value in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]: 
-        # Начисляем x3 за удачу
-        prize = amount * 3
-        update_balance(user[0], prize)
-        await message.reply(f"🎉 Выигрыш! Выпало {dice_value}. Получено: {format_money(prize)}")
-    else:
-        await message.reply(f"😢 Проигрыш. Выпало {dice_value}.")
 
 # ==============================================================================
 # РАБОТА (ПАССИВНЫЙ ДОХОД)
@@ -1230,106 +1154,6 @@ async def smart_start_final(message: Message, state: FSMContext):
     if user[10] == "promoter":
         await send_clean(message, "📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
         return
-
-    if not user[1] or user[1] == "Unknown":
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
-        builder.button(text="🇬🇧 English", callback_data="set_lang_en")
-        await message.answer("🇷🇺 Выберите язык\n🇬🇧 Choose your language", reply_markup=builder.as_markup())
-        return
-
-    lang = user[2]
-    await send_clean(message, get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
-
-# 2. Обработчики уникальных кнопок Админа
-@admin_router.message(F.text == "👥 Игроки")
-async def admin_players_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    total = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    await message.answer(f"👥 Всего игроков: <b>{total}</b>")
-
-@admin_router.message(F.text == "📊 Стата")
-async def admin_stats_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    total = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
-    await message.answer(f"📊 <b>Статистика:</b>\n👥 Игроков: {total}\n💰 Баланс: {format_money(bal)}")
-
-@admin_router.message(F.text == "📜 Отчет")
-async def admin_report_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    total = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
-    await message.answer(f"📜 <b>Отчет:</b>\n👥 Игроков: {total}\n💰 Общий баланс: {format_money(bal)}")
-
-@admin_router.message(F.text == "🛠 Управление")
-async def admin_manage_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.reply("🛠 Управление:\n/mod_add ID\n/pr_add ID\n/give_all СУММА\n/secret СУММА ВРЕМЯ")
-
-@admin_router.message(F.text == "🎁 Ивент")
-async def admin_event_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.reply("🎁 Используйте команду <code>/secret 50000 60</code> для ивента.")
-
-@admin_router.message(F.text == "⬅️ Назад")
-async def admin_back_btn(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.answer("👑 <b>АДМИН-ПАНЕЛЬ</b>", reply_markup=get_admin_menu("ru"))
-
-# 3. Обработчики уникальных кнопок Модера
-@mod_router.message(F.text == "📊 Лимиты")
-async def mod_limits_btn(message: Message):
-    await message.answer("📊 Ваш лимит: 5 000 000 Tokens в неделю.\nВыдано: 0.")
-
-@mod_router.message(F.text == "🧹 Очистка")
-async def mod_clean_btn(message: Message):
-    await message.answer("🧹 Напишите в чат: <code>/mod_clean 10</code>")
-
-@mod_router.message(F.text == "📌 Закреп")
-async def mod_pin_btn(message: Message):
-    await message.answer("📌 Ответьте на сообщение и напишите: <code>/mod_pin</code>")
-
-@mod_router.message(F.text == "🔓 Разбан")
-async def mod_unban_btn(message: Message):
-    await message.answer("🔓 Напишите: <code>/mod_unban ID</code>")
-
-@mod_router.message(F.text == "🚨 SOS")
-async def mod_sos_btn(message: Message):
-    await message.answer("🚨 Сигнал отправлен Админу.")
-    try: await bot.send_message(ADMIN_ID, f"🚨 Модер @{message.from_user.username} просит помощи!")
-    except Exception: pass
-
-@mod_router.message(F.text == "📖 Инструкция")
-async def mod_help_btn(message: Message):
-    await message.answer("📖 <b>Правила модера:</b>\n1. Не выдавать деньги без причины.\n2. Банить только по правилам.\n3. Помогать игрокам.")
-
-@mod_router.message(F.text == "⬅️ Назад")
-async def mod_back_btn(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
-    await message.answer("🛠 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu())
-
-# 4. Обработчики уникальных кнопок Пиарщика
-@pr_router.message(F.text == "📝 Текст")
-async def pr_text_btn(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    bot_info = await bot.get_me()
-    text = f"🔥 <b>Лучший бот!</b>\nЗаходи и получай 5000 на старт: @{bot_info.username}"
-    await message.answer(f"📋 <b>Текст для рассылки:</b>\n\n{text}")
-
-@pr_router.message(F.text == "📊 Моя стата")
-async def pr_stats_btn(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    await message.answer("📊 Выдано текстов: 0.")
-
-@pr_router.message(F.text == "⬅️ Назад")
-async def pr_back_btn(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
 
 # ==============================================================================
 # ПАТЧ 23: БОГ-РЕЖИМ АДМИНА (МАКСИМУМ ФУНКЦИЙ)
