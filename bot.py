@@ -1,5 +1,5 @@
 # ==============================================================================
-# ЧАСТЬ 1: ЯДРО, БАЗА, ЭКОНОМИКА, СТИКЕРЫ (DICE), КЛАНЫ
+# ЧАСТЬ 1: ИМПОРТЫ, КОНФИГ, БАЗА, КЛАВИАТУРЫ, ПРОФИЛЬ, ДОНАТ, ИГРЫ
 # ==============================================================================
 
 import asyncio
@@ -30,7 +30,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # КОНФИГУРАЦИЯ
 # ==============================================================================
 
-BOT_TOKEN = "8636948865:AAF1l5EbHKgigQWhoqRqlE0_fFO6a6Gc0tI" # <--- НЕ ЗАБУДЬ ВСТАВИТЬ!
+BOT_TOKEN = "8636948865:AAHxwsvpuIHQGgsZzifIeWHMYTDWxbWbIyI" # <--- ВСТАВЬ НОВЫЙ ТОКЕН!
 ADMIN_ID = 6403424348
 DB_PATH = "database.db"
 
@@ -114,7 +114,7 @@ def format_money(amount):
     return f"{amount:,}".replace(",", " ") + " " + CURRENCY
 
 # ==============================================================================
-# ЛОКАЛИЗАЦИЯ (КРАСИВАЯ)
+# ЛОКАЛИЗАЦИЯ
 # ==============================================================================
 
 TEXTS = {
@@ -122,17 +122,17 @@ TEXTS = {
         "menu_games": "🎮 Игры", "menu_bal": "💰 Баланс", "menu_prof": "👤 Профиль",
         "menu_donate": "💎 Донат", "menu_help": "🆘 Помощь", "menu_lang": "🌐 Язык",
         "menu_back": "⬅️ Назад", "btn_bonus": "🎁 Бонус", "btn_case": "📦 Кейс",
-        "btn_lottery": "🎟 Лотерея", "btn_wheel": "🎡 Колесо", "btn_slots": "🎰 Слоты",
+        "btn_lottery": "🎟 Лотерея", "btn_wheel": "🎡 Колесо",
         "btn_work": "💼 Работа", "btn_clan": "🛡 Клан",
         "case_common": "🎁 Обычный кейс", "case_vip": "💎 VIP Кейс",
         "btn_buy_stars": "⭐ Купить Stars", "btn_buy_vip": "👑 Купить VIP", "btn_custom_sum": "✍️ Своя сумма",
         "btn_sup_game": "🎮 Проблема с игрой", "btn_sup_pay": "💳 Вопрос по оплате",
         "btn_sup_ban": "🚫 Бан или мут", "btn_sup_bug": "🐞 Нашёл баг", "btn_sup_own": "✍️ Свой вопрос",
-        "btn_admin_players": "👥 Игроки", "btn_admin_stats": "📊 Статистика", "btn_admin_broadcast": "📢 Рассылка",
+        "btn_admin_players": "👥 Игроки", "btn_admin_stats": "📊 Стата", "btn_admin_broadcast": "📢 Рассылка",
         "btn_admin_event": "🎁 Ивент", "btn_admin_manage": "🛠 Управление", "btn_admin_report": "📜 Отчет",
-        "btn_mod_limit": "📊 Мои лимиты", "btn_mod_clean": "🧹 Очистить", "btn_mod_pin": "📌 Закреп",
-        "btn_mod_unban": "🔓 Разбан", "btn_mod_sos": "🚨 SOS", "btn_mod_help": "📖 Хелп",
-        "btn_pr_text": "📝 Получить текст", "btn_pr_stats": "📊 Статистика",
+        "btn_mod_limit": "📊 Лимиты", "btn_mod_clean": "🧹 Очистка", "btn_mod_pin": "📌 Закреп",
+        "btn_mod_unban": "🔓 Разбан", "btn_mod_sos": "🚨 SOS", "btn_mod_help": "📖 Инструкция",
+        "btn_pr_text": "📝 Текст", "btn_pr_stats": "📊 Моя стата",
         "welcome": "👑 <b>ДОБРО ПОЖАЛОВАТЬ В TOKENS</b>\n\n👋 Привет, {name}!\n👇 Выбери действие:",
         "choose_lang": "👑 <b>ДОБРО ПОЖАЛОВАТЬ В TOKENS</b>\n\n👋 Привет!\nВыбери язык для продолжения 👇\n\n🇬🇧 Hello! Choose language to continue 👇",
         "lang_changed": "✅ Язык изменен на Русский!",
@@ -151,7 +151,7 @@ TEXTS = {
         "menu_games": "🎮 Games", "menu_bal": "💰 Balance", "menu_prof": "👤 Profile",
         "menu_donate": "💎 Donate", "menu_help": "🆘 Help", "menu_lang": "🌐 Language",
         "menu_back": "⬅️ Back", "btn_bonus": "🎁 Bonus", "btn_case": "📦 Case",
-        "btn_lottery": "🎟 Lottery", "btn_wheel": "🎡 Wheel", "btn_slots": "🎰 Slots",
+        "btn_lottery": "🎟 Lottery", "btn_wheel": "🎡 Wheel",
         "btn_work": "💼 Work", "btn_clan": "🛡 Clan",
         "case_common": "🎁 Common Case", "case_vip": "💎 VIP Case",
         "btn_buy_stars": "⭐ Buy Stars", "btn_buy_vip": "👑 Buy VIP", "btn_custom_sum": "✍️ Custom amount",
@@ -198,8 +198,8 @@ def get_profile_menu(lang):
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text=get_text(lang, "btn_bonus")), KeyboardButton(text=get_text(lang, "btn_case")))
     builder.row(KeyboardButton(text=get_text(lang, "btn_lottery")), KeyboardButton(text=get_text(lang, "btn_wheel")))
-    builder.row(KeyboardButton(text=get_text(lang, "btn_slots")), KeyboardButton(text=get_text(lang, "btn_work")))
-    builder.row(KeyboardButton(text=get_text(lang, "btn_clan")), KeyboardButton(text=get_text(lang, "menu_back")))
+    builder.row(KeyboardButton(text=get_text(lang, "btn_work")), KeyboardButton(text=get_text(lang, "btn_clan")))
+    builder.row(KeyboardButton(text=get_text(lang, "menu_back")))
     return builder.as_markup(resize_keyboard=True)
 
 def get_donate_menu(lang):
@@ -273,7 +273,6 @@ async def send_clean(message: Message, text: str, reply_markup=None):
     msg = await message.answer(text, reply_markup=reply_markup)
     last_messages[chat_id] = msg.message_id
     return msg
-
 
 # ==============================================================================
 # ПРОФИЛЬ, БАЛАНС, НАЗАД
@@ -512,7 +511,7 @@ async def clan_top(callback: CallbackQuery):
     await callback.answer()
 
 # ==============================================================================
-# ЧАСТЬ 2: ИГРЫ В ГРУППАХ, АДМИНКА, МОДЕРАЦИЯ, ПЛАНИРОВЩИК, ЗАПУСК
+# ЧАСТЬ 2: ИГРЫ В ГРУППАХ, АДМИНКА, ПЛАНИРОВЩИК, ЗАПУСК
 # ==============================================================================
 
 # ==============================================================================
@@ -891,7 +890,7 @@ async def daily_report():
     except Exception: pass
 
 # ==============================================================================
-# АДМИНКА И РОЛИ
+# АДМИНКА, МОДЕРАЦИЯ, ПИАРЩИКИ
 # ==============================================================================
 
 class AdminStates(StatesGroup):
@@ -992,154 +991,9 @@ async def add_pr(message: Message):
         await message.reply("✅ Пиарщик назначен.")
     except Exception: await message.reply("❌ Ошибка (закрыты ЛС).")
 
-@mod_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
-async def mod_back(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    await message.answer(get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-
-@pr_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
-async def pr_back(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-
-@admin_router.message(F.text.in_([TEXTS["ru"]["menu_back"], TEXTS["en"]["menu_back"]]))
-async def admin_back(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    user = get_user(message.from_user.id)
-    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
-
-@pr_router.message(F.text.in_([TEXTS["ru"]["btn_pr_text"], TEXTS["en"]["btn_pr_text"]]))
-@pr_router.message(Command("pr_text"))
-async def pr_get_text(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    texts = [
-        "🔥 <b>Лучший бот для заработка!</b>\nЗаходи, получай стартовый бонус 5000 и играй в игры прямо в чате! @{bot}",
-        "💎 <b>Хочешь стать богаче?</b>\nНаш бот дает крутые бонусы и игры. Забирай свои 5000 прямо сейчас! @{bot}",
-        "🎮 <b>Играй и зарабатывай!</b>\nРулетка, кейсы, лотереи. Стартовый бонус уже ждет тебя! @{bot}"
-    ]
-    bot_info = await bot.get_me()
-    text = random.choice(texts).format(bot=bot_info.username)
-    await message.answer(f"📋 <b>Ваш текст для рассылки:</b>\n\n{text}")
-
 # ==============================================================================
-# ПАТЧ 16: КНОПКИ НАЗАД, ИНСТРУКЦИИ, ПРАВИЛА И СЛОТЫ В ГРУППАХ
+# ПАТЧ 23: БОГ-РЕЖИМ АДМИНА
 # ==============================================================================
-
-# --- 1. КНОПКА "НАЗАД" И ИНСТРУКЦИИ ДЛЯ РОЛЕЙ ---
-
-@admin_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
-async def admin_back_fix(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    user = get_user(message.from_user.id)
-    await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
-
-@mod_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
-async def mod_back_fix(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_limit")), KeyboardButton(text=get_text("ru", "btn_mod_clean")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_pin")), KeyboardButton(text=get_text("ru", "btn_mod_unban")))
-    builder.row(KeyboardButton(text=get_text("ru", "btn_mod_sos")), KeyboardButton(text=get_text("ru", "btn_mod_help")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    await message.answer(get_text("ru", "mod_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-
-@pr_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
-async def pr_back_fix(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text=get_text("ru", "btn_pr_text")), KeyboardButton(text=get_text("ru", "btn_pr_stats")))
-    builder.row(KeyboardButton(text=get_text("ru", "menu_back")))
-    await message.answer(get_text("ru", "pr_panel"), reply_markup=builder.as_markup(resize_keyboard=True))
-
-# --- 2. ПРАВИЛА ДЛЯ ИГРОКОВ (ХЕЛП) ---
-
-@user_router.message(Command("help"))
-async def help_command(message: Message):
-    text = (
-        "📖 <b>ПРАВИЛА И ПОМОЩЬ</b>\n\n"
-        "🎮 <b>Игры:</b> Чтобы играть, переходи в наш чат (ссылка в кнопке Игры). Там пиши 'игры' и выбирай.\n"
-        "💰 <b>Баланс:</b> Зарабатывай в играх, кейсах, колесе и бонусах.\n"
-        "🎁 <b>Бонус:</b> Заходи каждый день и забирай до 10к токенов!\n"
-        "💎 <b>Донат:</b> Покупай Stars и VIP для крутых плюшек.\n\n"
-        "🆘 Если что-то сломалось — пиши в поддержку через кнопку «Помощь»."
-    )
-    await message.answer(text)
-
-# --- 3. ИНСТРУКЦИИ ДЛЯ МОДЕРОВ И ПИАРЩИКОВ ---
-
-@mod_router.message(F.text.in_(["📖 Хелп", "📖 Help"]))
-async def mod_help_text(message: Message):
-    text = (
-        "🛡 <b>ИНСТРУКЦИЯ МОДЕРАТОРА</b>\n\n"
-        "1. Вы имеете право выдавать до 5 000 000 токенов в неделю (/mod_give).\n"
-        "2. Запрещено выдавать токены себе или друзьям без причины.\n"
-        "3. Все варны и муты должны быть обоснованы (/mod_warn, /mod_mute).\n"
-        "4. При серьезных проблемах пишите SOS Админу.\n"
-        "5. За хорошую работу вы получаете ЗП 50 000 раз в 3 дня."
-    )
-    await message.answer(text)
-
-@pr_router.message(F.text.in_(["📊 Статистика", "📊 Stats"]))
-async def pr_stats_text(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
-    stats = db_execute("SELECT COUNT(*) FROM logs WHERE user_id = ? AND action = 'pr_text_taken'", (user[0],), fetchone=True)[0]
-    await message.reply(
-        f"📢 <b>ИНСТРУКЦИЯ ПИАРЩИКА</b>\n\n"
-        f"1. Вы получаете рекламный текст по кнопке «Получить текст».\n"
-        f"2. Раскидывайте его по чатам, группам и каналам.\n"
-        f"3. За привлеченных игроков вы получаете ЗП 50 000 раз в 3 дня.\n"
-        f"4. Ваша текущая статистика: <b>{stats}</b> выданных текстов."
-    )
-
-# --- 4. СЛОТЫ В ГРУППАХ (СО СТИКЕРОМ) ---
-
-@group_router.message(F.text.regexp(r"(?i)^слот\s+(\d+)$"))
-async def play_slots_dice_group(message: Message):
-    if message.chat.type not in ["group", "supergroup"]: return
-    
-    amount = int(message.text.split()[1])
-    user = get_user(message.from_user.id)
-    
-    if user[3] < amount: 
-        return await message.reply("❌ Мало средств.")
-        
-    update_balance(message.from_user.id, -amount)
-    
-    # Кидаем анимированный стикер слот-машины
-    msg = await message.answer_dice(emoji="🎰")
-    await asyncio.sleep(3) # Ждем, пока прокрутится
-    
-    dice_value = msg.dice.value
-    
-    # Выигрышные значения для слота (примерно 1/4 шанс)
-    if dice_value in [1, 22, 43, 64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]: 
-        prize = amount * 3
-        update_balance(message.from_user.id, prize)
-        await message.reply(f"🎰 <b>Выигрыш!</b>\nВыпало: {dice_value}\nПолучено: <b>{format_money(prize)}</b>")
-    else:
-        await message.reply(f"🎰 <b>Проигрыш.</b>\nВыпало: {dice_value}\nПотеряно: {format_money(amount)}")
-
-
-
-# ==============================================================================
-# ПАТЧ 23: БОГ-РЕЖИМ АДМИНА (МАКСИМУМ ФУНКЦИЙ)
-# ==============================================================================
-
-# --- 1. РАСШИРЕННЫЙ ТЕРМИНАЛ (ИНЛАЙН) ---
 
 @admin_router.message(F.text == "🛠 Управление")
 async def admin_god_mode(message: Message):
@@ -1179,12 +1033,63 @@ async def admin_god_mode(message: Message):
         reply_markup=builder.as_markup()
     )
 
-# --- 2. НОВЫЕ ИНЛАЙН-ОБРАБОТЧИКИ ---
+@admin_router.callback_query(F.data == "adm_close")
+async def adm_close_cb(callback: CallbackQuery):
+    try: await callback.message.delete()
+    except Exception: pass
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_stats")
+async def adm_stats_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
+    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
+    await callback.message.answer(f"📊 <b>Статистика:</b>\n👥 Игроков: {users}\n💰 Баланс: {format_money(bal)}")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_user")
+async def adm_user_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("👤 Используй: <code>/user_info ID</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_give_all")
+async def adm_give_all_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("💰 Используй: <code>/give_all СУММА</code>")
+    await callback.answer()
 
 @admin_router.callback_query(F.data == "adm_take_all")
 async def adm_take_all_cb(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("Используй: <code>/take_all СУММА</code>")
+    await callback.message.answer("💸 Используй: <code>/take_all СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_promo")
+async def adm_promo_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("🎁 Используй: <code>/promo СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_logs")
+async def adm_logs_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    logs = db_execute("SELECT user_id, action, amount FROM logs ORDER BY id DESC LIMIT 10", fetchall=True)
+    text = "📜 <b>Последние 10 операций:</b>\n\n"
+    for log in logs:
+        text += f"👤 {log[0]} | {log[1]} | {log[2]}\n"
+    await callback.message.answer(text)
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_clans")
+async def adm_clans_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    clans = db_execute("SELECT name, treasury FROM clans ORDER BY treasury DESC", fetchall=True)
+    text = "🛡 <b>Все кланы:</b>\n\n"
+    if not clans: text += "Кланов нет."
+    for c in clans:
+        text += f"• {c[0]} — {format_money(c[1])}\n"
+    await callback.message.answer(text)
     await callback.answer()
 
 @admin_router.callback_query(F.data == "adm_lottery")
@@ -1197,154 +1102,11 @@ async def adm_lottery_cb(callback: CallbackQuery):
 @admin_router.callback_query(F.data == "adm_drop")
 async def adm_drop_cb(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("Используй: <code>/secret СУММА ВРЕМЯ</code>")
+    await callback.message.answer("🎁 Используй: <code>/secret СУММА ВРЕМЯ</code>")
     await callback.answer()
-
-# --- 3. НОВЫЕ КОМАНДЫ АДМИНА ---
-
-@admin_router.message(Command("take_all"))
-async def cmd_take_all(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) != 2: return await message.reply("Формат: /take_all 1000")
-    try: amount = int(args[1])
-    except ValueError: return await message.reply("❌ Введите число.")
-    db_execute("UPDATE users SET balance = balance - ?", (amount,))
-    await message.reply(f"✅ У всех забрано по {format_money(amount)}.")
-
-@admin_router.message(Command("lottery_info"))
-async def cmd_lottery_info(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    players = db_execute("SELECT user_id FROM lottery", fetchall=True)
-    text = f"🎟 <b>Лотерея:</b>\nУчастников: {len(players)}\nПриз: {format_money(LOTTERY_PRIZE)}\n\n"
-    if players:
-        text += "Участники:\n"
-        for p in players[:20]: text += f"• {p[0]}\n"
-    await message.reply(text)
-
-@admin_router.message(Command("give_vip"))
-async def cmd_give_vip(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    args = message.text.split()
-    if len(args) != 3: return await message.reply("Формат: /give_vip ID ДНЕЙ")
-    try:
-        target_id = int(args[1])
-        days = int(args[2])
-    except ValueError: return await message.reply("❌ Неверный формат.")
-    now = datetime.datetime.now()
-    new_vip = now + datetime.timedelta(days=days)
-    db_execute("UPDATE users SET vip_until = ? WHERE user_id = ?", (new_vip.isoformat(), target_id))
-    await message.reply(f"👑 Игроку {target_id} выдан VIP на {days} дней.")
-
-@admin_router.message(Command("broadcast_pin"))
-async def cmd_broadcast_pin(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.reply("📢 Используй /broadcast для рассылки. Чтобы закрепить — просто нажми на сообщение.")
-
-@admin_router.message(Command("ban_list"))
-async def cmd_ban_list(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    banned = db_execute("SELECT user_id FROM users WHERE role = 'banned'", fetchall=True)
-    text = "🚫 <b>Забаненные:</b>\n\n"
-    if not banned: text += "Никто не забанен."
-    for b in banned: text += f"• {b[0]}\n"
-    await message.reply(text)
-
-@admin_router.message(Command("clear_db"))
-async def cmd_clear_db(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    await message.reply("⚠️ Это удалит ВСЕХ игроков. Если уверен, напиши /clear_db_confirm")
-    
-@admin_router.message(Command("clear_db_confirm"))
-async def cmd_clear_db_confirm(message: Message):
-    if message.from_user.id != ADMIN_ID: return
-    db_execute("DELETE FROM users")
-    db_execute("DELETE FROM logs")
-    db_execute("DELETE FROM lottery")
-    await message.reply("✅ База данных очищена. Все игроки удалены.")
-
-# ==============================================================================
-# ПАТЧ 24: ВСЕ КНОПКИ БОГ-РЕЖИМА РАБОТАЮТ
-# ==============================================================================
-
-@admin_router.callback_query(F.data == "adm_stats")
-async def adm_stats_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
-    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
-    await callback.message.answer(f"📊 <b>Статистика:</b>\n👥 Игроков: {users}\n💰 Баланс: {format_money(bal)}")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_user")
-async def adm_user_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("👤 Введи ID игрока в чат: <code>/user_info ID</code>")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_give_all")
-async def adm_give_all_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("💰 Введи сумму в чат: <code>/give_all СУММА</code>")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_take_all")
-async def adm_take_all_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("💸 Введи сумму в чат: <code>/take_all СУММА</code>")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_promo")
-async def adm_promo_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("🎁 Введи сумму в чат: <code>/promo СУММА</code>")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_logs")
-async def adm_logs_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    logs = db_execute("SELECT user_id, action, amount FROM logs ORDER BY id DESC LIMIT 10", fetchall=True)
-    text = "📜 <b>Последние 10 операций:</b>\n\n"
-    for log in logs:
-        text += f"👤 {log[0]} | {log[1]} | {log[2]}\n"
-    await callback.message.answer(text)
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_clans")
-async def adm_clans_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    clans = db_execute("SELECT name, treasury FROM clans ORDER BY treasury DESC", fetchall=True)
-    text = "🛡 <b>Все кланы:</b>\n\n"
-    if not clans: text += "Кланов нет."
-    for c in clans:
-        text += f"• {c[0]} — {format_money(c[1])}\n"
-    await callback.message.answer(text)
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_lottery")
-async def adm_lottery_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    players = db_execute("SELECT COUNT(*) FROM lottery", fetchone=True)[0]
-    await callback.message.answer(f"🎟 <b>Лотерея:</b>\nУчастников: {players}\nПриз: {format_money(LOTTERY_PRIZE)}")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_drop")
-async def adm_drop_cb_fix(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
-    await callback.message.answer("🎁 Введи в чат: <code>/secret СУММА ВРЕМЯ</code>")
-    await callback.answer()
-
-@admin_router.callback_query(F.data == "adm_close")
-async def adm_close_cb_fix(callback: CallbackQuery):
-    try: await callback.message.delete()
-    except Exception: pass
-    await callback.answer()
-
-# ==============================================================================
-# ПАТЧ 25: ВОЗВРАЩАЕМ КОМАНДЫ И КНОПКИ УПРАВЛЕНИЯ
-# ==============================================================================
 
 @admin_router.message(Command("user_info"))
-async def cmd_user_info_fix(message: Message):
+async def cmd_user_info(message: Message):
     if message.from_user.id != ADMIN_ID: return
     args = message.text.split()
     if len(args) != 2: return await message.reply("Формат: /user_info ID")
@@ -1368,28 +1130,18 @@ async def cmd_user_info_fix(message: Message):
     )
     await message.reply(text)
 
-# --- Если кнопка УПРАВЛЕНИЕ опять выдает текст, а не кнопки ---
-@admin_router.message(F.text == "🛠 Управление")
-async def admin_god_mode_fix(message: Message):
+@admin_router.message(Command("take_all"))
+async def cmd_take_all(message: Message):
     if message.from_user.id != ADMIN_ID: return
-    
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📊 Стата", callback_data="adm_stats")
-    builder.button(text="👤 Юзер", callback_data="adm_user")
-    builder.button(text="💰 Выдать всем", callback_data="adm_give_all")
-    builder.button(text="💸 Забрать у всех", callback_data="adm_take_all")
-    builder.button(text="🎁 Промокод", callback_data="adm_promo")
-    builder.button(text="📜 Логи", callback_data="adm_logs")
-    builder.button(text="🛡 Кланы", callback_data="adm_clans")
-    builder.button(text="🎰 Лотерея", callback_data="adm_lottery")
-    builder.button(text="🎁 Дроп", callback_data="adm_drop")
-    builder.button(text="❌ Закрыть", callback_data="adm_close")
-    builder.adjust(2, 2, 2, 2, 2, 1)
-    
-    await message.answer("👑 <b>БОГ-РЕЖИМ АДМИНА</b>\n\nВыбирай действие:", reply_markup=builder.as_markup())
+    args = message.text.split()
+    if len(args) != 2: return await message.reply("Формат: /take_all 1000")
+    try: amount = int(args[1])
+    except ValueError: return await message.reply("❌ Введите число.")
+    db_execute("UPDATE users SET balance = balance - ?", (amount,))
+    await message.reply(f"✅ У всех забрано по {format_money(amount)}.")
 
 # ==============================================================================
-# ПАТЧ 28: ОГРОМНЫЕ ТЕКСТЫ ПОДДЕРЖКИ (БЕЗ ЛИНИЙ)
+# ПАТЧ 28: ОГРОМНЫЕ ТЕКСТЫ ПОДДЕРЖКИ
 # ==============================================================================
 
 @user_router.message(F.text.in_([TEXTS["ru"]["menu_help"], TEXTS["en"]["menu_help"]]))
@@ -1494,6 +1246,76 @@ async def sup_own_huge(message: Message, state: FSMContext):
     )
     await send_clean(message, text, reply_markup=ReplyKeyboardRemove())
     await state.set_state(UserStates.waiting_for_support)
+
+@user_router.message(UserStates.waiting_for_support)
+async def sup_own_process(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    await state.clear()
+    admin_text = f"📩 <b>Тикет!</b>\nОт: @{message.from_user.username} (ID: <code>{user[0]}</code>)\n\nТекст: {message.text}\n\n<i>Ответьте Reply на это сообщение.</i>"
+    try:
+        admin_msg = await bot.send_message(ADMIN_ID, admin_text)
+        db_execute("INSERT INTO logs (user_id, action, amount, date) VALUES (?, ?, ?, ?)", (user[0], f"support_msg_{admin_msg.message_id}", 0, datetime.datetime.now().isoformat()))
+        await send_clean(message, get_text(user[2], "support_sent"), reply_markup=get_main_menu(user[2]))
+    except Exception:
+        await message.answer("❌ Ошибка отправки.")
+
+@admin_router.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
+async def admin_reply(message: Message):
+    if not message.reply_to_message: return
+    admin_msg_id = message.reply_to_message.message_id
+    log_entry = db_execute("SELECT user_id FROM logs WHERE action = ?", (f"support_msg_{admin_msg_id}",), fetchone=True)
+    if log_entry:
+        try:
+            await bot.send_message(log_entry[0], f"✉️ <b>Ответ от администрации:</b>\n\n{message.text}")
+            await message.reply("✅ Ответ отправлен игроку.")
+        except Exception:
+            await message.reply("❌ Игрок закрыл ЛС.")
+    else:
+        await message.reply("❌ Не найден игрок.")
+
+# ==============================================================================
+# ПАТЧ 13: УМНЫЙ СТАРТ
+# ==============================================================================
+
+@user_router.message(CommandStart())
+async def smart_start_final(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    
+    if message.from_user.id == ADMIN_ID:
+        await send_clean(message, get_text(user[2], "admin_panel"), reply_markup=get_admin_menu(user[2]))
+        return
+    if user[10] == "moderator":
+        await send_clean(message, get_text("ru", "mod_panel"), reply_markup=get_mod_menu())
+        return
+    if user[10] == "promoter":
+        await send_clean(message, get_text("ru", "pr_panel"), reply_markup=get_pr_menu())
+        return
+
+    if not user[1] or user[1] == "Unknown":
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
+        builder.button(text="🇬🇧 English", callback_data="set_lang_en")
+        await message.answer(get_text("ru", "choose_lang"), reply_markup=builder.as_markup())
+        return
+
+    lang = user[2]
+    photo_path = "assets/welcome.jpg"
+    if os.path.exists(photo_path):
+        try:
+            await bot.send_photo(chat_id=message.chat.id, photo=types.FSInputFile(photo_path), caption=get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+            return
+        except Exception: pass
+    await send_clean(message, get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+
+@user_router.callback_query(F.data.startswith("set_lang_"))
+async def set_language(callback: CallbackQuery):
+    lang = callback.data.split("_")[-1]
+    db_execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, callback.from_user.id))
+    try: await callback.message.delete()
+    except Exception: pass
+    await callback.message.answer(get_text(lang, "welcome", name=callback.from_user.first_name), reply_markup=get_main_menu(lang))
+    await callback.answer(get_text(lang, "lang_changed"))
 
 # ==============================================================================
 # ЗАПУСК И ПИНГ
