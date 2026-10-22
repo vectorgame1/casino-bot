@@ -30,7 +30,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # КОНФИГУРАЦИЯ
 # ==============================================================================
 
-BOT_TOKEN = "8636948865:AAHxwsvpuIHQGgsZzifIeWHMYTDWxbWbIyI" # <--- ВСТАВЬ НОВЫЙ ТОКЕН!
+BOT_TOKEN = "8636948865:AAF1l5EbHKgigQWhoqRqlE0_fFO6a6Gc0tI" # <--- ВСТАВЬ НОВЫЙ ТОКЕН!
 ADMIN_ID = 6403424348
 DB_PATH = "database.db"
 
