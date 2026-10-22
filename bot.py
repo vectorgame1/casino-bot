@@ -1332,6 +1332,134 @@ async def pr_back_btn(message: Message):
     await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
 
 # ==============================================================================
+# ПАТЧ 23: БОГ-РЕЖИМ АДМИНА (МАКСИМУМ ФУНКЦИЙ)
+# ==============================================================================
+
+# --- 1. РАСШИРЕННЫЙ ТЕРМИНАЛ (ИНЛАЙН) ---
+
+@admin_router.message(F.text == "🛠 Управление")
+async def admin_god_mode(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Стата", callback_data="adm_stats")
+    builder.button(text="👤 Юзер", callback_data="adm_user")
+    builder.button(text="💰 Выдать всем", callback_data="adm_give_all")
+    builder.button(text="💸 Забрать у всех", callback_data="adm_take_all")
+    builder.button(text="🎁 Промокод", callback_data="adm_promo")
+    builder.button(text="📜 Логи", callback_data="adm_logs")
+    builder.button(text="🛡 Кланы", callback_data="adm_clans")
+    builder.button(text="🎰 Лотерея", callback_data="adm_lottery")
+    builder.button(text="🎁 Дроп", callback_data="adm_drop")
+    builder.button(text="❌ Закрыть", callback_data="adm_close")
+    builder.adjust(2, 2, 2, 2, 2, 1)
+    
+    await message.answer(
+        "👑 <b>БОГ-РЕЖИМ АДМИНА</b>\n\n"
+        "Выбирай действие кнопками ниже или пиши команды:\n\n"
+        "📊 <code>/stats</code> — полная стата\n"
+        "👤 <code>/user_info ID</code> — инфа игрока\n"
+        "💰 <code>/set_balance ID СУММА</code> — установить баланс\n"
+        "💸 <code>/take_balance ID СУММА</code> — забрать\n"
+        "🚫 <code>/ban ID</code> — бан в боте\n"
+        "✅ <code>/unban ID</code> — разбан\n"
+        "📢 <code>/mod_add ID</code> — выдать модера\n"
+        "📢 <code>/pr_add ID</code> — выдать пиарщика\n"
+        "🎁 <code>/promo СУММА</code> — промокод\n"
+        "🎉 <code>/secret СУММА ВРЕМЯ</code> — дроп\n"
+        "📜 <code>/logs</code> — логи\n"
+        "🛡 <code>/clans_list</code> — кланы\n"
+        "🎟 <code>/lottery_info</code> — инфа по лотерее\n"
+        "💰 <code>/give_all СУММА</code> — всем\n"
+        "💸 <code>/take_all СУММА</code> — забрать у всех",
+        reply_markup=builder.as_markup()
+    )
+
+# --- 2. НОВЫЕ ИНЛАЙН-ОБРАБОТЧИКИ ---
+
+@admin_router.callback_query(F.data == "adm_take_all")
+async def adm_take_all_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("Используй: <code>/take_all СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_lottery")
+async def adm_lottery_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    players = db_execute("SELECT COUNT(*) FROM lottery", fetchone=True)[0]
+    await callback.message.answer(f"🎟 <b>Лотерея:</b>\nУчастников: {players}\nПриз: {format_money(LOTTERY_PRIZE)}")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_drop")
+async def adm_drop_cb(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("Используй: <code>/secret СУММА ВРЕМЯ</code>")
+    await callback.answer()
+
+# --- 3. НОВЫЕ КОМАНДЫ АДМИНА ---
+
+@admin_router.message(Command("take_all"))
+async def cmd_take_all(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2: return await message.reply("Формат: /take_all 1000")
+    try: amount = int(args[1])
+    except ValueError: return await message.reply("❌ Введите число.")
+    db_execute("UPDATE users SET balance = balance - ?", (amount,))
+    await message.reply(f"✅ У всех забрано по {format_money(amount)}.")
+
+@admin_router.message(Command("lottery_info"))
+async def cmd_lottery_info(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    players = db_execute("SELECT user_id FROM lottery", fetchall=True)
+    text = f"🎟 <b>Лотерея:</b>\nУчастников: {len(players)}\nПриз: {format_money(LOTTERY_PRIZE)}\n\n"
+    if players:
+        text += "Участники:\n"
+        for p in players[:20]: text += f"• {p[0]}\n"
+    await message.reply(text)
+
+@admin_router.message(Command("give_vip"))
+async def cmd_give_vip(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 3: return await message.reply("Формат: /give_vip ID ДНЕЙ")
+    try:
+        target_id = int(args[1])
+        days = int(args[2])
+    except ValueError: return await message.reply("❌ Неверный формат.")
+    now = datetime.datetime.now()
+    new_vip = now + datetime.timedelta(days=days)
+    db_execute("UPDATE users SET vip_until = ? WHERE user_id = ?", (new_vip.isoformat(), target_id))
+    await message.reply(f"👑 Игроку {target_id} выдан VIP на {days} дней.")
+
+@admin_router.message(Command("broadcast_pin"))
+async def cmd_broadcast_pin(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.reply("📢 Используй /broadcast для рассылки. Чтобы закрепить — просто нажми на сообщение.")
+
+@admin_router.message(Command("ban_list"))
+async def cmd_ban_list(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    banned = db_execute("SELECT user_id FROM users WHERE role = 'banned'", fetchall=True)
+    text = "🚫 <b>Забаненные:</b>\n\n"
+    if not banned: text += "Никто не забанен."
+    for b in banned: text += f"• {b[0]}\n"
+    await message.reply(text)
+
+@admin_router.message(Command("clear_db"))
+async def cmd_clear_db(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.reply("⚠️ Это удалит ВСЕХ игроков. Если уверен, напиши /clear_db_confirm")
+    
+@admin_router.message(Command("clear_db_confirm"))
+async def cmd_clear_db_confirm(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    db_execute("DELETE FROM users")
+    db_execute("DELETE FROM logs")
+    db_execute("DELETE FROM lottery")
+    await message.reply("✅ База данных очищена. Все игроки удалены.")
+
+# ==============================================================================
 # ЗАПУСК И ПИНГ
 # ==============================================================================
 
