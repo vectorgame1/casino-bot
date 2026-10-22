@@ -1133,27 +1133,7 @@ async def play_slots_dice_group(message: Message):
     else:
         await message.reply(f"🎰 <b>Проигрыш.</b>\nВыпало: {dice_value}\nПотеряно: {format_money(amount)}")
 
-# ==============================================================================
-# ПАТЧ 20: УНИКАЛЬНЫЕ КНОПКИ И ПРАВИЛЬНЫЙ СТАРТ ДЛЯ РОЛЕЙ
-# ==============================================================================
 
-# 1. Умный старт (переопределяет старый cmd_start)
-@user_router.message(CommandStart())
-async def smart_start_final(message: Message, state: FSMContext):
-    if message.chat.type != "private": return
-    user = get_user(message.from_user.id)
-    
-    if message.from_user.id == ADMIN_ID:
-        await send_clean(message, "👑 <b>АДМИН-ПАНЕЛЬ</b>", reply_markup=get_admin_menu("ru"))
-        return
-        
-    if user[10] == "moderator":
-        await send_clean(message, "🛠 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu())
-        return
-        
-    if user[10] == "promoter":
-        await send_clean(message, "📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
-        return
 
 # ==============================================================================
 # ПАТЧ 23: БОГ-РЕЖИМ АДМИНА (МАКСИМУМ ФУНКЦИЙ)
