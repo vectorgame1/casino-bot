@@ -1284,6 +1284,238 @@ async def cmd_clear_db_confirm(message: Message):
     await message.reply("✅ База данных очищена. Все игроки удалены.")
 
 # ==============================================================================
+# ПАТЧ 24: ВСЕ КНОПКИ БОГ-РЕЖИМА РАБОТАЮТ
+# ==============================================================================
+
+@admin_router.callback_query(F.data == "adm_stats")
+async def adm_stats_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
+    bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
+    await callback.message.answer(f"📊 <b>Статистика:</b>\n👥 Игроков: {users}\n💰 Баланс: {format_money(bal)}")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_user")
+async def adm_user_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("👤 Введи ID игрока в чат: <code>/user_info ID</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_give_all")
+async def adm_give_all_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("💰 Введи сумму в чат: <code>/give_all СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_take_all")
+async def adm_take_all_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("💸 Введи сумму в чат: <code>/take_all СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_promo")
+async def adm_promo_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("🎁 Введи сумму в чат: <code>/promo СУММА</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_logs")
+async def adm_logs_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    logs = db_execute("SELECT user_id, action, amount FROM logs ORDER BY id DESC LIMIT 10", fetchall=True)
+    text = "📜 <b>Последние 10 операций:</b>\n\n"
+    for log in logs:
+        text += f"👤 {log[0]} | {log[1]} | {log[2]}\n"
+    await callback.message.answer(text)
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_clans")
+async def adm_clans_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    clans = db_execute("SELECT name, treasury FROM clans ORDER BY treasury DESC", fetchall=True)
+    text = "🛡 <b>Все кланы:</b>\n\n"
+    if not clans: text += "Кланов нет."
+    for c in clans:
+        text += f"• {c[0]} — {format_money(c[1])}\n"
+    await callback.message.answer(text)
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_lottery")
+async def adm_lottery_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    players = db_execute("SELECT COUNT(*) FROM lottery", fetchone=True)[0]
+    await callback.message.answer(f"🎟 <b>Лотерея:</b>\nУчастников: {players}\nПриз: {format_money(LOTTERY_PRIZE)}")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_drop")
+async def adm_drop_cb_fix(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return await callback.answer("Нет доступа", show_alert=True)
+    await callback.message.answer("🎁 Введи в чат: <code>/secret СУММА ВРЕМЯ</code>")
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "adm_close")
+async def adm_close_cb_fix(callback: CallbackQuery):
+    try: await callback.message.delete()
+    except Exception: pass
+    await callback.answer()
+
+# ==============================================================================
+# ПАТЧ 25: ВОЗВРАЩАЕМ КОМАНДЫ И КНОПКИ УПРАВЛЕНИЯ
+# ==============================================================================
+
+@admin_router.message(Command("user_info"))
+async def cmd_user_info_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2: return await message.reply("Формат: /user_info ID")
+    try: target_id = int(args[1])
+    except ValueError: return await message.reply("❌ Введите число.")
+    
+    user = db_execute("SELECT * FROM users WHERE user_id = ?", (target_id,), fetchone=True)
+    if not user: return await message.reply("❌ Игрок не найден.")
+    
+    clan_name = "Нет" if not user[12] else db_execute("SELECT name FROM clans WHERE id = ?", (user[12],), fetchone=True)[0]
+    
+    text = (
+        f"👤 <b>ИНФО ОБ ИГРОКЕ</b>\n\n"
+        f"🆔 ID: <code>{user[0]}</code>\n"
+        f"🔹 Юзернейм: @{user[1]}\n"
+        f"💰 Баланс: <b>{format_money(user[3])}</b>\n"
+        f"🎖 Роль: <b>{user[10]}</b>\n"
+        f"💎 VIP: {user[6] if user[6] else 'Нет'}\n"
+        f"🛡 Клан: {clan_name}\n"
+        f"⚠️ Варнов: {user[11]}"
+    )
+    await message.reply(text)
+
+# --- Если кнопка УПРАВЛЕНИЕ опять выдает текст, а не кнопки ---
+@admin_router.message(F.text == "🛠 Управление")
+async def admin_god_mode_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Стата", callback_data="adm_stats")
+    builder.button(text="👤 Юзер", callback_data="adm_user")
+    builder.button(text="💰 Выдать всем", callback_data="adm_give_all")
+    builder.button(text="💸 Забрать у всех", callback_data="adm_take_all")
+    builder.button(text="🎁 Промокод", callback_data="adm_promo")
+    builder.button(text="📜 Логи", callback_data="adm_logs")
+    builder.button(text="🛡 Кланы", callback_data="adm_clans")
+    builder.button(text="🎰 Лотерея", callback_data="adm_lottery")
+    builder.button(text="🎁 Дроп", callback_data="adm_drop")
+    builder.button(text="❌ Закрыть", callback_data="adm_close")
+    builder.adjust(2, 2, 2, 2, 2, 1)
+    
+    await message.answer("👑 <b>БОГ-РЕЖИМ АДМИНА</b>\n\nВыбирай действие:", reply_markup=builder.as_markup())
+
+# ==============================================================================
+# ПАТЧ 28: ОГРОМНЫЕ ТЕКСТЫ ПОДДЕРЖКИ (БЕЗ ЛИНИЙ)
+# ==============================================================================
+
+@user_router.message(F.text.in_([TEXTS["ru"]["menu_help"], TEXTS["en"]["menu_help"]]))
+async def support_menu_huge(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    text = (
+        "🆘 <b>СЛУЖБА ПОДДЕРЖКИ</b>\n\n"
+        "👋 Привет, <b>{name}</b>!\n"
+        "Если у тебя возникли проблемы, выбери нужный раздел ниже 👇\n\n"
+        "📌 <i>Мы отвечаем в течение 24 часов.</i>"
+    ).format(name=message.from_user.first_name)
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_game"], TEXTS["en"]["btn_sup_game"]]))
+async def sup_game_huge(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🎮 <b>ПРОБЛЕМА С ИГРОЙ</b>\n\n"
+        "Если вы столкнулись с ошибкой во время игры, пожалуйста, следуйте инструкции:\n\n"
+        "1️⃣ <b>Опишите проблему:</b>\n"
+        "   • В какой игре произошла ошибка?\n"
+        "   • На какую сумму вы ставили?\n"
+        "   • В каком чате это произошло?\n\n"
+        "2️⃣ <b>Приложите скриншот:</b>\n"
+        "   • Сделайте скриншот экрана с ошибкой или списанием средств.\n\n"
+        "3️⃣ <b>Обратитесь к админу:</b>\n"
+        "   • Напишите в поддержку: @vctorw\n\n"
+        "⚠️ <i>Служба поддержки работает 24/7. Мы обязательно разберемся!</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_pay"], TEXTS["en"]["btn_sup_pay"]]))
+async def sup_pay_huge(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "💳 <b>ВОПРОС ПО ОПЛАТЕ</b>\n\n"
+        "💎 <b>Курс:</b> 1 ⭐ = 7 500 Tokens\n\n"
+        "📌 <b>Если вы оплатили Stars, но токены не пришли:</b>\n"
+        "1. Подождите 5-10 минут (иногда Telegram задерживает платежи).\n"
+        "2. Проверьте баланс кнопкой «💰 Баланс».\n"
+        "3. Если баланс не изменился, напишите админу: @vctorw\n\n"
+        "📌 <b>Как купить Stars?</b>\n"
+        "• Перейдите в «💎 Донат» -> «⭐ Купить Stars».\n\n"
+        "📌 <b>Как купить VIP?</b>\n"
+        "• Перейдите в «💎 Донат» -> «👑 Купить VIP».\n"
+        "• VIP дает кэшбэк 5% и доступ к VIP-кейсу!\n\n"
+        "⚠️ <i>Все платежи проходят через официальный Telegram Stars.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_ban"], TEXTS["en"]["btn_sup_ban"]]))
+async def sup_ban_huge(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🚫 <b>БАН ИЛИ МУТ</b>\n\n"
+        "Если вы получили бан или мут, пожалуйста, проверьте:\n\n"
+        "1️⃣ <b>Причина:</b>\n"
+        "   • Вы нарушили правила чата (спам, оскорбления, реклама)?\n"
+        "   • Вы обманывали других игроков?\n\n"
+        "2️⃣ <b>Если вы считаете, что бан несправедлив:</b>\n"
+        "   • Напишите в поддержку: @vctorw\n"
+        "   • Укажите ваш ID и причину бана.\n\n"
+        "3️⃣ <b>Срок бана:</b>\n"
+        "   • Мут: от 1 часа до 24 часов.\n"
+        "   • Бан: от 1 дня до навсегда.\n\n"
+        "⚠️ <i>Мы всегда проверяем жалобы вручную.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_bug"], TEXTS["en"]["btn_sup_bug"]]))
+async def sup_bug_huge(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🐞 <b>НАШЕЛ БАГ</b>\n\n"
+        "Спасибо, что помогаешь делать бота лучше! 🫡\n\n"
+        "📌 <b>Что нужно сделать:</b>\n"
+        "1. Опишите баг как можно точнее.\n"
+        "2. Приложите скриншот или видео.\n"
+        "3. Напишите, какие действия привели к ошибке.\n\n"
+        "📌 <b>Куда писать:</b>\n"
+        "   • В поддержку: @vctorw\n\n"
+        "🎁 <b>Награда:</b>\n"
+        "   • За подтвержденный критический баг мы выдаем от 50 000 до 500 000 токенов!\n\n"
+        "⚠️ <i>Пожалуйста, не используйте найденные баги для наживы. Это карается баном.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_own"], TEXTS["en"]["btn_sup_own"]]))
+async def sup_own_huge(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    text = (
+        "✍️ <b>СВОЙ ВОПРОС</b>\n\n"
+        "Напиши свой вопрос одним сообщением.\n"
+        "Администратор получит его и ответит тебе в ЛС.\n\n"
+        "📌 <b>Примеры вопросов:</b>\n"
+        "   • «Как получить VIP?»\n"
+        "   • «Что такое кэшбэк?»\n"
+        "   • «Как создать клан?»\n\n"
+        "✍️ <i>Напиши сообщение прямо сейчас (или /cancel для отмены):</i>"
+    )
+    await send_clean(message, text, reply_markup=ReplyKeyboardRemove())
+    await state.set_state(UserStates.waiting_for_support)
+
+# ==============================================================================
 # ЗАПУСК И ПИНГ
 # ==============================================================================
 
