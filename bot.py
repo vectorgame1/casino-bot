@@ -24,7 +24,7 @@ AI_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 DB_PATH = "casino.db"
 START_BONUS = 5000
 CURRENCY = "Tokens"
-GROUP_LINK = "https://t.me/+ТВОЯ_ССЫЛКА" # ВСТАВЬ ССЫЛКУ НА ГРУППУ!
+GROUP_LINK = "https://t.me/tokenplays"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -144,14 +144,18 @@ async def cmd_start(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     await state.clear()
     
+    # Проверка ролей
     if message.from_user.id == ADMIN_ID:
-        await message.answer("👑 <b>ПАНЕЛЬ АДМИНА (Загрузится в Части 3)</b>", reply_markup=get_main_menu(user[2]))
+        await show_admin_panel(message)
     elif user[10] == "moderator":
-        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА (Загрузится в Части 3)</b>", reply_markup=get_main_menu(user[2]))
+        await show_mod_panel(message)
     elif user[10] == "promoter":
-        await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА (Загрузится в Части 3)</b>", reply_markup=get_main_menu(user[2]))
+        await show_pr_panel(message)
     else:
-        await message.answer(get_text(user[2], "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(user[2]))
+        await message.answer(
+            get_text(user[2], "welcome", name=message.from_user.first_name), 
+            reply_markup=get_main_menu(user[2])
+        )
 
 @user_router.message(F.text.in_(["👤 Профиль", "👤 Profile"]))
 async def show_profile(message: Message):
@@ -164,7 +168,11 @@ async def show_profile(message: Message):
 @user_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
 async def back_to_main(message: Message):
     user = get_user(message.from_user.id)
-    await message.answer(get_text(user[2], "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(user[2]))
+    # Возвращаем в главное меню с легендарными кнопками
+    await message.answer(
+        get_text(user[2], "welcome", name=message.from_user.first_name), 
+        reply_markup=get_main_menu(user[2])
+    )
 
 # ==============================================================================
 # ПЕРЕВОДЫ И БОНУСЫ
