@@ -1318,6 +1318,189 @@ async def set_language(callback: CallbackQuery):
     await callback.answer(get_text(lang, "lang_changed"))
 
 # ==============================================================================
+# ПАТЧ 31: МЕГА-ПАТЧ ДЛЯ МОДЕРА И ПИАРЩИКА (ПОЛНЫЙ ФУНКЦИОНАЛ)
+# ==============================================================================
+
+# ==============================================================================
+# 1. ПИАРЩИК (КОМАНДЫ)
+# ==============================================================================
+
+@admin_router.message(Command("pr_add"))
+async def add_pr_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /pr_add ID")
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'promoter' WHERE user_id = ?", (target_id,))
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📝 Текст"), KeyboardButton(text="📊 Моя стата"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    try:
+        await bot.send_message(target_id, "📢 <b>Вам выданы права пиарщика!</b>\nЗП: 50 000/3 дня.", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.reply("✅ Пиарщик назначен.")
+    except Exception: await message.reply("❌ Ошибка (закрыты ЛС).")
+
+@admin_router.message(Command("pr_remove"))
+async def remove_pr_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /pr_remove ID")
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'user' WHERE user_id = ?", (target_id,))
+    try:
+        await bot.send_message(target_id, "❌ <b>Ваши права пиарщика сняты.</b>", reply_markup=ReplyKeyboardRemove())
+        await message.reply(f"✅ {target_id} больше не пиарщик.")
+    except Exception: await message.reply(f"✅ Права сняты (уведомление не доставлено).")
+
+@pr_router.message(F.text == "📝 Текст")
+@pr_router.message(Command("pr_text"))
+async def pr_text_final(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    bot_info = await bot.get_me()
+    texts = [
+        f"🔥 <b>Лучший бот для заработка!</b>\nЗаходи, получай бонус 5000 и играй! @{bot_info.username}",
+        f"💎 <b>Хочешь богатства?</b>\nЗабирай свои 5000 прямо сейчас! @{bot_info.username}",
+        f"🎮 <b>Играй и зарабатывай!</b>\nРулетка, кейсы, лотереи. @{bot_info.username}"
+    ]
+    await message.answer(f"📋 <b>Ваш текст:</b>\n\n{random.choice(texts)}")
+
+@pr_router.message(F.text == "📊 Моя стата")
+async def pr_stats_final(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    stats = db_execute("SELECT COUNT(*) FROM logs WHERE user_id = ? AND action = 'pr_text_taken'", (user[0],), fetchone=True)[0]
+    await message.answer(f"📊 <b>Инструкция пиарщика:</b>\n1. Бери текст.\n2. Раскидывай по чатам.\nЗП: 50к/3 дня.\nВыдано текстов: {stats}.")
+
+@pr_router.message(F.text == "⬅️ Назад")
+async def pr_back_final(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] != "promoter" and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📝 Текст"), KeyboardButton(text="📊 Моя стата"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+
+# ==============================================================================
+# 2. МОДЕРАТОР (КОМАНДЫ)
+# ==============================================================================
+
+@admin_router.message(Command("mod_add"))
+async def add_mod_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /mod_add ID")
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'moderator' WHERE user_id = ?", (target_id,))
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📊 Лимиты"), KeyboardButton(text="🧹 Очистка"))
+    builder.row(KeyboardButton(text="📌 Закреп"), KeyboardButton(text="🔓 Разбан"))
+    builder.row(KeyboardButton(text="🚨 SOS"), KeyboardButton(text="📖 Инструкция"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    try:
+        await bot.send_message(target_id, "🛠 <b>Вам выданы права модератора!</b>\nЛимит: 5 000 000/нед.", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.reply("✅ Модер назначен.")
+    except Exception: await message.reply("❌ Ошибка (закрыты ЛС).")
+
+@admin_router.message(Command("mod_remove"))
+async def remove_mod_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit(): return await message.reply("Формат: /mod_remove ID")
+    target_id = int(args[1])
+    db_execute("UPDATE users SET role = 'user' WHERE user_id = ?", (target_id,))
+    db_execute("DELETE FROM mod_limits WHERE user_id = ?", (target_id,)) # Сбрасываем лимиты
+    try:
+        await bot.send_message(target_id, "❌ <b>Ваши права модератора сняты.</b>", reply_markup=ReplyKeyboardRemove())
+        await message.reply(f"✅ {target_id} больше не модер.")
+    except Exception: await message.reply(f"✅ Права сняты (уведомление не доставлено).")
+
+@mod_router.message(F.text == "📊 Лимиты")
+async def mod_limits_final(message: Message):
+    user = get_user(message.from_user.id)
+    limit_data = db_execute("SELECT given_amount, last_reset FROM mod_limits WHERE user_id = ?", (user[0],), fetchone=True)
+    if not limit_data:
+        return await message.answer("📊 Ваш лимит: 5 000 000 Tokens в неделю.\nВыдано: 0.")
+    given, last_reset = limit_data
+    await message.answer(f"📊 Выдано: {format_money(given)}\nОсталось: {format_money(5000000 - given)}.")
+
+@mod_router.message(F.text == "🧹 Очистка")
+async def mod_clean_final(message: Message):
+    await message.answer("🧹 Используйте: <code>/mod_clean 10</code>")
+
+@mod_router.message(F.text == "📌 Закреп")
+async def mod_pin_final(message: Message):
+    await message.answer("📌 Ответьте на сообщение и напишите: <code>/mod_pin</code>")
+
+@mod_router.message(F.text == "🔓 Разбан")
+async def mod_unban_final(message: Message):
+    await message.answer("🔓 Используйте: <code>/mod_unban ID</code>")
+
+@mod_router.message(F.text == "🚨 SOS")
+async def mod_sos_final(message: Message):
+    await message.answer("🚨 Сигнал отправлен Админу.")
+    try: await bot.send_message(ADMIN_ID, f"🚨 Модер @{message.from_user.username} просит помощи!")
+    except Exception: pass
+
+@mod_router.message(F.text == "📖 Инструкция")
+async def mod_help_final(message: Message):
+    await message.answer("📖 <b>Правила модера:</b>\n1. Не выдавать деньги без причины.\n2. Банить только по правилам.\n3. Помогать игрокам.\n4. Лимит: 5 000 000/нед.")
+
+@mod_router.message(F.text == "⬅️ Назад")
+async def mod_back_final(message: Message):
+    user = get_user(message.from_user.id)
+    if user[10] not in ["moderator", "admin"] and message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📊 Лимиты"), KeyboardButton(text="🧹 Очистка"))
+    builder.row(KeyboardButton(text="📌 Закреп"), KeyboardButton(text="🔓 Разбан"))
+    builder.row(KeyboardButton(text="🚨 SOS"), KeyboardButton(text="📖 Инструкция"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    await message.answer("🛠 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+
+# ==============================================================================
+# 3. ФИКС СТАРТА ДЛЯ РОЛЕЙ (ЧТОБЫ КЛАВИАТУРЫ ПОЯВЛЯЛИСЬ СРАЗУ)
+# ==============================================================================
+
+@user_router.message(CommandStart())
+async def smart_start_final_fix(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    
+    if message.from_user.id == ADMIN_ID:
+        await send_clean(message, "👑 <b>АДМИН-ПАНЕЛЬ</b>", reply_markup=get_admin_menu("ru"))
+        return
+    if user[10] == "moderator":
+        builder = ReplyKeyboardBuilder()
+        builder.row(KeyboardButton(text="📊 Лимиты"), KeyboardButton(text="🧹 Очистка"))
+        builder.row(KeyboardButton(text="📌 Закреп"), KeyboardButton(text="🔓 Разбан"))
+        builder.row(KeyboardButton(text="🚨 SOS"), KeyboardButton(text="📖 Инструкция"))
+        builder.row(KeyboardButton(text="⬅️ Назад"))
+        await send_clean(message, "🛠 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+        return
+    if user[10] == "promoter":
+        builder = ReplyKeyboardBuilder()
+        builder.row(KeyboardButton(text="📝 Текст"), KeyboardButton(text="📊 Моя стата"))
+        builder.row(KeyboardButton(text="⬅️ Назад"))
+        await send_clean(message, "📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+        return
+
+    if not user[1] or user[1] == "Unknown":
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
+        builder.button(text="🇬🇧 English", callback_data="set_lang_en")
+        await message.answer("🇷🇺 Выберите язык\n🇬🇧 Choose your language", reply_markup=builder.as_markup())
+        return
+
+    lang = user[2]
+    photo_path = "assets/welcome.jpg"
+    if os.path.exists(photo_path):
+        try:
+            await bot.send_photo(chat_id=message.chat.id, photo=types.FSInputFile(photo_path), caption=get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+            return
+        except Exception: pass
+    await send_clean(message, get_text(lang, "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(lang))
+    
+# ==============================================================================
 # ЗАПУСК И ПИНГ
 # ==============================================================================
 
