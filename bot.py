@@ -850,6 +850,8 @@ async def admin_reply_ticket(message: Message):
 # ==============================================================================
 async def main():
     init_db()
+    # ПРИНУДИТЕЛЬНО УДАЛЯЕМ ВЕБХУК (это лечит ошибку 401)
+    await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Бот запущен!")
     await dp.start_polling(bot)
 
