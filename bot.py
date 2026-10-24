@@ -1306,6 +1306,169 @@ async def adm_lottery(callback: CallbackQuery):
     await callback.answer()
 
 # ==============================================================================
+# ФИКС КНОПОК "ИНСТРУКЦИЯ" (РАЗДЕЛЕНИЕ ПО РОЛЯМ)
+# ==============================================================================
+
+@user_router.message(F.text == "📖 Инструкция")
+async def instruction_router(message: Message):
+    user = get_user(message.from_user.id)
+    
+    # Если нажал Админ
+    if message.from_user.id == ADMIN_ID:
+        text = (
+            "📖 <b>ИНСТРУКЦИЯ АДМИНА</b>\n\n"
+            "👑 <b>Твои команды:</b>\n"
+            "/stats — полная статистика\n"
+            "/user_info ID — инфа игрока\n"
+            "/give_all СУММА — выдать всем\n"
+            "/take_all СУММА — забрать у всех\n"
+            "/mod_add ID — выдать модера\n"
+            "/mod_remove ID — снять модера\n"
+            "/pr_add ID — выдать пиарщика\n"
+            "/pr_remove ID — снять пиарщика\n"
+            "/secret СУММА ВРЕМЯ — дроп\n"
+            "/broadcast — рассылка\n"
+            "/sys_info — состояние сервера\n"
+            "/clear_db — очистить базу"
+        )
+        await message.answer(text)
+        return
+
+    # Если нажал Модер
+    if user[10] == "moderator":
+        text = (
+            "📖 <b>ИНСТРУКЦИЯ МОДЕРА</b>\n\n"
+            "🛡 <b>Твои команды:</b>\n"
+            "/mod_give ID СУММА — выдать токены\n"
+            "/mod_warn (Reply) — варн\n"
+            "/mod_mute 60 (Reply) — мут\n"
+            "/mod_clean 10 — очистить 10 сообщений\n"
+            "/mod_pin (Reply) — закрепить\n"
+            "/mod_unban ID — разбанить\n\n"
+            "📊 <b>Лимит выдачи:</b> 5 000 000/нед.\n"
+            "💰 <b>ЗП:</b> 50 000/3 дня."
+        )
+        await message.answer(text)
+        return
+        
+    # Если нажал Пиарщик
+    if user[10] == "promoter":
+        text = (
+            "📖 <b>ИНСТРУКЦИЯ ПИАРЩИКА</b>\n\n"
+            "📢 <b>Твои команды:</b>\n"
+            "/pr_text — получить текст\n"
+            "/pr_stats — статистика\n\n"
+            "📝 <b>Задача:</b> брать текст и раскидывать по чатам.\n"
+            "💰 <b>ЗП:</b> 50 000/3 дня."
+        )
+        await message.answer(text)
+        return
+
+# Кнопки "Назад" (чтобы не сбивались)
+@admin_router.message(F.text == "⬅️ Назад")
+async def admin_back_btn(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("👑 <b>АДМИН-ПАНЕЛЬ</b>", reply_markup=get_admin_menu("ru"))
+
+@mod_router.message(F.text == "⬅️ Назад")
+async def mod_back_btn(message: Message):
+    await message.answer("🛠 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu())
+
+@pr_router.message(F.text == "⬅️ Назад")
+async def pr_back_btn(message: Message):
+    await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
+
+# ==============================================================================
+# ПАТЧ 35: ПОЛНАЯ СИСТЕМА ПОДДЕРЖКИ
+# ==============================================================================
+
+@user_router.message(F.text.in_([TEXTS["ru"]["menu_help"], TEXTS["en"]["menu_help"]]))
+async def support_menu_fix(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    text = "🆘 <b>СЛУЖБА ПОДДЕРЖКИ</b>\n\nВыбери тему ниже 👇"
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_game"], TEXTS["en"]["btn_sup_game"]]))
+async def sup_game_fix(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🎮 <b>ПРОБЛЕМА С ИГРОЙ</b>\n\n"
+        "1️⃣ Опишите проблему.\n"
+        "2️⃣ Приложите скриншот.\n"
+        "3️⃣ Напишите админу: @vctorw\n\n"
+        "⚠️ <i>Мы разберемся в течение 24 часов.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_pay"], TEXTS["en"]["btn_sup_pay"]]))
+async def sup_pay_fix(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "💳 <b>ВОПРОС ПО ОПЛАТЕ</b>\n\n"
+        "💎 <b>Курс:</b> 1 ⭐ = 7 500 Tokens\n\n"
+        "Если токены не пришли — напишите админу: @vctorw\n"
+        "⚠️ <i>Все платежи проходят через Telegram Stars.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_ban"], TEXTS["en"]["btn_sup_ban"]]))
+async def sup_ban_fix(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🚫 <b>БАН ИЛИ МУТ</b>\n\n"
+        "Если вы считаете, что бан несправедлив:\n"
+        "• Напишите в поддержку: @vctorw\n"
+        "• Укажите ваш ID и причину.\n\n"
+        "⚠️ <i>Мы проверяем жалобы вручную.</i>"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_bug"], TEXTS["en"]["btn_sup_bug"]]))
+async def sup_bug_fix(message: Message):
+    user = get_user(message.from_user.id)
+    text = (
+        "🐞 <b>НАШЕЛ БАГ</b>\n\n"
+        "Спасибо, что помогаешь! 🫡\n"
+        "Напиши в поддержку: @vctorw\n\n"
+        "🎁 <b>Награда:</b> от 50 000 до 500 000 токенов за критический баг!"
+    )
+    await send_clean(message, text, reply_markup=get_help_menu(user[2]))
+
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_sup_own"], TEXTS["en"]["btn_sup_own"]]))
+async def sup_own_fix(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    await send_clean(message, "✍️ Напиши свой вопрос одним сообщением:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(UserStates.waiting_for_support)
+
+@user_router.message(UserStates.waiting_for_support)
+async def sup_own_process_fix(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    await state.clear()
+    admin_text = f"📩 <b>Тикет!</b>\nОт: @{message.from_user.username} (ID: <code>{user[0]}</code>)\n\nТекст: {message.text}\n\n<i>Ответьте Reply на это сообщение.</i>"
+    try:
+        admin_msg = await bot.send_message(ADMIN_ID, admin_text)
+        db_execute("INSERT INTO logs (user_id, action, amount, date) VALUES (?, ?, ?, ?)", (user[0], f"support_msg_{admin_msg.message_id}", 0, datetime.datetime.now().isoformat()))
+        await send_clean(message, "✅ Отправлено Админу.", reply_markup=get_main_menu(user[2]))
+    except Exception:
+        await message.answer("❌ Ошибка отправки.")
+
+@admin_router.message(F.reply_to_message, F.from_user.id == ADMIN_ID)
+async def admin_reply_fix(message: Message):
+    if not message.reply_to_message: return
+    admin_msg_id = message.reply_to_message.message_id
+    log_entry = db_execute("SELECT user_id FROM logs WHERE action = ?", (f"support_msg_{admin_msg_id}",), fetchone=True)
+    if log_entry:
+        try:
+            await bot.send_message(log_entry[0], f"✉️ <b>Ответ от администрации:</b>\n\n{message.text}")
+            await message.reply("✅ Отправлено.")
+        except Exception:
+            await message.reply("❌ Игрок закрыл ЛС.")
+    else:
+        await message.reply("❌ Не найден игрок.")
+
+# ==============================================================================
 # ЗАПУСК И ПИНГ
 # ==============================================================================
 
