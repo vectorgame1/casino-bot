@@ -830,6 +830,22 @@ async def open_case_final(callback: CallbackQuery):
         await callback.message.edit_text(f"🎁 Выигрыш: <b>{format_money(prize)}</b>!")
     await callback.answer()
 
+# ==============================================================================
+# ВЕБ-СЕРВЕР ДЛЯ RENDER (Восстановлен)
+# ==============================================================================
+async def handle_ping(request):
+    return web.Response(text="Bot is alive!")
+
+async def start_ping_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Веб-сервер запущен на порту {port}")
+    
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
