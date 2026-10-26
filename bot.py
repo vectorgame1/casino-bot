@@ -121,6 +121,27 @@ def get_profile_menu():
     builder.row(KeyboardButton(text="⬅️ Назад"))
     return builder.as_markup(resize_keyboard=True)
 
+def get_mod_menu():
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="💸 Выдать Токены"), KeyboardButton(text="🚫 Забанить"))
+    builder.row(KeyboardButton(text="🔓 Разбанить"), KeyboardButton(text="⬅️ Выход"))
+    return builder.as_markup(resize_keyboard=True)
+
+def get_pr_menu():
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="🔗 Моя Ссылка"), KeyboardButton(text="📊 Моя Стата"))
+    builder.row(KeyboardButton(text="⬅️ Выход"))
+    return builder.as_markup(resize_keyboard=True)
+
+def get_admin_menu():
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📊 Статистика"), KeyboardButton(text="💸 Экономика"))
+    builder.row(KeyboardButton(text="🎁 Промокоды"), KeyboardButton(text="👥 Люди"))
+    builder.row(KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="🎰 Игры"))
+    builder.row(KeyboardButton(text="⚙️ Система"), KeyboardButton(text="🎁 Ивент"))
+    builder.row(KeyboardButton(text="⬅️ В меню игрока"))
+    return builder.as_markup(resize_keyboard=True)
+
 # ==============================================================================
 # СТАРТ И ПРОФИЛЬ
 # ==============================================================================
@@ -132,6 +153,10 @@ async def cmd_start(message: Message, state: FSMContext):
     
     if message.from_user.id == ADMIN_ID:
         await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu())
+    elif user[4] == "moderator":
+        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu())
+    elif user[4] == "promoter":
+        await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
     else:
         await message.answer(get_text(user[2], "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(user[2]))
 
