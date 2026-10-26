@@ -762,32 +762,90 @@ async def daily_report():
         logger.error(f"Ошибка отправки отчета: {e}")
 
 # ==============================================================================
-# ВЕБ-СЕРВЕР И ЗАПУСК
+# ФИНАЛЬНЫЙ ПАТЧ №2: ОТМЕНА ПЕРЕВОДА, БАЛАНС, ВОЗВРАТ АДМИНКИ И КАРТИНКИ
 # ==============================================================================
-async def handle_ping(request): 
-    return web.Response(text="Bot is alive!")
 
-async def start_ping_server():
-    app = web.Application()
-    app.router.add_get('/', handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Веб-сервер запущен на порту {port}")
+# 1. Добавляем кнопку "Отмена" для выхода из перевода
+@user_router.message(TransferStates.waiting_id, F.text == "⬅️ Отмена")
+@user_router.message(TransferStates.waiting_amount, F.text == "⬅️ Отмена")
+async def cancel_transfer(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    await message.answer("❌ Перевод отменен.", reply_markup=get_main_menu(user[2]))
 
-async def main():
+# 2. Команда "б" (баланс) в личке
+@user_router.message(F.text.lower().in_(["б", "баланс"]))
+async def cmd_balance_private(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    await message.answer(f"💰 Твой баланс: <b>{format_money(user[3])}</b>")
+
+# 3. Принудительный возврат в Админку (перебиваем всё)
+@admin_router.message(F.text == "⬅️ В меню игрока")
+async def adm_exit_final(message: Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu())
+    else:
+        user = get_user(message.from_user.id)
+        await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
+
+# 4. Картинка при старте (если файла нет - шлет текст)
+@user_router.message(CommandStart())
+async def cmd_start_final(message: Message, state: FSMContext):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    await state.clear()
+    
+    try:
+        photo = FSInputFile("assets/welcome.jpg")
+        await message.answer_photo(
+            photo=photo, 
+            caption=get_text(user[2], "welcome", name=message.from_user.first_name), 
+            reply_markup=get_main_menu(user[2])
+        )
+    except Exception as e:
+        logger.error(f"Не удалось отправить фото: {e}")
+        await message.answer(get_text(user[2], "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(user[2]))
+
+# 5. Картинка (GIF) при открытии кейса
+@user_router.callback_query(F.data == "open_case")
+async def open_case_final(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    now = datetime.datetime.now()
+    if user[6] and now - datetime.datetime.fromisoformat(user[6]) < datetime.timedelta(hours=24):
+        return await callback.answer("⏳ Кейс уже открыт.", show_alert=True)
+    
+    prize = random.choice([1000, 2000, 5000, 10000, 15000, 25000])
+    update_balance(user[0], prize)
+    db_execute("UPDATE users SET last_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    try:
+        await callback.message.answer_animation(
+            animation=FSInputFile("assets/case.gif"), 
+            caption=f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!"
+        )
+        await callback.message.delete()
+    except Exception as e:
+        logger.error(f"Не удалось отправить GIF: {e}")
+        await callback.message.edit_text(f"🎁 Выигрыш: <b>{format_money(prize)}</b>!")
+    await callback.answer()
+
+# 6. Перезапуск с принудительным сбросом вебхука (для групп)
+async def main_final():
     init_db()
     scheduler.add_job(daily_report, "cron", hour=22, minute=0)
     scheduler.start()
     asyncio.create_task(start_ping_server())
-    logger.info("Бот запущен!")
+    
+    # Сброс вебхука
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    logger.info("Бот запущен (Финальный патч №2)!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try: 
-        asyncio.run(main())
+        asyncio.run(main_final())
     except KeyboardInterrupt: 
         logger.info("Бот остановлен.")
 
