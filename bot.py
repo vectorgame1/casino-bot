@@ -131,8 +131,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     
     if message.from_user.id == ADMIN_ID:
-        from handlers.admin import get_admin_menu # Заглушка, полное меню будет в Части 3
-        await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>\n(Загрузится в Части 3)", reply_markup=get_main_menu("ru"))
+        await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu())
     else:
         await message.answer(get_text(user[2], "welcome", name=message.from_user.first_name), reply_markup=get_main_menu(user[2]))
 
