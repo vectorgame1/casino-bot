@@ -1,4 +1,3 @@
 aiogram==3.13.1
 apscheduler
 aiohttp
-pydantic>=2.13.0
