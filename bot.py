@@ -1950,7 +1950,9 @@ async def mod_exit_fix(message: Message):
 @pr_router.message(F.text == "⬅️ Выход")
 async def pr_exit_fix(message: Message):
     user = get_user(message.from_user.id)
-    if user[4] == "promoter":
+    if user[4] == "moderator":
+        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu_fixed())
+    elif user[4] == "promoter":
         await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu_fixed())
     else:
         await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
