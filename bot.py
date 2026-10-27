@@ -1632,7 +1632,380 @@ async def global_back_fix(message: Message):
         get_text(user[2], "welcome", name=message.from_user.first_name), 
         reply_markup=get_main_menu(user[2])
     )
+
+# ==============================================================================
+# МЕГА-ПАТЧ: ПОЛНАЯ ПЕРЕЗАПИСЬ АДМИНКИ (БЕЗ ЗАГЛУШЕК)
+# ==============================================================================
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.types import ReplyKeyboardRemove
+
+class AdminStates(StatesGroup):
+    waiting_give_id = State()
+    waiting_give_amount = State()
+    waiting_take_id = State()
+    waiting_take_amount = State()
+    waiting_promo_code = State()
+    waiting_promo_amount = State()
+    waiting_promo_limit = State()
+    waiting_role_id = State()
+    waiting_broadcast = State()
+
+# --- 1. ГЛАВНОЕ МЕНЮ АДМИНКИ (исправляем кнопку "В меню игрока") ---
+def get_admin_menu_fixed():
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📊 Статистика"), KeyboardButton(text="💸 Экономика"))
+    builder.row(KeyboardButton(text="🎁 Промокоды"), KeyboardButton(text="👥 Люди"))
+    builder.row(KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="🎰 Игры"))
+    builder.row(KeyboardButton(text="⚙️ Система"), KeyboardButton(text="🎁 Ивент"))
+    builder.row(KeyboardButton(text="⬅️ В меню игрока"))
+    return builder.as_markup(resize_keyboard=True)
+
+@admin_router.message(F.text == "⬅️ В меню игрока")
+async def admin_back_to_admin(message: Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu_fixed())
+    else:
+        user = get_user(message.from_user.id)
+        await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
+
+# --- 2. СТАТИСТИКА ---
+@admin_router.message(F.text == "📊 Статистика")
+async def admin_stats_fixed(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    users = db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]
+    total_bal = db_execute("SELECT SUM(balance) FROM users", fetchone=True)[0] or 0
+    games_today = db_execute("SELECT COUNT(*) FROM games_log WHERE date(date) = date('now')", fetchone=True)[0]
     
+    text = (
+        f"📊 <b>СТАТИСТИКА КАЗИНО</b>\n\n"
+        f"👥 Всего игроков: <b>{users}</b>\n"
+        f"💰 В обороте: <b>{format_money(total_bal)}</b>\n"
+        f"🎮 Игр за сегодня: <b>{games_today}</b>"
+    )
+    await message.answer(text, reply_markup=get_admin_menu_fixed())
+
+# --- 3. ЭКОНОМИКА (Выдать, Забрать, Налог) ---
+@admin_router.message(F.text == "💸 Экономика")
+async def admin_eco_menu(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="Выдать по ID"), KeyboardButton(text="Забрать по ID"))
+    builder.row(KeyboardButton(text="Налог 10%"), KeyboardButton(text="Выдать всем"))
+    builder.row(KeyboardButton(text="⬅️ В меню админа"))
+    await message.answer("💸 <b>ЭКОНОМИКА</b>\nВыбери операцию:", reply_markup=builder.as_markup(resize_keyboard=True))
+
+@admin_router.message(F.text == "⬅️ В меню админа")
+async def admin_back_to_admin_menu(message: Message):
+    await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu_fixed())
+
+@admin_router.message(F.text == "Выдать по ID")
+async def admin_give_start(message: Message, state: FSMContext):
+    await message.answer("Введи ID игрока:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(AdminStates.waiting_give_id)
+
+@admin_router.message(AdminStates.waiting_give_id)
+async def admin_give_amount(message: Message, state: FSMContext):
+    try: target = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    await state.update_data(target=target)
+    await message.answer("Введи сумму:")
+    await state.set_state(AdminStates.waiting_give_amount)
+
+@admin_router.message(AdminStates.waiting_give_amount)
+async def admin_give_finish(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    data = await state.get_data()
+    update_balance(data['target'], amount)
+    await message.answer(f"✅ Выдано {format_money(amount)} игроку <code>{data['target']}</code>", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+@admin_router.message(F.text == "Забрать по ID")
+async def admin_take_start(message: Message, state: FSMContext):
+    await message.answer("Введи ID игрока:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(AdminStates.waiting_take_id)
+
+@admin_router.message(AdminStates.waiting_take_id)
+async def admin_take_amount(message: Message, state: FSMContext):
+    try: target = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    await state.update_data(target=target)
+    await message.answer("Введи сумму для забора:")
+    await state.set_state(AdminStates.waiting_take_amount)
+
+@admin_router.message(AdminStates.waiting_take_amount)
+async def admin_take_finish(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    data = await state.get_data()
+    update_balance(data['target'], -amount)
+    await message.answer(f"✅ Забрано {format_money(amount)} у игрока <code>{data['target']}</code>", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+@admin_router.message(F.text == "Налог 10%")
+async def admin_tax_fixed(message: Message):
+    users = db_execute("SELECT user_id, balance FROM users WHERE balance > 100000", fetchall=True)
+    total = 0
+    for u in users:
+        tax = int(u[1] * 0.1)
+        update_balance(u[0], -tax)
+        total += tax
+    await message.answer(f"📉 Собрано налогов: <b>{format_money(total)}</b>", reply_markup=get_admin_menu_fixed())
+
+@admin_router.message(F.text == "Выдать всем")
+async def admin_give_all(message: Message, state: FSMContext):
+    await message.answer("Введи сумму для выдачи всем игрокам:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_give_all")
+
+@admin_router.message(StateFilter("waiting_give_all"))
+async def admin_give_all_finish(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    db_execute("UPDATE users SET balance = balance + ?", (amount,))
+    await message.answer(f"✅ Всем игрокам выдано по {format_money(amount)}!", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+# --- 4. ПРОМОКОДЫ ---
+@admin_router.message(F.text == "🎁 Промокоды")
+async def admin_promo_menu(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="Создать промокод"))
+    builder.row(KeyboardButton(text="Список промокодов"))
+    builder.row(KeyboardButton(text="⬅️ В меню админа"))
+    await message.answer("🎁 <b>ПРОМОКОДЫ</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+
+@admin_router.message(F.text == "Создать промокод")
+async def admin_promo_create(message: Message, state: FSMContext):
+    await message.answer("Введи код (слово):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(AdminStates.waiting_promo_code)
+
+@admin_router.message(AdminStates.waiting_promo_code)
+async def admin_promo_amount(message: Message, state: FSMContext):
+    await state.update_data(code=message.text.upper())
+    await message.answer("Введи сумму награды:")
+    await state.set_state(AdminStates.waiting_promo_amount)
+
+@admin_router.message(AdminStates.waiting_promo_amount)
+async def admin_promo_limit(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    await state.update_data(amount=amount)
+    await message.answer("Введи лимит активаций:")
+    await state.set_state(AdminStates.waiting_promo_limit)
+
+@admin_router.message(AdminStates.waiting_promo_limit)
+async def admin_promo_finish(message: Message, state: FSMContext):
+    try: limit = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    data = await state.get_data()
+    db_execute("INSERT OR REPLACE INTO promos (code, reward, limit_count) VALUES (?, ?, ?)", (data['code'], data['amount'], limit))
+    await message.answer(f"✅ Промокод <b>{data['code']}</b> создан!", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+@admin_router.message(F.text == "Список промокодов")
+async def admin_promo_list(message: Message):
+    promos = db_execute("SELECT code, reward, limit_count, used_count FROM promos", fetchall=True)
+    if not promos: return await message.answer("📭 Промокодов нет.")
+    text = "🎁 <b>СПИСОК ПРОМОКОДОВ:</b>\n\n"
+    for p in promos:
+        text += f"🔹 <code>{p[0]}</code> | {format_money(p[1])} | {p[3]}/{p[2]}\n"
+    await message.answer(text, reply_markup=get_admin_menu_fixed())
+
+# --- 5. УПРАВЛЕНИЕ ЛЮДЬМИ ---
+@admin_router.message(F.text == "👥 Люди")
+async def admin_people_menu(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="Выдать Модера"), KeyboardButton(text="Выдать Пиарщика"))
+    builder.row(KeyboardButton(text="Снять роль"))
+    builder.row(KeyboardButton(text="⬅️ В меню админа"))
+    await message.answer("👥 <b>УПРАВЛЕНИЕ ЛЮДЬМИ</b>", reply_markup=builder.as_markup(resize_keyboard=True))
+
+@admin_router.message(F.text == "Выдать Модера")
+async def admin_add_mod(message: Message, state: FSMContext):
+    await message.answer("Введи ID игрока:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_mod_id")
+
+@admin_router.message(StateFilter("waiting_mod_id"))
+async def admin_add_mod_finish(message: Message, state: FSMContext):
+    try: target = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    db_execute("UPDATE users SET role = 'moderator' WHERE user_id = ?", (target,))
+    await message.answer(f"✅ Игрок <code>{target}</code> теперь Модер.", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+@admin_router.message(F.text == "Выдать Пиарщика")
+async def admin_add_pr(message: Message, state: FSMContext):
+    await message.answer("Введи ID игрока:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_pr_id")
+
+@admin_router.message(StateFilter("waiting_pr_id"))
+async def admin_add_pr_finish(message: Message, state: FSMContext):
+    try: target = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    db_execute("UPDATE users SET role = 'promoter' WHERE user_id = ?", (target,))
+    await message.answer(f"✅ Игрок <code>{target}</code> теперь Пиарщик.", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+# --- 6. РАССЫЛКА (ПОЛНОСТЬЮ РАБОЧАЯ) ---
+@admin_router.message(F.text == "📢 Рассылка")
+async def admin_broadcast_start(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("Введи текст для рассылки (или /cancel):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(AdminStates.waiting_broadcast)
+
+@admin_router.message(AdminStates.waiting_broadcast)
+async def admin_broadcast_finish(message: Message, state: FSMContext):
+    if message.text == "/cancel":
+        await state.clear()
+        return await message.answer("Отменено.", reply_markup=get_admin_menu_fixed())
+        
+    users = db_execute("SELECT user_id FROM users", fetchall=True)
+    success = 0
+    status_msg = await message.answer("⏳ Начинаю рассылку...")
+    
+    for u in users:
+        try:
+            await bot.send_message(u[0], message.text)
+            success += 1
+            await asyncio.sleep(0.05)
+        except: pass
+        
+    await status_msg.edit_text(f"✅ Рассылка завершена!\nДоставлено: {success}/{len(users)}")
+    await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu_fixed())
+    await state.clear()
+
+# ==============================================================================
+# МЕГА-ПАТЧ: КЛАНЫ 2.0 (КАЗНА, РОЛИ, ПОЯСНЕНИЕ)
+# ==============================================================================
+from aiogram.types import ReplyKeyboardRemove
+
+# 1. Главное меню Кланов (с пояснением)
+@user_router.message(F.text == "🛡 Клан")
+async def clan_menu_mega(message: Message):
+    user = get_user(message.from_user.id)
+    builder = ReplyKeyboardBuilder()
+    
+    text = (
+        "🛡 <b>КЛАНОВАЯ СИСТЕМА</b>\n\n"
+        "<i>Кланы — это объединения игроков. Вступив в клан, ты получаешь защиту, общую казну и участвуешь в войнах за первое место в топе.</i>\n\n"
+    )
+    
+    if not user[12]:
+        builder.row(KeyboardButton(text="➕ Создать клан (100к)"), KeyboardButton(text="🏆 Топ кланов"))
+        text += "Ты пока не в клане. Создай свой или попроси владельца другого клана пригласить тебя."
+    else:
+        clan = db_execute("SELECT name, treasury, owner_id FROM clans WHERE id = ?", (user[12],), fetchone=True)
+        builder.row(KeyboardButton(text="💰 Внести в казну"), KeyboardButton(text="🏆 Топ кланов"))
+        builder.row(KeyboardButton(text="📜 Мой клан"), KeyboardButton(text="🚪 Выйти из клана"))
+        
+        role = "👑 Владелец" if clan[2] == user[0] else "🛡 Рядовой"
+        text += f"<b>Твой клан:</b> {clan[0]}\n<b>Твоя роль:</b> {role}\n<b>Казна:</b> {format_money(clan[1])}"
+        
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
+
+# 2. Создание клана
+@user_router.message(F.text == "➕ Создать клан (100к)")
+async def clan_create_mega(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    if user[3] < 100000: 
+        return await message.answer("❌ Нужно 100 000 токенов для создания клана.")
+    if user[12]: 
+        return await message.answer("❌ Ты уже в клане.")
+        
+    await message.answer("🛡 Введи название клана (до 15 символов):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_clan_name")
+
+@user_router.message(StateFilter("waiting_clan_name"))
+async def clan_create_finish_mega(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if len(name) > 15: 
+        return await message.answer("❌ Слишком длинное (макс 15).")
+    
+    user = get_user(message.from_user.id)
+    if user[3] < 100000:
+        await state.clear()
+        return await message.answer("❌ Недостаточно средств.")
+        
+    update_balance(user[0], -100000)
+    db_execute("INSERT INTO clans (name, owner_id, treasury) VALUES (?, ?, 0)", (name, user[0]))
+    clan_id = db_execute("SELECT id FROM clans WHERE owner_id = ?", (user[0],), fetchone=True)[0]
+    db_execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, user[0]))
+    
+    await state.clear()
+    await message.answer(f"✅ Клан <b>{name}</b> создан!\nТы теперь Владелец.", reply_markup=get_main_menu(user[2]))
+
+# 3. Топ кланов
+@user_router.message(F.text == "🏆 Топ кланов")
+async def clan_top_mega(message: Message):
+    clans = db_execute("SELECT name, treasury FROM clans ORDER BY treasury DESC LIMIT 10", fetchall=True)
+    text = "🏆 <b>ТОП-10 КЛАНОВ:</b>\n\n"
+    if not clans: 
+        text += "Пока нет ни одного клана."
+    else:
+        for i, c in enumerate(clans, 1):
+            text += f"{i}. <b>{c[0]}</b> — Казна: {format_money(c[1])}\n"
+    await message.answer(text, reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True))
+
+# 4. Внести в казну
+@user_router.message(F.text == "💰 Внести в казну")
+async def clan_deposit_start(message: Message, state: FSMContext):
+    await message.answer("💰 Введи сумму, которую хочешь внести в казну клана:", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_clan_deposit")
+
+@user_router.message(StateFilter("waiting_clan_deposit"))
+async def clan_deposit_finish(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    
+    user = get_user(message.from_user.id)
+    if user[3] < amount: 
+        await state.clear()
+        return await message.answer("❌ Недостаточно средств.")
+        
+    update_balance(user[0], -amount)
+    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[12]))
+    
+    await state.clear()
+    await message.answer(f"✅ Ты внес {format_money(amount)} в казну клана!", reply_markup=get_main_menu(user[2]))
+
+# 5. Информация о моем клане
+@user_router.message(F.text == "📜 Мой клан")
+async def clan_info_mega(message: Message):
+    user = get_user(message.from_user.id)
+    if not user[12]: return await message.answer("Ты не в клане.")
+    
+    clan = db_execute("SELECT name, treasury, owner_id FROM clans WHERE id = ?", (user[12],), fetchone=True)
+    members = db_execute("SELECT COUNT(*) FROM users WHERE clan_id = ?", (user[12],), fetchone=True)[0]
+    owner_name = db_execute("SELECT username FROM users WHERE user_id = ?", (clan[2],), fetchone=True)[0]
+    
+    text = (
+        f"🛡 <b>ИНФОРМАЦИЯ О КЛАНЕ</b>\n\n"
+        f"📛 Название: <b>{clan[0]}</b>\n"
+        f"👑 Владелец: @{owner_name if owner_name != 'Unknown' else clan[2]}\n"
+        f"👥 Участников: <b>{members}</b>\n"
+        f"💰 Казна: <b>{format_money(clan[1])}</b>"
+    )
+    await message.answer(text, reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True))
+
+# 6. Выход из клана
+@user_router.message(F.text == "🚪 Выйти из клана")
+async def clan_leave_mega(message: Message):
+    user = get_user(message.from_user.id)
+    if not user[12]: return await message.answer("Ты не в клане.")
+    
+    clan = db_execute("SELECT owner_id, name FROM clans WHERE id = ?", (user[12],), fetchone=True)
+    if clan and clan[0] == user[0]:
+        db_execute("DELETE FROM clans WHERE id = ?", (user[12],))
+        db_execute("UPDATE users SET clan_id = NULL WHERE clan_id = ?", (user[12],))
+        await message.answer(f"🚪 Ты распустил свой клан <b>{clan[1]}</b>.", reply_markup=get_main_menu(user[2]))
+    else:
+        db_execute("UPDATE users SET clan_id = NULL WHERE user_id = ?", (user[0],))
+        await message.answer("🚪 Ты вышел из клана.", reply_markup=get_main_menu(user[2]))
+
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
