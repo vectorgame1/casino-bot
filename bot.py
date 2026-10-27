@@ -795,14 +795,16 @@ async def buy_lottery_beauty(callback: CallbackQuery):
     
     await callback.answer("✅ Билет куплен! Удачи в 20:00!", show_alert=True)
 
-# --- 5. РАБОТА ---
 @user_router.message(F.text == "💼 Работа")
 async def work_final_fix(message: Message):
     user = get_user(message.from_user.id)
     now = datetime.datetime.now()
     
-    if user[13] and now - datetime.datetime.fromisoformat(user[13]) < datetime.timedelta(hours=1):
-        time_left = datetime.timedelta(hours=1) - (now - datetime.datetime.fromisoformat(user[13]))
+    # ЗАЩИТА ОТ ПАДЕНИЯ (если база не обновлена)
+    last_work = user[13] if len(user) > 13 else None
+    
+    if last_work and now - datetime.datetime.fromisoformat(last_work) < datetime.timedelta(hours=1):
+        time_left = datetime.timedelta(hours=1) - (now - datetime.datetime.fromisoformat(last_work))
         return await message.answer(
             f"⏳ <b>Ты уже работал.</b>\nПриходи через {time_left.seconds // 60} мин.",
             reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
@@ -810,7 +812,10 @@ async def work_final_fix(message: Message):
         
     salary = 1500
     update_balance(user[0], salary)
-    db_execute("UPDATE users SET last_work = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    try:
+        db_execute("UPDATE users SET last_work = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    except Exception as e:
+        print(f"Ошибка БД (last_work): {e}")
     
     await message.answer(
         f"💼 <b>Ты поработал и получил {format_money(salary)}!</b>\n\n"
