@@ -1,4 +1,5 @@
 aiogram==3.13.1
 apscheduler
 aiohttp
-psycopg2-binary 
+psycopg[binary]
+psycopg_pool

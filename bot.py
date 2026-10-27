@@ -1,11 +1,12 @@
 import asyncio
 import logging
-import sqlite3
 import datetime
 import os
 import random
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.filters import CommandStart, Command, StateFilter
+import psycopg
+from psycopg_pool import ConnectionPool
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, FSInputFile
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -43,64 +44,52 @@ group_router = Router()
 dp.include_routers(user_router, admin_router, mod_router, pr_router, group_router)
 
 # ==============================================================================
-# ПОДКЛЮЧЕНИЕ К SUPABASE (POSTGRESQL)
+# БАЗА ДАННЫХ (POSTGRESQL - SUPABASE)
 # ==============================================================================
-import psycopg2
-from psycopg2 import pool
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Создаем пул соединений (чтобы бот не тормозил)
-try:
-    db_pool = pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
-    if db_pool:
-        logger.info("Успешное подключение к Supabase PostgreSQL!")
-except Exception as e:
-    logger.error(f"Ошибка подключения к БД: {e}")
+# Создаем пул соединений
+db_pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=10, open=True)
 
 def db_execute(query, params=(), fetchone=False, fetchall=False):
-    conn = db_pool.getconn()
-    try:
-        cursor = conn.cursor()
-        # Заменяем SQLite-плейсхолдеры '?' на PostgreSQL '%s'
-        query = query.replace("?", "%s") 
-        cursor.execute(query, params)
-        
-        result = None
-        if fetchone: 
-            result = cursor.fetchone()
-        elif fetchall: 
-            result = cursor.fetchall()
+    # Заменяем плейсхолдеры SQLite '?' на PostgreSQL '%s'
+    query = query.replace("?", "%s")
+    
+    with db_pool.connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params)
             
-        conn.commit()
-        cursor.close()
-        return result
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Ошибка БД: {e}")
-    finally:
-        db_pool.putconn(conn)
+            result = None
+            if fetchone: 
+                result = cursor.fetchone()
+            elif fetchall: 
+                result = cursor.fetchall()
+                
+            conn.commit()
+            return result
 
 def init_db():
-    # Создаем таблицы (синтаксис Postgres)
-    db_execute("""CREATE TABLE IF NOT EXISTS users (
-        user_id BIGINT PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru',
-        balance BIGINT DEFAULT 5000, role TEXT DEFAULT 'user', 
-        last_bonus TEXT, last_case TEXT, last_vip_case TEXT, last_wheel TEXT,
-        last_work TEXT, warns INTEGER DEFAULT 0, ref_id BIGINT DEFAULT NULL,
-        clan_id INTEGER DEFAULT NULL
-    )""")
-    db_execute("""CREATE TABLE IF NOT EXISTS clans (
-        id SERIAL PRIMARY KEY, name TEXT, owner_id BIGINT, treasury BIGINT DEFAULT 0
-    )""")
-    db_execute("""CREATE TABLE IF NOT EXISTS promos (
-        code TEXT PRIMARY KEY, reward BIGINT, limit_count INTEGER, used_count INTEGER DEFAULT 0
-    )""")
-    db_execute("""CREATE TABLE IF NOT EXISTS lottery (user_id BIGINT PRIMARY KEY)""")
-    db_execute("""CREATE TABLE IF NOT EXISTS games_log (
-        id SERIAL PRIMARY KEY, user_id BIGINT, game TEXT, bet BIGINT, win BIGINT, date TEXT
-    )""")
-    logger.info("Таблицы в Supabase созданы/проверены.")
+    try:
+        db_execute("""CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru',
+            balance BIGINT DEFAULT 5000, role TEXT DEFAULT 'user', 
+            last_bonus TEXT, last_case TEXT, last_vip_case TEXT, last_wheel TEXT,
+            last_work TEXT, warns INTEGER DEFAULT 0, ref_id BIGINT DEFAULT NULL,
+            clan_id INTEGER DEFAULT NULL
+        )""")
+        db_execute("""CREATE TABLE IF NOT EXISTS clans (
+            id SERIAL PRIMARY KEY, name TEXT, owner_id BIGINT, treasury BIGINT DEFAULT 0
+        )""")
+        db_execute("""CREATE TABLE IF NOT EXISTS promos (
+            code TEXT PRIMARY KEY, reward BIGINT, limit_count INTEGER, used_count INTEGER DEFAULT 0
+        )""")
+        db_execute("""CREATE TABLE IF NOT EXISTS lottery (user_id BIGINT PRIMARY KEY)""")
+        db_execute("""CREATE TABLE IF NOT EXISTS games_log (
+            id SERIAL PRIMARY KEY, user_id BIGINT, game TEXT, bet BIGINT, win BIGINT, date TEXT
+        )""")
+        logger.info("Таблицы в Supabase созданы/проверены.")
+    except Exception as e:
+        logger.error(f"Ошибка инициализации БД: {e}")
 
 # ==============================================================================
 # ЛОКАЛИЗАЦИЯ (RU / EN)
