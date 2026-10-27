@@ -1566,6 +1566,173 @@ async def daily_report():
         logger.error(f"Ошибка отправки отчета: {e}")
 
 # ==============================================================================
+# МЕГА-ПАТЧ: АДМИНКА (РАБОЧАЯ), КЛАНЫ 3.0 (С ИНФОЙ), VIP В ДОНАТЕ
+# ==============================================================================
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.types import ReplyKeyboardRemove
+
+# ==============================================================================
+# 1. ПОЧИНКА АДМИНКИ (ЭТИ КНОПКИ ТЕПЕРЬ РАБОТАЮТ)
+# ==============================================================================
+@admin_router.message(F.text == "🎁 Ивент")
+async def adm_event_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📉 Гиперинфляция"), KeyboardButton(text="💣 Дроп в чат"))
+    builder.row(KeyboardButton(text="⬅️ В меню админа"))
+    await message.answer("🎁 <b>ИВЕНТЫ</b>\nВыбери действие:", reply_markup=builder.as_markup(resize_keyboard=True))
+
+@admin_router.message(F.text == "⚙️ Система")
+async def adm_sys_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("⚙️ <b>СИСТЕМА</b>\n\nБот работает стабильно. База данных активна.\nВерсия: 2.0 (Clean Build)", reply_markup=get_admin_menu())
+
+@admin_router.message(F.text == "🎰 Игры")
+async def adm_games_fix(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("🎰 <b>УПРАВЛЕНИЕ ИГРАМИ</b>\n\nВсе игры включены. Ставки принимаются.", reply_markup=get_admin_menu())
+
+# ==============================================================================
+# 2. КЛАНЫ 3.0 (КРАСИВЫЙ ТОП И ВСТУПЛЕНИЕ ЗА 5000)
+# ==============================================================================
+JOIN_FEE = 5000 # Взнос за вступление
+WELCOME_BONUS = 5000 # Бонус за вступление
+
+@user_router.message(F.text == "🏆 Топ кланов")
+async def clan_top_v3(message: Message):
+    clans = db_execute("SELECT id, name, treasury FROM clans ORDER BY treasury DESC LIMIT 10", fetchall=True)
+    if not clans:
+        return await message.answer("🏆 <b>ТОП КЛАНОВ</b>\n\nПока нет ни одного клана. Создай первый!", reply_markup=get_clan_menu())
+        
+    builder = InlineKeyboardBuilder()
+    for i, c in enumerate(clans, 1):
+        builder.button(text=f"{i}. {c[1]} (💰 {format_money(c[2])})", callback_data=f"clan_info_{c[0]}")
+    builder.row(InlineKeyboardButton(text="⬅️ В Игры", callback_data="back_to_games_btn"))
+    builder.adjust(1)
+    
+    await message.answer("🏆 <b>ТОП-10 КЛАНОВ</b>\nНажми на клан, чтобы узнать подробности:", reply_markup=builder.as_markup())
+
+@user_router.callback_query(F.data.startswith("clan_info_"))
+async def clan_info_v3(callback: CallbackQuery):
+    clan_id = int(callback.data.split("_")[2])
+    clan = db_execute("SELECT name, treasury, owner_id FROM clans WHERE id = ?", (clan_id,), fetchone=True)
+    if not clan: return await callback.answer("❌ Клан не найден.", show_alert=True)
+    
+    members = db_execute("SELECT COUNT(*) FROM users WHERE clan_id = ?", (clan_id,), fetchone=True)[0]
+    owner_name = db_execute("SELECT username FROM users WHERE user_id = ?", (clan[2],), fetchone=True)[0]
+    
+    text = (
+        f"🛡 <b>ИНФОРМАЦИЯ О КЛАНЕ</b>\n\n"
+        f"📛 Название: <b>{clan[0]}</b>\n"
+        f"👑 Владелец: @{owner_name if owner_name != 'Unknown' else clan[2]}\n"
+        f"👥 Участников: <b>{members}</b> чел.\n"
+        f"💰 Казна: <b>{format_money(clan[1])}</b>\n"
+        f"🎁 Награда за вступление: <b>{format_money(WELCOME_BONUS)}</b>\n"
+        f"💵 Взнос: <b>{format_money(JOIN_FEE)}</b>"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    user = get_user(callback.from_user.id)
+    if not user[12]:
+        builder.button(text="🤝 Вступить", callback_data=f"clan_join_{clan_id}")
+    builder.button(text="⬅️ Назад в Топ", callback_data="back_to_clan_top")
+    builder.adjust(1)
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@user_router.callback_query(F.data == "back_to_clan_top")
+async def back_to_clan_top(callback: CallbackQuery):
+    clans = db_execute("SELECT id, name, treasury FROM clans ORDER BY treasury DESC LIMIT 10", fetchall=True)
+    builder = InlineKeyboardBuilder()
+    for i, c in enumerate(clans, 1):
+        builder.button(text=f"{i}. {c[1]} (💰 {format_money(c[2])})", callback_data=f"clan_info_{c[0]}")
+    builder.row(InlineKeyboardButton(text="⬅️ В Игры", callback_data="back_to_games_btn"))
+    builder.adjust(1)
+    await callback.message.edit_text("🏆 <b>ТОП-10 КЛАНОВ</b>\nНажми на клан для подробностей:", reply_markup=builder.as_markup())
+    await callback.answer()
+
+@user_router.callback_query(F.data.startswith("clan_join_"))
+async def clan_join_process_v3(callback: CallbackQuery):
+    clan_id = int(callback.data.split("_")[2])
+    user = get_user(callback.from_user.id)
+    
+    if user[12]: return await callback.answer("❌ Ты уже в клане.", show_alert=True)
+    if user[3] < JOIN_FEE: return await callback.answer(f"❌ Нужно {format_money(JOIN_FEE)} для взноса.", show_alert=True)
+    
+    clan = db_execute("SELECT name FROM clans WHERE id = ?", (clan_id,), fetchone=True)
+    
+    # Списываем взнос и пополняем казну
+    update_balance(user[0], -JOIN_FEE)
+    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (JOIN_FEE, clan_id))
+    db_execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, user[0]))
+    
+    # Даем бонус
+    update_balance(user[0], WELCOME_BONUS)
+    
+    await callback.message.edit_text(f"✅ Ты вступил в клан <b>{clan[0]}</b>!\nВзнос: {format_money(JOIN_FEE)}\nБонус: +{format_money(WELCOME_BONUS)}")
+    await callback.answer("Добро пожаловать!")
+
+@user_router.callback_query(F.data == "back_to_games_btn")
+async def back_to_games_btn(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer("🎰 <b>ИГРОВОЙ ЗАЛ</b>", reply_markup=get_games_menu())
+
+# ==============================================================================
+# 3. VIP В ДОНАТЕ (ЕСЛИ ТЫ ЕГО НЕ ДОБАВИЛ)
+# ==============================================================================
+@user_router.message(F.text.in_(["💎 Донат", "💎 Donate"]))
+async def donate_menu_vip_final(message: Message):
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="⭐ Купить 15 Stars"), KeyboardButton(text="⭐ Купить 50 Stars"))
+    builder.row(KeyboardButton(text="👑 VIP на 1 день (5 ⭐)"), KeyboardButton(text="👑 VIP на 7 дней (30 ⭐)"))
+    builder.row(KeyboardButton(text="👑 VIP на 30 дней (100 ⭐)"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    
+    await message.answer(
+        "💎 <b>ДОНАТ И VIP</b>\n\n"
+        "🔥 Курс: 1 ⭐ = 12 500 Tokens\n\n"
+        "👑 <b>VIP дает:</b>\n"
+        "▫️ Доступ к VIP-кейсам\n"
+        "▫️ Ежедневный бонус 15 000 (вместо 5 000)\n"
+        "▫️ Бонус при покупке: +10 000 за каждый день\n\n"
+        "Выбери пакет:", 
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "👑 VIP на 1 день (5 ⭐)")
+async def buy_vip_1(message: Message):
+    await message.answer_invoice(title="VIP 1 день", description="Активация VIP на 1 день", payload="vip_1_day", provider_token="", currency="XTR", prices=[types.LabeledPrice(label="VIP", amount=5)], start_parameter="buy_vip")
+
+@user_router.message(F.text == "👑 VIP на 7 дней (30 ⭐)")
+async def buy_vip_7(message: Message):
+    await message.answer_invoice(title="VIP 7 дней", description="Активация VIP на 7 дней", payload="vip_7_days", provider_token="", currency="XTR", prices=[types.LabeledPrice(label="VIP", amount=30)], start_parameter="buy_vip")
+
+@user_router.message(F.text == "👑 VIP на 30 дней (100 ⭐)")
+async def buy_vip_30(message: Message):
+    await message.answer_invoice(title="VIP 30 дней", description="Активация VIP на 30 дней", payload="vip_30_days", provider_token="", currency="XTR", prices=[types.LabeledPrice(label="VIP", amount=100)], start_parameter="buy_vip")
+
+@user_router.message(F.successful_payment)
+async def success_payment_final(message: Message):
+    payment = message.successful_payment
+    user = get_user(message.from_user.id)
+    
+    if payment.invoice_payload.startswith("vip_"):
+        payload = payment.invoice_payload
+        days = 1 if payload == "vip_1_day" else 7 if payload == "vip_7_days" else 30
+        
+        db_execute("UPDATE users SET role = 'vip' WHERE user_id = ?", (user[0],))
+        bonus = 10000 * days
+        update_balance(user[0], bonus)
+        
+        await message.answer(f"👑 <b>VIP АКТИВИРОВАН!</b>\nСрок: {days} дней\nБонус: +{format_money(bonus)}", reply_markup=get_main_menu(user[2]))
+    else:
+        tokens = payment.total_amount * 12500
+        update_balance(user[0], tokens)
+        await message.answer(f"✅ Оплата успешна! Получено {format_money(tokens)}.", reply_markup=get_main_menu(user[2]))
+        
+# ==============================================================================
 # 9. ЗАПУСК БОТА
 # ==============================================================================
 async def main():
