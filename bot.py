@@ -2006,6 +2006,35 @@ async def clan_leave_mega(message: Message):
         db_execute("UPDATE users SET clan_id = NULL WHERE user_id = ?", (user[0],))
         await message.answer("🚪 Ты вышел из клана.", reply_markup=get_main_menu(user[2]))
 
+# ==============================================================================
+# ЖЕСТКИЙ ПАТЧ: БАЛАНС И ТОП (ИСПРАВЛЕНИЕ)
+# ==============================================================================
+
+# 1. Команда "баланс" и "б" в группе
+@group_router.message(F.text.lower().in_(["б", "баланс", "balance", "б."]))
+async def cmd_balance_fix(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    user = get_user(message.from_user.id)
+    # Отвечаем реплаем на сообщение игрока
+    await message.reply(f"💰 Баланс <a href='tg://user?id={user[0]}'>{message.from_user.first_name}</a>: <b>{format_money(user[3])}</b>")
+
+# 2. Команда "топ" в группе
+@group_router.message(F.text.lower().in_(["топ", "top"]))
+async def cmd_top_fix(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    top_users = db_execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
+    
+    if not top_users:
+        return await message.reply("❌ В базе пока нет игроков.")
+        
+    text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
+    for i, u in enumerate(top_users, 1):
+        text += f"{i}. <a href='tg://user?id={u[0]}'>{u[0]}</a> — <b>{format_money(u[1])}</b>\n"
+        
+    await message.reply(text)
+    
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
