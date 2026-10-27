@@ -43,51 +43,64 @@ group_router = Router()
 dp.include_routers(user_router, admin_router, mod_router, pr_router, group_router)
 
 # ==============================================================================
-# БАЗА ДАННЫХ
+# ПОДКЛЮЧЕНИЕ К SUPABASE (POSTGRESQL)
 # ==============================================================================
+import psycopg2
+from psycopg2 import pool
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Создаем пул соединений (чтобы бот не тормозил)
+try:
+    db_pool = pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
+    if db_pool:
+        logger.info("Успешное подключение к Supabase PostgreSQL!")
+except Exception as e:
+    logger.error(f"Ошибка подключения к БД: {e}")
+
 def db_execute(query, params=(), fetchone=False, fetchall=False):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    result = None
-    if fetchone: result = cursor.fetchone()
-    elif fetchall: result = cursor.fetchall()
-    conn.commit()
-    conn.close()
-    return result
+    conn = db_pool.getconn()
+    try:
+        cursor = conn.cursor()
+        # Заменяем SQLite-плейсхолдеры '?' на PostgreSQL '%s'
+        query = query.replace("?", "%s") 
+        cursor.execute(query, params)
+        
+        result = None
+        if fetchone: 
+            result = cursor.fetchone()
+        elif fetchall: 
+            result = cursor.fetchall()
+            
+        conn.commit()
+        cursor.close()
+        return result
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Ошибка БД: {e}")
+    finally:
+        db_pool.putconn(conn)
 
 def init_db():
+    # Создаем таблицы (синтаксис Postgres)
     db_execute("""CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru',
-        balance INTEGER DEFAULT 5000, role TEXT DEFAULT 'user', 
+        user_id BIGINT PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru',
+        balance BIGINT DEFAULT 5000, role TEXT DEFAULT 'user', 
         last_bonus TEXT, last_case TEXT, last_vip_case TEXT, last_wheel TEXT,
-        last_work TEXT, warns INTEGER DEFAULT 0, ref_id INTEGER DEFAULT NULL,
+        last_work TEXT, warns INTEGER DEFAULT 0, ref_id BIGINT DEFAULT NULL,
         clan_id INTEGER DEFAULT NULL
     )""")
     db_execute("""CREATE TABLE IF NOT EXISTS clans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, owner_id INTEGER, treasury INTEGER DEFAULT 0
+        id SERIAL PRIMARY KEY, name TEXT, owner_id BIGINT, treasury BIGINT DEFAULT 0
     )""")
     db_execute("""CREATE TABLE IF NOT EXISTS promos (
-        code TEXT PRIMARY KEY, reward INTEGER, limit_count INTEGER, used_count INTEGER DEFAULT 0
+        code TEXT PRIMARY KEY, reward BIGINT, limit_count INTEGER, used_count INTEGER DEFAULT 0
     )""")
-    db_execute("""CREATE TABLE IF NOT EXISTS lottery (user_id INTEGER PRIMARY KEY)""")
+    db_execute("""CREATE TABLE IF NOT EXISTS lottery (user_id BIGINT PRIMARY KEY)""")
     db_execute("""CREATE TABLE IF NOT EXISTS games_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, game TEXT, bet INTEGER, win INTEGER, date TEXT
+        id SERIAL PRIMARY KEY, user_id BIGINT, game TEXT, bet BIGINT, win BIGINT, date TEXT
     )""")
-    logger.info("База данных инициализирована.")
-
-def get_user(user_id):
-    user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
-    if not user:
-        db_execute("INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)", (user_id, "Unknown", START_BONUS))
-        user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
-    return user
-
-def update_balance(user_id, amount):
-    db_execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-
-def format_money(amount):
-    return f"{amount:,}".replace(",", " ") + f" {CURRENCY}"
+    logger.info("Таблицы в Supabase созданы/проверены.")
 
 # ==============================================================================
 # ЛОКАЛИЗАЦИЯ (RU / EN)
@@ -1732,6 +1745,34 @@ async def success_payment_final(message: Message):
         update_balance(user[0], tokens)
         await message.answer(f"✅ Оплата успешна! Получено {format_money(tokens)}.", reply_markup=get_main_menu(user[2]))
         
+# ==============================================================================
+# ФИНАЛЬНЫЙ ПАТЧ: ПОЧИНКА КНОПКИ "РАБОТА" И БАЗА
+# ==============================================================================
+
+# 1. Перезаписываем "Работу" (жестко, с защитой от спама)
+@user_router.message(F.text == "💼 Работа")
+async def work_menu_final(message: Message):
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
+    
+    # Проверяем last_work (индекс 13 в базе)
+    if user[13] and now - datetime.datetime.fromisoformat(user[13]) < datetime.timedelta(hours=1):
+        time_left = datetime.timedelta(hours=1) - (now - datetime.datetime.fromisoformat(user[13]))
+        return await message.answer(
+            f"⏳ Ты уже работал. Приходи через {time_left.seconds // 60} мин.",
+            reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+        )
+        
+    salary = 1500
+    update_balance(user[0], salary)
+    # Записываем время в last_work (индекс 13)
+    db_execute("UPDATE users SET last_work = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    await message.answer(
+        f"💼 Ты поработал и получил <b>{format_money(salary)}</b>!",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+    
 # ==============================================================================
 # 9. ЗАПУСК БОТА
 # ==============================================================================
