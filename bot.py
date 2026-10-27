@@ -1110,6 +1110,99 @@ async def play_joker_final(message: Message):
         await message.reply(f"🃏 ДЖОКЕР! Выигрыш x3: {format_money(amount * 3)}!")
     else: await message.reply("😢 Не повезло.")
 
+# ==============================================================================
+# ФИНАЛЬНЫЙ ПАТЧ: БАЛАНС, ПРОМОКОДЫ И ГИФКА РУЛЕТКИ
+# ==============================================================================
+from aiogram.types import FSInputFile
+
+# --- 1. Команда "б" в группе (жесткая перезапись) ---
+@group_router.message(F.text.lower().in_(["б", "баланс"]))
+async def balance_group_final(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    user = get_user(message.from_user.id)
+    await message.reply(f"💰 Баланс <a href='tg://user?id={user[0]}'>{message.from_user.first_name}</a>: <b>{format_money(user[3])}</b>")
+
+# --- 2. Активация промокода в ЛС ---
+@user_router.message(F.text.regexp(r"(?i)^промо\s+(\w+)$"))
+async def use_promo_final(message: Message):
+    if message.chat.type != "private": return
+    
+    code = message.text.split()[1].upper()
+    promo = db_execute("SELECT reward, limit_count, used_count FROM promos WHERE code = ?", (code,), fetchone=True)
+    
+    if not promo: 
+        return await message.reply("❌ Промокод не найден.")
+    if promo[2] >= promo[1]: 
+        return await message.reply("❌ Лимит активаций исчерпан.")
+    
+    user = get_user(message.from_user.id)
+    update_balance(user[0], promo[0])
+    db_execute("UPDATE promos SET used_count = used_count + 1 WHERE code = ?", (code,))
+    await message.reply(f"✅ Промокод активирован! Ты получил {format_money(promo[0])}!")
+
+# --- 3. Рулетка с гифкой (жесткая перезапись) ---
+active_roulette_final = {}
+
+@group_router.message(F.text.regexp(r"(?i)^(к|ч|з|красное|черное|зеро|чет|нечет|\d+-\d+)\s+(\d+)$"))
+async def bet_roulette_photo(message: Message):
+    chat_id = message.chat.id
+    if chat_id not in active_roulette_final: 
+        active_roulette_final[chat_id] = {"status": "waiting", "bets": []}
+    if active_roulette_final[chat_id]["status"] != "waiting": 
+        return await message.reply("⏳ Идет раунд.")
+    
+    parts = message.text.lower().split()
+    bet, amount = parts[0], int(parts[1])
+    user = get_user(message.from_user.id)
+    if user[3] < amount: return await message.reply("❌ Мало средств.")
+    
+    update_balance(user[0], -amount)
+    active_roulette_final[chat_id]["bets"].append({"uid": user[0], "name": message.from_user.first_name, "bet": bet, "amount": amount})
+    await message.reply(f"✅ Ставка: <b>{message.from_user.first_name}</b> {format_money(amount)} на {bet.upper()}")
+
+@group_router.message(F.text.lower() == "го")
+async def start_roulette_photo(message: Message):
+    chat_id = message.chat.id
+    if chat_id not in active_roulette_final or not active_roulette_final[chat_id]["bets"]: return
+    active_roulette_final[chat_id]["status"] = "playing"
+    
+    # Отправляем гифку (если есть)
+    try:
+        msg = await message.answer_animation(
+            animation=FSInputFile("assets/roulette.gif"), 
+            caption="🎡 Рулетка крутится..."
+        )
+    except:
+        msg = await message.answer("🎡 Рулетка крутится...")
+        
+    await asyncio.sleep(3)
+    
+    result_num = random.randint(0, 36)
+    reds = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+    color = "з" if result_num == 0 else "к" if result_num in reds else "ч"
+    res_name = {"к": "Красное 🔴", "ч": "Черное ⚫", "з": "Зеро 🟢"}[color]
+    
+    text = f"🎯 Выпало: <b>{result_num} {res_name}</b>\n\n"
+    winners = []
+    for b in active_roulette_final[chat_id]["bets"]:
+        win = False
+        if b['bet'] in [color, "красное" if color=="к" else "черное" if color=="ч" else "зеро"]: win = True
+        elif b['bet'] == "чет" and result_num % 2 == 0 and result_num != 0: win = True
+        elif b['bet'] == "нечет" and result_num % 2 != 0: win = True
+        elif "-" in b['bet']:
+            start, end = map(int, b['bet'].split("-"))
+            if start <= result_num <= end: win = True
+        if win:
+            prize = b['amount'] * 2
+            update_balance(b['uid'], prize)
+            winners.append(f"👤 <b>{b['name']}</b> выиграл {format_money(prize)}")
+            
+    text += "\n".join(winners) if winners else "😢 Победителей нет."
+    try: await msg.edit_caption(caption=text)
+    except: await msg.edit_text(text)
+    
+    active_roulette_final[chat_id] = {"status": "waiting", "bets": []}
+    
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
