@@ -657,49 +657,6 @@ async def cases_menu(message: Message):
     builder.row(KeyboardButton(text="⬅️ Назад"))
     await message.answer("📦 <b>КЕЙСЫ</b>\nВыбери кейс для открытия:", reply_markup=builder.as_markup(resize_keyboard=True))
 
-@user_router.message(F.text == "🎁 Обычный кейс (5к)")
-async def open_common_case(message: Message):
-    user = get_user(message.from_user.id)
-    now = datetime.datetime.now()
-    if user[6] and now - datetime.datetime.fromisoformat(user[6]) < datetime.timedelta(hours=24):
-        return await message.answer("⏳ Кейс уже открыт. Жди 24 часа.")
-    if user[3] < 5000: return await message.answer("❌ Недостаточно средств.")
-    
-    update_balance(user[0], -5000)
-    prize = random.choice([1000, 2000, 5000, 10000, 25000])
-    update_balance(user[0], prize)
-    db_execute("UPDATE users SET last_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
-    
-    try:
-        await message.answer_animation(
-            animation=FSInputFile("assets/case.gif"), 
-            caption=f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!"
-        )
-    except:
-        await message.answer(f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!")
-
-@user_router.message(F.text == "💎 VIP кейс (15к)")
-async def open_vip_case(message: Message):
-    user = get_user(message.from_user.id)
-    if user[10] != "vip": return await message.answer("❌ Этот кейс доступен только VIP-игрокам.")
-    now = datetime.datetime.now()
-    if user[7] and now - datetime.datetime.fromisoformat(user[7]) < datetime.timedelta(hours=12):
-        return await message.answer("⏳ VIP кейс уже открыт. Жди 12 часов.")
-    if user[3] < 15000: return await message.answer("❌ Недостаточно средств.")
-    
-    update_balance(user[0], -15000)
-    prize = random.choice([5000, 10000, 25000, 50000, 100000])
-    update_balance(user[0], prize)
-    db_execute("UPDATE users SET last_vip_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
-    
-    try:
-        await message.answer_animation(
-            animation=FSInputFile("assets/case.gif"), 
-            caption=f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!"
-        )
-    except:
-        await message.answer(f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!")
-
 # --- 3. КОЛЕСО ---
 @user_router.message(F.text == "🎡 Колесо")
 async def spin_wheel(message: Message):
