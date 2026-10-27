@@ -168,10 +168,11 @@ def get_mod_menu():
     builder.row(KeyboardButton(text="🔓 Разбанить"), KeyboardButton(text="⬅️ Выход"))
     return builder.as_markup(resize_keyboard=True)
 
-def get_pr_menu():
+def get_pr_menu_fixed():
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="🔗 Моя Ссылка"), KeyboardButton(text="📊 Моя Стата"))
-    builder.row(KeyboardButton(text="⬅️ Выход"))
+    builder.row(KeyboardButton(text="📝 Текст для пиара")) # <--- ДОБАВИЛИ КНОПКУ
+    builder.row(KeyboardButton(text="📖 Инструкция"), KeyboardButton(text="⬅️ Выход"))
     return builder.as_markup(resize_keyboard=True)
 
 def get_support_menu(lang):
@@ -1606,6 +1607,110 @@ async def pr_stats(message: Message):
     await message.answer(f"📊 Ты привел: <b>{ref_count}</b> человек.")
 
 # ==============================================================================
+# ПИАРЩИК: 10 ТЕКСТОВ + ИНЛАЙН-КНОПКИ
+# ==============================================================================
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+@pr_router.message(F.text == "📝 Текст для пиара")
+async def pr_promo_text(message: Message):
+    bot_info = await bot.get_me()
+    link = f"https://t.me/{bot_info.username}?start=ref_{message.from_user.id}"
+    
+    promos = [
+        # 1. Дерзкий и завлекающий
+        f"🎰 <b>ЗАЛЕТАЙ В ЛУЧШИЙ ИГРОВОЙ БОТ!</b> 🎰\n\n"
+        f"✨ Тут реально платят токенами. Кейсы, рулетка, мины и крутые кланы!\n"
+        f"🎁 Бонус за вход уже ждет тебя.\n\n"
+        f"👇 Жми и забирай свой куш:\n{link}",
+        
+        # 2. С упором на кланы
+        f"🛡 <b>СОЗДАЙ СВОЙ КЛАН МЕЧТЫ!</b> 🛡\n\n"
+        f"Объединяйся с друзьями, качай общую казну и получай бонусы за вступление! 🎁\n"
+        f"🎮 Плюс куча мини-игр: от колеса фортуны до блэкджека.\n\n"
+        f"👇 Начни играть прямо сейчас:\n{link}",
+        
+        # 3. Короткий и едкий
+        f"🔥 <b>ТЫ ЕЩЕ НЕ С НАМИ?</b> 🔥\n\n"
+        f"Быстрый заработок токенов, дропы в чате и халявные кейсы. 💸\n"
+        f"Хватит смотреть, пора играть и забирать награды!\n\n"
+        f"👇 Переходи по ссылке:\n{link}",
+        
+        # 4. С упором на баланс
+        f"💰 <b>ГДЕ ЗАРАБОТАТЬ ТОКЕНЫ?</b> 💰\n\n"
+        f"Работа, кейсы, колесо фортуны и ежедневные лотереи. 🎰\n"
+        f"Зарабатывай пассивно и играй на полную катушку!\n"
+        f"🚀 Топовые ивенты каждый день.\n\n"
+        f"👇 Твой старт здесь:\n{link}",
+        
+        # 5. Дружеский
+        f"👋 <b>Привет! Слышал про этот бот?</b> 🤖\n\n"
+        f"Тут движуха 24/7. Куча игр, азарт и реальные выигрыши. 🎉\n"
+        f"Заходи, проверим твою удачу! Тебя ждет приятный бонус на старте.\n\n"
+        f"👇 Держи ссылочку:\n{link}",
+        
+        # 6. Загадочный
+        f"🤫 <b>Секретное место для избранных...</b>\n\n"
+        f"Колесо фортуны, мины, VIP-кейсы. Тут крутятся большие суммы. 💎\n"
+        f"Осмелишься зайти и испытать фортуну?\n"
+        f"🔥 Бонусы внутри гарантированы.\n\n"
+        f"👇 Заходи по ссылке:\n{link}",
+        
+        # 7. Мини-игры
+        f"💣 <b>МИНЫ, ЛЕСЕНКА, РУЛЕТКА...</b> 🪜\n\n"
+        f"Все самые топовые мини-игры собраны в одном боте! 🎮\n"
+        f"Ставь, рискуй и забирай x5 к балансу.\n"
+        f"🎁 Забирай бонус за регистрацию.\n\n"
+        f"👇 Играть тут:\n{link}",
+        
+        # 8. Красивый и официальный
+        f"🏆 <b>Добро пожаловать в Tokens Games!</b> 🏆\n\n"
+        f"Мы предлагаем лучшие условия для игры: от классических кейсов до клановых войн. ⚔️\n"
+        f"💎 Прозрачные выплаты и мгновенные переводы.\n\n"
+        f"👇 Наше официальное сообщество:\n{link}",
+        
+        # 9. Провокационный
+        f"😱 <b>СЛАБО УДВОИТЬ СВОЙ БАЛАНС?</b> 😱\n\n"
+        f"В нашем боте это проще простого. Крути колесо, открывай кейсы и забирай куш! 🎁\n"
+        f"💰 Тысячи игроков уже в деле.\n\n"
+        f"👇 Испытай удачу:\n{link}",
+        
+        # 10. Дропы
+        f"🚨 <b>БЕСПЛАТНЫЕ ДРОПЫ В ЧАТЕ!</b> 🚨\n\n"
+        f"Каждые пару часов в нашем чате падают мешки с токенами. Успей схватить свой! 💰\n"
+        f"🎰 А еще крутая рулетка и блэкджек для настоящих профи.\n\n"
+        f"👇 Влетай по ссылке:\n{link}"
+    ]
+    
+    random_text = random.choice(promos)
+    
+    # Создаем инлайн-кнопки
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🔄 Другой текст", callback_data="pr_another"),
+        InlineKeyboardButton(text="⬅️ В меню", callback_data="pr_back")
+    )
+    
+    await message.answer(
+        f"📝 <b>Твой рекламный текст:</b>\n\n"
+        f"<code>{random_text}</code>\n\n" 
+        f"<i>(Нажми на текст выше, чтобы скопировать его. Или нажми «🔄 Другой текст», чтобы получить новый)</i>",
+        reply_markup=builder.as_markup()
+    )
+
+# Обработчик для кнопки "Другой текст"
+@pr_router.callback_query(F.data == "pr_another")
+async def pr_another_handler(callback: CallbackQuery):
+    # Вызываем функцию заново, чтобы она сгенерировала новый текст
+    await pr_promo_text(callback.message)
+    await callback.answer("Сгенерирован новый текст!")
+
+# Обработчик для кнопки "В меню"
+@pr_router.callback_query(F.data == "pr_back")
+async def pr_back_handler(callback: CallbackQuery):
+    await callback.message.edit_text("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu_fixed())
+    await callback.answer()
+
+# ==============================================================================
 # 9. ЕЖЕДНЕВНЫЙ ОТЧЕТ И ЛОТЕРЕЯ
 # ==============================================================================
 async def daily_report():
@@ -1742,6 +1847,28 @@ async def mod_warn_finish(message: Message, state: FSMContext):
     await message.answer(f"✅ Игроку <code>{target}</code> выдан варн.", reply_markup=get_mod_menu())
     await state.clear()
 
+# --- ИНСТРУКЦИЯ ДЛЯ МОДЕРА ---
+@mod_router.message(F.text == "📖 Инструкция")
+async def mod_instruction_fix(message: Message):
+    await message.answer(
+        "📖 <b>ИНСТРУКЦИЯ МОДЕРА</b>\n\n"
+        "🛡 <b>Твои задачи:</b>\n"
+        "▫️ Следить за порядком в чате.\n"
+        "▫️ Выдавать токены (лимит 500 000).\n"
+        "▫️ Банить нарушителей и выдавать варны.\n\n"
+        "⚠️ <b>Важно:</b> Все твои действия логируются. За злоупотребление правами — снятие роли.",
+        reply_markup=get_mod_menu_fixed()
+    )
+
+# --- ВЫХОД ИЗ ПАНЕЛИ МОДЕРА (ЧТОБЫ ОН ВИДЕЛ НОВОЕ МЕНЮ) ---
+@mod_router.message(F.text == "⬅️ Выход")
+async def mod_exit_fix(message: Message):
+    user = get_user(message.from_user.id)
+    if user[4] == "moderator":
+        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu_fixed())
+    else:
+        await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
+        
 # ==============================================================================
 # 6. ВОЗВРАЩАЕМ КНОПКИ В МЕНЮ (ЧТОБЫ ОНИ ПОЯВИЛИСЬ)
 # ==============================================================================
@@ -1750,7 +1877,7 @@ def get_mod_menu_fixed():
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="💸 Выдать Токены"), KeyboardButton(text="🚫 Забанить"))
     builder.row(KeyboardButton(text="🔓 Разбанить"), KeyboardButton(text="⚠️ Выдать Варн"))
-    builder.row(KeyboardButton(text="📖 Инструкция"), KeyboardButton(text="⬅️ Выход"))
+    builder.row(KeyboardButton(text="📖 Инструкция"), KeyboardButton(text="⬅️ Выход")) # <-- ВОТ ОНА
     return builder.as_markup(resize_keyboard=True)
 
 # Перезаписываем меню пиарщика, добавляя Инструкцию
