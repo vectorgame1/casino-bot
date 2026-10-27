@@ -1620,6 +1620,19 @@ async def sup_ticket_en_big(message: Message, state: FSMContext):
     )
     await state.set_state("waiting_ticket")
     
+# ==============================================================================
+# ПАТЧ: РАБОЧАЯ КНОПКА "НАЗАД" (RU/EN) И СВЯЗКА РЕПЛАЙ-КНОПОК
+# ==============================================================================
+
+# 1. Глобальная кнопка "Назад" / "Back"
+@user_router.message(F.text.in_(["⬅️ Назад", "⬅️ Back"]))
+async def global_back_fix(message: Message):
+    user = get_user(message.from_user.id)
+    await message.answer(
+        get_text(user[2], "welcome", name=message.from_user.first_name), 
+        reply_markup=get_main_menu(user[2])
+    )
+    
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
