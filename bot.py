@@ -99,6 +99,9 @@ def init_db():
         logger.info("Таблицы в Supabase созданы/проверены.")
     except Exception as e:
         logger.error(f"Ошибка инициализации БД: {e}")
+try:
+    db_execute("ALTER TABLE clans ADD COLUMN level INTEGER DEFAULT 1")
+except: pass
 
 # ==============================================================================
 # ЛОКАЛИЗАЦИЯ
@@ -328,7 +331,6 @@ async def my_ref(message: Message):
         reply_markup=get_profile_menu()
     )
 
-# --- 3. БОНУС ---
 @user_router.message(F.text == "🎁 Бонус")
 async def daily_bonus(message: Message):
     user = get_user(message.from_user.id)
@@ -345,15 +347,33 @@ async def daily_bonus(message: Message):
             reply_markup=get_profile_menu()
         )
         
-    update_balance(user[0], 5000)
+    # Считаем базовый бонус
+    base_bonus = 15000 if user[4] == "vip" else 5000
+    
+    # Считаем бонус от клана
+    clan_bonus = 0
+    clan_lvl = 1
+    if user[12]:
+        clan = db_execute("SELECT COALESCE(level, 1) FROM clans WHERE id = ?", (user[12],), fetchone=True)
+        if clan:
+            clan_lvl = clan[0]
+            # За каждый уровень клана даем +2000 к бонусу
+            clan_bonus = (clan_lvl - 1) * 2000
+            
+    total_bonus = base_bonus + clan_bonus
+    update_balance(user[0], total_bonus)
     db_execute("UPDATE users SET last_bonus = ? WHERE user_id = ?", (now.isoformat(), user[0]))
     
-    await message.answer(
-        "🎁 <b>Ты забрал бонус!</b>\n\n"
-        "💰 Награда: <b>5 000 Tokens</b>\n"
-        "Возвращайся завтра за новым!",
-        reply_markup=get_profile_menu()
+    text = (
+        f"🎁 <b>Ты забрал бонус!</b>\n\n"
+        f"💰 База: <b>{format_money(base_bonus)}</b>\n"
     )
+    if clan_bonus > 0:
+        text += f"🛡 Бонус клана (Ур. {clan_lvl}): <b>+{format_money(clan_bonus)}</b>\n"
+        
+    text += f"\n💎 <b>Итого: {format_money(total_bonus)}</b>"
+    
+    await message.answer(text, reply_markup=get_profile_menu())
 
 # --- 4. ИСТОРИЯ ---
 @user_router.message(F.text == "📜 История")
@@ -445,75 +465,101 @@ async def donate_menu_beauty(message: Message):
     hour = datetime.datetime.now().hour
     random.seed(hour // 3)
     rate = random.randint(8000, 15000)
-    
     rate_str = f"{rate:,}".replace(",", " ")
+
     text = (
         "💎 <b>ДОНАТ И VIP</b>\n\n"
         f"🔥 Курс дня: 1 ⭐ = <b>{rate_str} Tokens</b>\n"
         "<i>(Обновляется каждые 3 часа)</i>\n\n"
-        "👑 <b>ЧТО ДАЕТ VIP?</b>\n"
-        "▫️ Доступ к VIP-кейсам\n"
-        "▫️ Ежедневный бонус 15 000 (вместо 5 000)\n"
-        "▫️ Красивый значок 👑\n"
-        "▫️ Бонус при покупке: <b>+10 000 за день</b>\n\n"
-        "👇 <i>Выбери пакет:</i>"
+        "👇 <i>Выбери, что хочешь приобрести:</i>"
+    )
+    
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="⭐ Купить Звезды"), KeyboardButton(text="👑 Купить VIP"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    
+    await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
+
+# --- МЕНЮ ПОКУПКИ ЗВЕЗД ---
+@user_router.message(F.text == "⭐ Купить Звезды")
+async def buy_stars_menu(message: Message):
+    hour = datetime.datetime.now().hour
+    random.seed(hour // 3)
+    rate = random.randint(8000, 15000)
+    rate_str = f"{rate:,}".replace(",", " ")
+
+    text = (
+        "⭐ <b>ПОКУПКА ЗВЕЗД</b>\n\n"
+        f"🔥 Курс дня: 1 ⭐ = <b>{rate_str} Tokens</b>\n\n"
+        "Выбери готовый пакет или введи свою сумму:"
     )
     
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="⭐ Купить 15 Stars"), KeyboardButton(text="⭐ Купить 50 Stars"))
+    builder.row(KeyboardButton(text="✍️ Своя сумма"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    
+    await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
+
+
+# --- МЕНЮ ПОКУПКИ VIP ---
+@user_router.message(F.text == "👑 Купить VIP")
+async def buy_vip_menu(message: Message):
+    text = (
+        "👑 <b>ПОКУПКА VIP-СТАТУСА</b>\n\n"
+        "<b>ЧТО ДАЕТ VIP?</b>\n"
+        "▫️ Доступ к VIP-кейсам\n"
+        "▫️ Ежедневный бонус 15 000 (вместо 5 000)\n"
+        "▫️ Красивый значок 👑\n"
+        "▫️ Бонус при покупке: <b>+10 000 за день</b>\n\n"
+        "👇 <i>Выбери срок действия:</i>"
+    )
+    
+    builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="👑 VIP на 1 день (5 ⭐)"), KeyboardButton(text="👑 VIP на 7 дней (30 ⭐)"))
     builder.row(KeyboardButton(text="👑 VIP на 30 дней (100 ⭐)"))
     builder.row(KeyboardButton(text="⬅️ Назад"))
     
     await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
 
-@user_router.message(F.text == "👑 VIP на 1 день (5 ⭐)")
-async def buy_vip_1(message: Message):
-    await message.answer_invoice(title="VIP 1 день", description="Активация VIP на 1 день", payload="vip_1_day", provider_token="", currency="XTR", prices=[LabeledPrice(label="VIP", amount=5)], start_parameter="buy_vip")
+# Обработка кнопки "Своя сумма"
+@user_router.message(F.text == "✍️ Своя сумма")
+async def custom_stars_start(message: Message, state: FSMContext):
+    await message.answer(
+        "✍️ <b>ВВЕДИ КОЛИЧЕСТВО ЗВЕЗД</b>\n\n"
+        "Напиши число (например: 25), и я выставлю тебе счет:\n"
+        "<i>(Или напиши «Отмена»)</i>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_custom_stars")
 
-@user_router.message(F.text == "👑 VIP на 7 дней (30 ⭐)")
-async def buy_vip_7(message: Message):
-    await message.answer_invoice(title="VIP 7 дней", description="Активация VIP на 7 дней", payload="vip_7_days", provider_token="", currency="XTR", prices=[LabeledPrice(label="VIP", amount=30)], start_parameter="buy_vip")
-
-@user_router.message(F.text == "👑 VIP на 30 дней (100 ⭐)")
-async def buy_vip_30(message: Message):
-    await message.answer_invoice(title="VIP 30 дней", description="Активация VIP на 30 дней", payload="vip_30_days", provider_token="", currency="XTR", prices=[LabeledPrice(label="VIP", amount=100)], start_parameter="buy_vip")
-
-@user_router.message(F.successful_payment)
-async def success_payment_final(message: Message):
-    payment = message.successful_payment
-    user = get_user(message.from_user.id)
+@user_router.message(StateFilter("waiting_custom_stars"))
+async def custom_stars_finish(message: Message, state: FSMContext):
+    if message.text.lower() == "отмена":
+        await state.clear()
+        user = get_user(message.from_user.id)
+        return await message.answer("❌ Отменено.", reply_markup=get_main_menu(user[2]))
+        
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
     
-    if payment.invoice_payload.startswith("vip_"):
-        payload = payment.invoice_payload
-        days = 1 if payload == "vip_1_day" else 7 if payload == "vip_7_days" else 30
+    if amount < 1 or amount > 10000:
+        return await message.answer("❌ Сумма должна быть от 1 до 10 000 звезд.")
         
-        db_execute("UPDATE users SET role = 'vip' WHERE user_id = ?", (user[0],))
-        bonus = 10000 * days
-        update_balance(user[0], bonus)
-        
-        await message.answer(
-            f"👑 <b>VIP АКТИВИРОВАН!</b>\n\n"
-            f"📅 Срок: <b>{days} дней</b>\n"
-            f"🎁 Бонус: <b>+{format_money(bonus)}</b>\n\n"
-            f"Теперь тебе доступны VIP-кейсы!",
-            reply_markup=get_main_menu(user[2])
-        )
+    hour = datetime.datetime.now().hour
+    random.seed(hour // 3)
+    rate = random.randint(8000, 15000)
     
-    elif payment.invoice_payload.startswith("stars_"):
-        parts = payment.invoice_payload.split("_")
-        stars_amount = int(parts[1])
-        rate = int(parts[2])
-        
-        tokens = stars_amount * rate
-        update_balance(user[0], tokens)
-        
-        await message.answer(
-            f"✅ <b>ОПЛАТА УСПЕШНА!</b>\n\n"
-            f"💰 Получено: <b>{format_money(tokens)}</b>\n"
-            f"📈 Курс: 1 ⭐ = {rate}",
-            reply_markup=get_main_menu(user[2])
-        )
+    await message.answer_invoice(
+        title=f"Покупка {amount} Stars",
+        description=f"Обмен {amount} Stars на токены по курсу {rate}",
+        payload=f"stars_{amount}_{rate}",
+        provider_token="", 
+        currency="XTR", 
+        prices=[LabeledPrice(label="Stars", amount=amount)], 
+        start_parameter="buy_custom"
+    )
+    await state.clear()
 
 # --- 8. ПОДДЕРЖКА (БЕЗ ЛИНИЙ) ---
 @user_router.message(F.text.in_(["🆘 Поддержка", "🆘 Support"]))
@@ -2076,6 +2122,117 @@ async def clan_join_process_real(callback: CallbackQuery):
 async def back_to_games_from_clan(message: Message):
     # Вызываем функцию, которая показывает главное игровое меню
     await games_menu_mega(message)
+
+# --- ВНЕСЕНИЕ В КАЗНУ ---
+@user_router.message(F.text == "💰 Внести в казну")
+async def clan_deposit_start(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    if not user[12]: 
+        return await message.answer("❌ Ты не в клане.")
+    
+    await message.answer(
+        "💰 <b>ВНЕСЕНИЕ В КАЗНУ</b>\n\n"
+        "Введи сумму, которую хочешь внести в казну клана:\n"
+        "<i>(Или напиши «Отмена»)</i>", 
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_clan_deposit")
+
+@user_router.message(StateFilter("waiting_clan_deposit"))
+async def clan_deposit_finish(message: Message, state: FSMContext):
+    if message.text.lower() == "отмена":
+        await state.clear()
+        return await clan_menu_ultimate(message) # Возвращаем в меню клана
+        
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    
+    user = get_user(message.from_user.id)
+    
+    if not user[12]: 
+        await state.clear()
+        return await message.answer("❌ Ты не в клане.")
+        
+    if user[3] < amount:
+        return await message.answer(
+            f"❌ <b>Недостаточно средств!</b>\n\n"
+            f"💰 Твой баланс: {format_money(user[3])}\n"
+            f"💵 Ты хотел внести: {format_money(amount)}\n\n"
+            f"<i>Введи сумму поменьше или напиши «Отмена».</i>"
+        )
+        
+    update_balance(user[0], -amount)
+    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[12]))
+    
+    await state.clear()
+    
+    await message.answer(f"✅ <b>Успешно!</b>\n\n💰 Внесено в казну: <b>{format_money(amount)}</b>")
+    
+    # Сразу открываем меню клана, чтобы было удобно
+    await clan_menu_ultimate(message)
+
+# --- ПРОКАЧКА КЛАНА ---
+@user_router.message(F.text == "📈 Прокачать клан")
+async def clan_upgrade_start(message: Message):
+    user = get_user(message.from_user.id)
+    if not user[12]: return await message.answer("❌ Ты не в клане.")
+    
+    clan = db_execute("SELECT name, treasury, owner_id, COALESCE(level, 1) FROM clans WHERE id = ?", (user[12],), fetchone=True)
+    
+    if clan[2] != user[0]:
+        return await message.answer("❌ Только владелец может прокачивать клан.")
+        
+    current_lvl = clan[3]
+    if current_lvl >= 5:
+        return await message.answer("🏆 Твой клан уже достиг максимального 5 уровня!")
+        
+    # Цена прокачки растет с каждым уровнем: 100к, 250к, 500к, 1кк
+    prices = {1: 100000, 2: 250000, 3: 500000, 4: 1000000}
+    price = prices[current_lvl]
+    
+    text = (
+        f"📈 <b>ПРОКАЧКА КЛАНА «{clan[0]}»</b>\n\n"
+        f"Текущий уровень: <b>{current_lvl}</b> / 5\n"
+        f"Стоимость прокачки: <b>{format_money(price)}</b> (списывается из казны)\n\n"
+        f"💰 В казне сейчас: <b>{format_money(clan[1])}</b>\n\n"
+    )
+    
+    builder = ReplyKeyboardBuilder()
+    if clan[1] >= price:
+        text += "<i>У тебя достаточно средств! Жми кнопку ниже.</i>"
+        builder.row(KeyboardButton(text="✅ Подтвердить прокачку"))
+    else:
+        text += f"<i>Не хватает {format_money(price - clan[1])}. Попроси соклановцев внести в казну!</i>"
+        
+    builder.row(KeyboardButton(text="⬅️ В Игры"))
+    await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
+
+@user_router.message(F.text == "✅ Подтвердить прокачку")
+async def clan_upgrade_finish(message: Message):
+    user = get_user(message.from_user.id)
+    if not user[12]: return
+    
+    clan = db_execute("SELECT name, treasury, owner_id, COALESCE(level, 1) FROM clans WHERE id = ?", (user[12],), fetchone=True)
+    if clan[2] != user[0]: return await message.answer("❌ Только владелец!")
+    
+    current_lvl = clan[3]
+    if current_lvl >= 5: return await message.answer("Уже максимальный уровень!")
+    
+    prices = {1: 100000, 2: 250000, 3: 500000, 4: 1000000}
+    price = prices[current_lvl]
+    
+    if clan[1] < price:
+        return await message.answer("❌ В казне недостаточно средств!")
+        
+    # Списываем и повышаем уровень
+    db_execute("UPDATE clans SET treasury = treasury - ?, level = level + 1 WHERE id = ?", (price, user[12]))
+    
+    await message.answer(
+        f"🎉 <b>КЛАН ПРОКАЧАН!</b>\n\n"
+        f"Новый уровень: <b>{current_lvl + 1}</b>!\n"
+        f"Теперь твой клан может вмещать больше людей и получать больше бонусов!",
+        reply_markup=get_clan_menu()
+    )
 
 # ==============================================================================
 # ГЛОБАЛЬНЫЙ ФИКС ДЛЯ КНОПОК "НАЗАД" И "В ИГРЫ"
