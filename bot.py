@@ -2034,7 +2034,64 @@ async def cmd_top_fix(message: Message):
         text += f"{i}. <a href='tg://user?id={u[0]}'>{u[0]}</a> — <b>{format_money(u[1])}</b>\n"
         
     await message.reply(text)
+
+# ==============================================================================
+# ЖЕСТКИЙ ФИКС: БАГ С РАБОТОЙ, ТОП ПО ЮЗЕРНЕЙМАМ, КОМАНДЫ Б/ТОП
+# ==============================================================================
+
+# --- 1. ИСПРАВЛЕНИЕ РАБОТЫ (КУЛДАУН ЧАС) ---
+@user_router.message(F.text == "💼 Работа")
+async def work_menu_fixed(message: Message):
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
     
+    # Проверяем last_work (индекс 13 в базе)
+    if user[13] and now - datetime.datetime.fromisoformat(user[13]) < datetime.timedelta(hours=1):
+        time_left = datetime.timedelta(hours=1) - (now - datetime.datetime.fromisoformat(user[13]))
+        return await message.answer(
+            f"⏳ Ты уже работал. Приходи через {time_left.seconds // 60} мин.",
+            reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+        )
+        
+    salary = 1500
+    update_balance(user[0], salary)
+    # Записываем время в last_work (индекс 13)
+    db_execute("UPDATE users SET last_work = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    await message.answer(
+        f"💼 Ты поработал и получил <b>{format_money(salary)}</b>!",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+# --- 2. ТОП-10 ПО ЮЗЕРНЕЙМАМ (В ГРУППЕ) ---
+@group_router.message(F.text.lower().in_(["топ", "top"]))
+async def cmd_top_group_final_fix(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    # Достаем топ-10 с балансом > 0
+    top_users = db_execute("SELECT user_id, username, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
+    
+    if not top_users:
+        return await message.reply("❌ В базе пока нет игроков.")
+        
+    text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
+    for i, u in enumerate(top_users, 1):
+        # Если есть юзернейм, выводим его, если нет — ссылку на профиль
+        name = f"@{u[1]}" if u[1] and u[1] != "Unknown" else f"<a href='tg://user?id={u[0]}'>Игрок {u[0]}</a>"
+        text += f"{i}. {name} — <b>{format_money(u[2])}</b>\n"
+        
+    await message.reply(text)
+
+# --- 3. БАЛАНС (Б) В ГРУППЕ ---
+@group_router.message(F.text.lower().in_(["б", "баланс", "balance"]))
+async def cmd_balance_group_final_fix(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    
+    user = get_user(message.from_user.id)
+    # Используем никнейм, если он есть
+    name = f"@{message.from_user.username}" if message.from_user.username else f"<a href='tg://user?id={user[0]}'>{message.from_user.first_name}</a>"
+    await message.reply(f"💰 Баланс {name}: <b>{format_money(user[3])}</b>")
+     
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
