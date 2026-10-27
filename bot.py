@@ -1905,7 +1905,7 @@ async def clan_settings_finish(message: Message, state: FSMContext):
     await state.clear()
 
 
-# --- 5. ВСТУПЛЕНИЕ В КЛАН (ИГРОКУ ПЛАТЯТ) ---
+# --- 5. ВСТУПЛЕНИЕ В КЛАН (ПЛАТИМ ИГРОКУ ИЗ КАЗНЫ) ---
 @user_router.callback_query(F.data.startswith("clan_join_"))
 async def clan_join_process_real(callback: CallbackQuery):
     clan_id = int(callback.data.split("_")[2])
@@ -1914,16 +1914,28 @@ async def clan_join_process_real(callback: CallbackQuery):
     if user[12]: 
         return await callback.answer("❌ Ты уже в клане.", show_alert=True)
     
-    clan = db_execute("SELECT name, COALESCE(join_fee, 5000) FROM clans WHERE id = ?", (clan_id,), fetchone=True)
+    # Берем название, награду и КАЗНУ клана
+    clan = db_execute("SELECT name, COALESCE(join_fee, 5000), treasury FROM clans WHERE id = ?", (clan_id,), fetchone=True)
     reward = clan[1]
+    treasury = clan[2]
     
-    # Игроку НАЧИСЛЯЕТСЯ награда, а не списывается!
+    # ПРОВЕРКА: хватает ли денег в казне клана, чтобы заплатить игроку?
+    if treasury < reward:
+        return await callback.answer("❌ В казне клана недостаточно средств для выплаты награды!", show_alert=True)
+    
+    # 1. Забираем деньги из казны клана
+    db_execute("UPDATE clans SET treasury = treasury - ? WHERE id = ?", (reward, clan_id))
+    
+    # 2. Выдаем их игроку
     update_balance(user[0], reward)
+    
+    # 3. Записываем игрока в клан
     db_execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, user[0]))
     
     await callback.message.edit_text(
         f"✅ <b>Ты вступил в клан {clan[0]}!</b>\n\n"
-        f"🎁 Твоя награда за вступление: <b>+{format_money(reward)}</b>"
+        f"🎁 Твоя награда за вступление: <b>+{format_money(reward)}</b>\n"
+        f"<i>(Выплачено из казны клана)</i>"
     )
     await callback.answer("Добро пожаловать!")
 
