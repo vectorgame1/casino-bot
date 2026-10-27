@@ -51,6 +51,19 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # Создаем пул соединений
 db_pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=10, open=True)
 
+def get_user(user_id):
+    user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    if not user:
+        db_execute("INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)", (user_id, "Unknown", START_BONUS))
+        user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    return user
+
+def update_balance(user_id, amount):
+    db_execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+
+def format_money(amount):
+    return f"{amount:,}".replace(",", " ") + f" {CURRENCY}"
+
 def db_execute(query, params=(), fetchone=False, fetchall=False):
     # Заменяем плейсхолдеры SQLite '?' на PostgreSQL '%s'
     query = query.replace("?", "%s")
