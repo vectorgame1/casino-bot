@@ -847,7 +847,7 @@ async def start_ping_server():
     logger.info(f"Веб-сервер запущен на порту {port}")
 
 # ==============================================================================
-# СУПЕР-ПАТЧ: ИГРЫ В ГРУППАХ (С КНОПКОЙ НАЗАД И БЕЗ ЗАГЛУШЕК)
+# МЕГА-ПАТЧ: РАБОЧИЕ ИГРЫ + КНОПКА НАЗАД
 # ==============================================================================
 
 def get_group_games_menu():
@@ -870,80 +870,138 @@ def get_back_button():
     builder.button(text="⬅️ Назад в меню", callback_data="g_back")
     return builder.as_markup()
 
-# 1. Вызов главного меню игр
 @group_router.message(F.text.lower().in_(["игры", "games"]))
 @group_router.message(Command("игры"))
 async def group_games_menu_updated(message: Message):
     if message.chat.type not in ["group", "supergroup"]: return
     await message.answer("🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру (пиши ставку в чат, например: <code>кости 1000</code>):", reply_markup=get_group_games_menu())
 
-# 2. Обработка кнопки "Назад"
 @group_router.callback_query(F.data == "g_back")
 async def games_menu_back(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру (пиши ставку в чат, например: <code>кости 1000</code>):", 
-        reply_markup=get_group_games_menu()
-    )
+    await callback.message.edit_text("🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру:", reply_markup=get_group_games_menu())
     await callback.answer()
 
-# 3. Информация об играх (с кнопкой Назад)
+# --- ОПИСАНИЯ ИГР (С КНОПКОЙ НАЗАД) ---
 @group_router.callback_query(F.data == "g_dice")
 async def g_dice_info(callback: CallbackQuery):
-    await callback.message.edit_text("🎲 <b>КОСТИ</b>\n\nНапиши в чат: <code>кости 1000</code>\nВыигрыш: если выпало 4, 5 или 6 (x2).", reply_markup=get_back_button())
+    await callback.message.edit_text("🎲 <b>КОСТИ</b>\nНапиши в чат: <code>кости 1000</code>\nВыигрыш: 4, 5, 6 (x2).", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_darts")
 async def g_darts_info(callback: CallbackQuery):
-    await callback.message.edit_text("🎯 <b>ДАРТС</b>\n\nНапиши в чат: <code>дартс 1000</code>\nВыигрыш: если выпало 4, 5 или 6 (x2).", reply_markup=get_back_button())
+    await callback.message.edit_text("🎯 <b>ДАРТС</b>\nНапиши в чат: <code>дартс 1000</code>\nВыигрыш: 4, 5, 6 (x2).", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_basket")
 async def g_basket_info(callback: CallbackQuery):
-    await callback.message.edit_text("🏀 <b>БАСКЕТ</b>\n\nНапиши в чат: <code>баскет 1000</code>\nВыигрыш: если забил (3+ очка) (x2).", reply_markup=get_back_button())
+    await callback.message.edit_text("🏀 <b>БАСКЕТ</b>\nНапиши в чат: <code>баскет 1000</code>\nВыигрыш: 3+ очка (x2).", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_football")
 async def g_football_info(callback: CallbackQuery):
-    await callback.message.edit_text("⚽ <b>ФУТБОЛ</b>\n\nНапиши в чат: <code>футбол 1000</code>\nВыигрыш: если гол (4, 5) (x2).", reply_markup=get_back_button())
+    await callback.message.edit_text("⚽ <b>ФУТБОЛ</b>\nНапиши в чат: <code>футбол 1000</code>\nВыигрыш: гол (x2).", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_bowling")
 async def g_bowling_info(callback: CallbackQuery):
-    await callback.message.edit_text("🎳 <b>БОУЛИНГ</b>\n\nНапиши в чат: <code>боулинг 1000</code>\nВыигрыш: если страйк (6) (x3).", reply_markup=get_back_button())
+    await callback.message.edit_text("🎳 <b>БОУЛИНГ</b>\nНапиши в чат: <code>боулинг 1000</code>\nВыигрыш: страйк (x3).", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_roulette_info")
 async def g_roulette_info_updated(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🎡 <b>РУЛЕТКА</b>\n\nСтавки пиши в чат:\n"
-        "<code>к 1000</code> (Красное)\n"
-        "<code>ч 1000</code> (Черное)\n"
-        "<code>з 1000</code> (Зеро)\n"
-        "<code>10-23 500</code> (Сектор)\n\n"
-        "Когда все поставили — пиши <code>го</code>!",
-        reply_markup=get_back_button()
-    )
+    await callback.message.edit_text("🎡 <b>РУЛЕТКА</b>\nСтавки: <code>к 1000</code>, <code>10-23 500</code>.\nЗапуск: <code>го</code>", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_mines_info")
 async def g_mines_info_updated(callback: CallbackQuery):
-    await callback.message.edit_text("💣 <b>МИНЫ</b>\n\nНапиши в чат: <code>мины 1000</code>\nИщи безопасные клетки, забирай куш!", reply_markup=get_back_button())
+    await callback.message.edit_text("💣 <b>МИНЫ</b>\nНапиши в чат: <code>мины 1000</code>", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_stairs_info")
 async def g_stairs_info_updated(callback: CallbackQuery):
-    await callback.message.edit_text("🪜 <b>ЛЕСЕНКА</b>\n\nНапиши в чат: <code>лесенка 1000</code>\nПройди 10 шагов, избегай обрывов!", reply_markup=get_back_button())
+    await callback.message.edit_text("🪜 <b>ЛЕСЕНКА</b>\nНапиши в чат: <code>лесенка 1000</code>", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_bj_info")
 async def g_bj_info_updated(callback: CallbackQuery):
-    await callback.message.edit_text("🃏 <b>БЛЭКДЖЕК</b>\n\nНапиши в чат: <code>бж 1000</code>\nНабери 21 очко и обыграй дилера!", reply_markup=get_back_button())
+    await callback.message.edit_text("🃏 <b>БЛЭКДЖЕК</b>\nНапиши в чат: <code>бж 1000</code>", reply_markup=get_back_button())
     await callback.answer()
 
 @group_router.callback_query(F.data == "g_joker")
 async def g_joker_info_updated(callback: CallbackQuery):
-    await callback.message.edit_text("🃏 <b>ДЖОКЕР</b>\n\nНапиши в чат: <code>джокер 1000</code>\nШанс выиграть x3!", reply_markup=get_back_button())
+    await callback.message.edit_text("🃏 <b>ДЖОКЕР</b>\nНапиши в чат: <code>джокер 1000</code>", reply_markup=get_back_button())
     await callback.answer()
+
+
+# --- САМИ ИГРЫ (КОСТИ, ЛЕСЕНКА, МИНЫ И Т.Д.) ---
+
+@group_router.message(F.text.regexp(r"(?i)^(кости|дартс|баскет|футбол|боулинг)\s+(\d+)$"))
+async def play_dice_group_fix(message: Message):
+    parts = message.text.lower().split()
+    game, amount = parts[0], int(parts[1])
+    user = get_user(message.from_user.id)
+    if user[3] < amount: return await message.reply("❌ Мало средств.")
+    
+    update_balance(user[0], -amount)
+    emoji = {"кости": "🎲", "дартс": "🎯", "баскет": "🏀", "футбол": "⚽", "боулинг": "🎳"}[game]
+    
+    msg = await message.answer_dice(emoji=emoji)
+    await asyncio.sleep(3.5)
+    val = msg.dice.value
+    
+    win = False
+    if game in ["кости", "дартс"] and val >= 4: win = True
+    elif game == "баскет" and val >= 3: win = True
+    elif game == "футбол" and val >= 4: win = True
+    elif game == "боулинг" and val == 6: win = True
+    
+    if win:
+        update_balance(user[0], amount * 2)
+        await message.reply(f"🎉 Победа! Выпало {val}. Выигрыш: {format_money(amount * 2)}!")
+    else:
+        await message.reply(f"😢 Проигрыш. Выпало {val}.")
+
+active_stairs = {}
+@group_router.message(F.text.regexp(r"(?i)^лесенка\s+(\d+)$"))
+async def play_stairs_fix(message: Message):
+    amount = int(message.text.split()[1])
+    user = get_user(message.from_user.id)
+    if user[3] < amount: return await message.reply("❌ Мало средств.")
+    
+    update_balance(user[0], -amount)
+    game_key = f"{message.chat.id}_{message.from_user.id}"
+    dead_cells = random.sample(range(1, 10), 3)
+    active_stairs[game_key] = {"uid": user[0], "bet": amount, "dead": dead_cells, "step": 1}
+    
+    builder = InlineKeyboardBuilder().button(text="🚶 Шагнуть", callback_data=f"st_{game_key}")
+    await message.reply(f"🪜 <b>ЛЕСЕНКА</b>\nСтавка: {format_money(amount)}\nПройди 10 шагов!", reply_markup=builder.as_markup())
+
+@group_router.callback_query(F.data.startswith("st_"))
+async def step_stairs_fix(callback: CallbackQuery):
+    game_key = callback.data.split("st_")[1]
+    if game_key not in active_stairs: return
+    game = active_stairs[game_key]
+    if callback.from_user.id != game["uid"]: return await callback.answer("Не твоя игра!", show_alert=True)
+    
+    game["step"] += 1
+    if game["step"] in game["dead"]:
+        await callback.message.edit_text(f"💀 <b>СГОРЕЛ!</b> Упали на шаге {game['step']}. Проигрыш {format_money(game['bet'])}.")
+        del active_stairs[game_key]
+        return await callback.answer()
+        
+    if game["step"] >= 10:
+        win = game["bet"] * 5
+        update_balance(game["uid"], win)
+        await callback.message.edit_text(f"🏆 <b>ПОБЕДА!</b> Выигрыш x5: {format_money(win)}!")
+        del active_stairs[game_key]
+        return await callback.answer()
+        
+    win = int(game["bet"] * (1 + game["step"] * 0.3))
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🚶 Шагнуть", callback_data=f"st_{game_key}")
+    builder.button(text=f"💰 Забрать {format_money(win)}", callback_data=f"st_cash_{game_key}")
+    await callback.message.edit_text(f"🪜 <b>ЛЕСЕНКА</b>\nШаг: {game['step']}/10\nПотенциал: {format_money(win)}", reply_markup=builder.as_markup())
+    await callback.answer("Успешно!")
        
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
