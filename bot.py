@@ -845,7 +845,106 @@ async def start_ping_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"Веб-сервер запущен на порту {port}")
-    
+
+# ==============================================================================
+# СУПЕР-ПАТЧ: ИГРЫ В ГРУППАХ (С КНОПКОЙ НАЗАД И БЕЗ ЗАГЛУШЕК)
+# ==============================================================================
+
+def get_group_games_menu():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎲 Кости", callback_data="g_dice")
+    builder.button(text="🎯 Дартс", callback_data="g_darts")
+    builder.button(text="🏀 Баскет", callback_data="g_basket")
+    builder.button(text="⚽ Футбол", callback_data="g_football")
+    builder.button(text="🎳 Боулинг", callback_data="g_bowling")
+    builder.button(text="🎡 Рулетка", callback_data="g_roulette_info")
+    builder.button(text="💣 Мины", callback_data="g_mines_info")
+    builder.button(text="🪜 Лесенка", callback_data="g_stairs_info")
+    builder.button(text="🃏 Блэкджек", callback_data="g_bj_info")
+    builder.button(text="🃏 Джокер", callback_data="g_joker")
+    builder.adjust(2, 2, 2, 2, 2)
+    return builder.as_markup()
+
+def get_back_button():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Назад в меню", callback_data="g_back")
+    return builder.as_markup()
+
+# 1. Вызов главного меню игр
+@group_router.message(F.text.lower().in_(["игры", "games"]))
+@group_router.message(Command("игры"))
+async def group_games_menu_updated(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    await message.answer("🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру (пиши ставку в чат, например: <code>кости 1000</code>):", reply_markup=get_group_games_menu())
+
+# 2. Обработка кнопки "Назад"
+@group_router.callback_query(F.data == "g_back")
+async def games_menu_back(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру (пиши ставку в чат, например: <code>кости 1000</code>):", 
+        reply_markup=get_group_games_menu()
+    )
+    await callback.answer()
+
+# 3. Информация об играх (с кнопкой Назад)
+@group_router.callback_query(F.data == "g_dice")
+async def g_dice_info(callback: CallbackQuery):
+    await callback.message.edit_text("🎲 <b>КОСТИ</b>\n\nНапиши в чат: <code>кости 1000</code>\nВыигрыш: если выпало 4, 5 или 6 (x2).", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_darts")
+async def g_darts_info(callback: CallbackQuery):
+    await callback.message.edit_text("🎯 <b>ДАРТС</b>\n\nНапиши в чат: <code>дартс 1000</code>\nВыигрыш: если выпало 4, 5 или 6 (x2).", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_basket")
+async def g_basket_info(callback: CallbackQuery):
+    await callback.message.edit_text("🏀 <b>БАСКЕТ</b>\n\nНапиши в чат: <code>баскет 1000</code>\nВыигрыш: если забил (3+ очка) (x2).", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_football")
+async def g_football_info(callback: CallbackQuery):
+    await callback.message.edit_text("⚽ <b>ФУТБОЛ</b>\n\nНапиши в чат: <code>футбол 1000</code>\nВыигрыш: если гол (4, 5) (x2).", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_bowling")
+async def g_bowling_info(callback: CallbackQuery):
+    await callback.message.edit_text("🎳 <b>БОУЛИНГ</b>\n\nНапиши в чат: <code>боулинг 1000</code>\nВыигрыш: если страйк (6) (x3).", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_roulette_info")
+async def g_roulette_info_updated(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🎡 <b>РУЛЕТКА</b>\n\nСтавки пиши в чат:\n"
+        "<code>к 1000</code> (Красное)\n"
+        "<code>ч 1000</code> (Черное)\n"
+        "<code>з 1000</code> (Зеро)\n"
+        "<code>10-23 500</code> (Сектор)\n\n"
+        "Когда все поставили — пиши <code>го</code>!",
+        reply_markup=get_back_button()
+    )
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_mines_info")
+async def g_mines_info_updated(callback: CallbackQuery):
+    await callback.message.edit_text("💣 <b>МИНЫ</b>\n\nНапиши в чат: <code>мины 1000</code>\nИщи безопасные клетки, забирай куш!", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_stairs_info")
+async def g_stairs_info_updated(callback: CallbackQuery):
+    await callback.message.edit_text("🪜 <b>ЛЕСЕНКА</b>\n\nНапиши в чат: <code>лесенка 1000</code>\nПройди 10 шагов, избегай обрывов!", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_bj_info")
+async def g_bj_info_updated(callback: CallbackQuery):
+    await callback.message.edit_text("🃏 <b>БЛЭКДЖЕК</b>\n\nНапиши в чат: <code>бж 1000</code>\nНабери 21 очко и обыграй дилера!", reply_markup=get_back_button())
+    await callback.answer()
+
+@group_router.callback_query(F.data == "g_joker")
+async def g_joker_info_updated(callback: CallbackQuery):
+    await callback.message.edit_text("🃏 <b>ДЖОКЕР</b>\n\nНапиши в чат: <code>джокер 1000</code>\nШанс выиграть x3!", reply_markup=get_back_button())
+    await callback.answer()
+       
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
     init_db()
