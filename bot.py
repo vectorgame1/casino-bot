@@ -1202,6 +1202,423 @@ async def start_roulette_photo(message: Message):
     except: await msg.edit_text(text)
     
     active_roulette_final[chat_id] = {"status": "waiting", "bets": []}
+
+# ==============================================================================
+# ПАТЧ: ПОЛНОСТЬЮ РАБОЧИЕ REPLY-КНОПКИ В ЛС (БЕЗ ЗАГЛУШЕК)
+# ==============================================================================
+from aiogram.types import FSInputFile
+from aiogram.exceptions import TelegramBadRequest
+
+# --- 1. ИГРЫ В ЛС (Кейсы, Колесо, Лотерея, Работа) ---
+@user_router.message(F.text.in_(["🎮 Игры", "🎮 Games"]))
+async def games_menu_ls(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📦 Кейсы"), KeyboardButton(text="🎡 Колесо"))
+    builder.row(KeyboardButton(text="🎟 Лотерея"), KeyboardButton(text="💼 Работа"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
+    await message.answer("🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбирай раздел:", reply_markup=builder.as_markup(resize_keyboard=True))
+
+@user_router.message(F.text == "📦 Кейсы")
+async def cases_menu_ls(message: Message):
+    user = get_user(message.from_user.id)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📦 Обычный кейс", callback_data="open_case")
+    builder.button(text="💎 VIP кейс", callback_data="open_vip_case")
+    await message.answer("📦 <b>КЕЙСЫ</b>", reply_markup=builder.as_markup())
+
+@user_router.callback_query(F.data == "open_case")
+async def open_case_ls(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    now = datetime.datetime.now()
+    if user[6] and now - datetime.datetime.fromisoformat(user[6]) < datetime.timedelta(hours=24):
+        return await callback.answer("⏳ Кейс уже открыт. Жди 24 часа.", show_alert=True)
+    
+    prize = random.choice([1000, 2000, 5000, 10000, 15000, 25000])
+    update_balance(user[0], prize)
+    db_execute("UPDATE users SET last_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    try:
+        # Пытаемся отправить гифку
+        await callback.message.answer_animation(
+            animation=FSInputFile("assets/case.gif"), 
+            caption=f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!"
+        )
+        await callback.message.delete()
+    except Exception:
+        await callback.message.edit_text(f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!")
+    await callback.answer()
+
+@user_router.callback_query(F.data == "open_vip_case")
+async def open_vip_case_ls(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    # Жесткая проверка на VIP
+    if user[10] != "vip": 
+        return await callback.answer("❌ Этот кейс доступен только VIP-игрокам. Купи VIP в донате!", show_alert=True)
+        
+    now = datetime.datetime.now()
+    if user[7] and now - datetime.datetime.fromisoformat(user[7]) < datetime.timedelta(hours=12):
+        return await callback.answer("⏳ VIP кейс уже открыт. Жди 12 часов.", show_alert=True)
+        
+    prize = random.choice([5000, 10000, 25000, 50000, 100000])
+    update_balance(user[0], prize)
+    db_execute("UPDATE users SET last_vip_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    try:
+        await callback.message.answer_animation(
+            animation=FSInputFile("assets/case.gif"), 
+            caption=f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!"
+        )
+        await callback.message.delete()
+    except Exception:
+        await callback.message.edit_text(f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!")
+    await callback.answer()
+
+@user_router.message(F.text == "🎡 Колесо")
+async def spin_wheel_ls(message: Message):
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
+    if user[8] and now - datetime.datetime.fromisoformat(user[8]) < datetime.timedelta(hours=12):
+        time_left = datetime.timedelta(hours=12) - (now - datetime.datetime.fromisoformat(user[8]))
+        return await message.answer(f"⏳ Колесо крутится раз в 12 часов. Жди еще {time_left.seconds//3600} ч.")
+    
+    await message.answer("🎡 Колесо крутится...")
+    await asyncio.sleep(2)
+    
+    prize = random.choice([0, 500, 1000, 5000, 10000, 50000])
+    if prize > 0: 
+        update_balance(user[0], prize)
+        await message.answer(f"🎉 Ты выиграл <b>{format_money(prize)}</b>!")
+    else:
+        await message.answer("😢 Пусто. Попробуй еще раз через 12 часов.")
+        
+    db_execute("UPDATE users SET last_wheel = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+
+@user_router.message(F.text == "🎟 Лотерея")
+async def lottery_menu_ls(message: Message):
+    user = get_user(message.from_user.id)
+    price = 5000
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"Купить билет ({format_money(price)})", callback_data="buy_lottery")
+    await message.answer("🎟 <b>ЛОТЕРЕЯ</b>\n\nПриз: <b>100 000 Tokens</b>\nРозыгрыш: каждый день в 20:00", reply_markup=builder.as_markup())
+
+@user_router.callback_query(F.data == "buy_lottery")
+async def buy_lottery_ls(callback: CallbackQuery):
+    user = get_user(callback.from_user.id)
+    price = 5000
+    if user[3] < price: return await callback.answer("❌ Мало средств.", show_alert=True)
+    
+    update_balance(user[0], -price)
+    db_execute("INSERT OR IGNORE INTO lottery (user_id) VALUES (?)", (user[0],))
+    await callback.answer("✅ Билет куплен! Удачи в 20:00!", show_alert=True)
+
+@user_router.message(F.text == "💼 Работа")
+async def work_ls(message: Message):
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
+    if user[10] and now - datetime.datetime.fromisoformat(user[10]) < datetime.timedelta(hours=1):
+        time_left = datetime.timedelta(hours=1) - (now - datetime.datetime.fromisoformat(user[10]))
+        return await message.answer(f"⏳ Ты уже работал. Отдых еще {time_left.seconds//60} мин.")
+        
+    salary = 1500
+    update_balance(user[0], salary)
+    db_execute("UPDATE users SET last_work = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    await message.answer(f"💼 Ты поработал и получил <b>{format_money(salary)}</b>!")
+
+# --- 2. ДОНАТ (ПОЛНОСТЬЮ РАБОЧИЙ) ---
+@user_router.message(F.text.in_(["💎 Донат", "💎 Donate"]))
+async def donate_menu_ls(message: Message):
+    if message.chat.type != "private": return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="⭐ 15 Stars"), KeyboardButton(text="⭐ 25 Stars"))
+    builder.row(KeyboardButton(text="⭐ 50 Stars"), KeyboardButton(text="⭐ 100 Stars"))
+    builder.row(KeyboardButton(text="✍️ Своя сумма"), KeyboardButton(text="⬅️ Назад"))
+    
+    await message.answer(
+        "💎 <b>ДОНАТ</b>\n\n🔥 Курс дня: 1 ⭐ = 12 500 Tokens\n\nВыбери пакет:", 
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text.startswith("⭐"))
+async def buy_stars(message: Message):
+    try:
+        stars = int(message.text.split()[1])
+        tokens = stars * 12500
+        # Отправляем счет на оплату
+        await message.answer_invoice(
+            title=f"Покупка {stars} Stars",
+            description=f"Пополнение на {format_money(tokens)}",
+            payload=f"stars_{stars}",
+            provider_token="", # Для Stars оставляем пустым
+            currency="XTR",    # Валюта Stars
+            prices=[types.LabeledPrice(label="Stars", amount=stars)],
+            start_parameter="buy_stars"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+@user_router.message(F.text == "✍️ Своя сумма")
+async def custom_stars(message: Message, state: FSMContext):
+    await message.answer("Введи количество Stars (от 1 до 10000):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_custom_stars")
+
+@user_router.message(StateFilter("waiting_custom_stars"))
+async def process_custom_stars(message: Message, state: FSMContext):
+    try:
+        stars = int(message.text)
+        if stars < 1 or stars > 10000: raise ValueError
+        tokens = stars * 12500
+        await message.answer_invoice(
+            title=f"Покупка {stars} Stars",
+            description=f"Пополнение на {format_money(tokens)}",
+            payload=f"stars_{stars}",
+            provider_token="",
+            currency="XTR",
+            prices=[types.LabeledPrice(label="Stars", amount=stars)],
+            start_parameter="buy_stars"
+        )
+        await state.clear()
+    except ValueError:
+        await message.answer("❌ Введи число от 1 до 10000!")
+
+# ==============================================================================
+# МЕГА-ПАТЧ: ПОДДЕРЖКА С БОЛЬШИМИ ТЕКСТАМИ (RU/EN)
+# ==============================================================================
+from aiogram.types import ReplyKeyboardRemove
+
+# 1. Главное меню поддержки
+@user_router.message(F.text.in_(["🆘 Поддержка", "🆘 Support"]))
+async def support_menu_big(message: Message):
+    if message.chat.type != "private": return
+    user = get_user(message.from_user.id)
+    lang = user[2]
+    
+    builder = ReplyKeyboardBuilder()
+    if lang == "ru":
+        builder.row(KeyboardButton(text="💰 Как заработать?"), KeyboardButton(text="💳 Проблема с оплатой"))
+        builder.row(KeyboardButton(text="🎁 Не пришел бонус"), KeyboardButton(text="🎰 Как играть в чате?"))
+        builder.row(KeyboardButton(text="🛡 Проблема с кланом"), KeyboardButton(text="⚠️ Сообщить об ошибке"))
+        builder.row(KeyboardButton(text="✍️ Написать Админу"), KeyboardButton(text="⬅️ Назад"))
+        text = "🆘 <b>ЦЕНТР ПОДДЕРЖКИ</b>\n\nЗдесь ты найдешь ответы на все свои вопросы. Выбери тему, которая тебя интересует, и я дам подробную инструкцию."
+    else:
+        builder.row(KeyboardButton(text="💰 How to earn?"), KeyboardButton(text="💳 Payment issue"))
+        builder.row(KeyboardButton(text="🎁 No bonus?"), KeyboardButton(text="🎰 How to play?"))
+        builder.row(KeyboardButton(text="🛡 Clan issue"), KeyboardButton(text="⚠️ Report a bug"))
+        builder.row(KeyboardButton(text="✍️ Write to Admin"), KeyboardButton(text="⬅️ Back"))
+        text = "🆘 <b>SUPPORT CENTER</b>\n\nHere you will find answers to all your questions. Choose a topic below and I will provide a detailed guide."
+    
+    await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
+
+# ==============================================================================
+# РУССКИЕ ОТВЕТЫ (БОЛЬШИЕ ТЕКСТА)
+# ==============================================================================
+
+@user_router.message(F.text == "💰 Как заработать?")
+async def sup_earn_ru_big(message: Message):
+    await message.answer(
+        "💰 <b>КАК ЗАРАБОТАТЬ ТОКЕНЫ</b>\n\n"
+        "У нас есть несколько проверенных способов поднять свой баланс:\n\n"
+        "🎁 <b>Ежедневный бонус</b>\n"
+        "Заходи каждый день в раздел «Профиль» и забирай свои 5 000 токенов. Не забывай заходить, чтобы не терять прогресс!\n\n"
+        "💼 <b>Работа</b>\n"
+        "В разделе «Игры» есть кнопка «Работа». Нажимай и получай 1 500 токенов раз в час. Это пассивный доход, который всегда с тобой.\n\n"
+        "🎮 <b>Игры в чате</b>\n"
+        "Зайди в наш игровой чат @tokenplays и играй в кости, рулетку или мины. Выигрывай токены у других игроков и становись самым богатым!\n\n"
+        "📦 <b>Кейсы</b>\n"
+        "Каждый день открывай бесплатный кейс в профиле. Внутри может быть от 1 000 до 50 000 токенов!\n\n"
+        "👥 <b>Рефералы</b>\n"
+        "Приглашай друзей по своей ссылке в профиле и получай бонусы за каждого приведенного игрока.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "💳 Проблема с оплатой")
+async def sup_pay_ru_big(message: Message):
+    await message.answer(
+        "💳 <b>ПРОБЛЕМА С ОПЛАТОЙ</b>\n\n"
+        "Если ты купил Stars или VIP, но токены не пришли на баланс — сделай следующее:\n\n"
+        "1️⃣ Подожди 5-10 минут (иногда Telegram задерживает обработку платежей, особенно в часы пик).\n\n"
+        "2️⃣ Проверь баланс в профиле (нажми на кнопку «Профиль» в главном меню).\n\n"
+        "3️⃣ Если токены так и не пришли — напиши Админу @vctorw. Обязательно прикрепи скриншот чека из Telegram, чтобы мы могли быстро найти твой платеж и зачислить средства.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🎁 Не пришел бонус")
+async def sup_bonus_ru_big(message: Message):
+    await message.answer(
+        "🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС</b>\n\n"
+        "Бонус доступен раз в 24 часа. Если ты нажал на кнопку «Бонус», но токены не пришли — это значит, что ты уже забирал его сегодня.\n\n"
+        "⏳ Система работает четко: как только пройдет ровно 24 часа с момента последнего получения, кнопка снова станет активной.\n\n"
+        "Если ты уверен, что прошло больше суток, а бонус не пришел — напиши Админу @vctorw, но такое бывает крайне редко.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🎰 Как играть в чате?")
+async def sup_games_ru_big(message: Message):
+    await message.answer(
+        "🎰 <b>КАК ИГРАТЬ В ЧАТЕ</b>\n\n"
+        "Все наши игры проходят в официальном чате: @tokenplays\n\n"
+        "Чтобы начать играть, просто пиши команды в чат:\n\n"
+        "🎲 <b>Кости</b> — напиши <code>кости 1000</code>. Если выпадет 4, 5 или 6 — ты выиграл x2.\n"
+        "🎯 <b>Дартс</b> — напиши <code>дартс 1000</code>. Тот же принцип.\n"
+        "🎡 <b>Рулетка</b> — напиши <code>к 1000</code> (на красное) или <code>ч 1000</code> (на черное). Запуск: <code>го</code>.\n"
+        "💣 <b>Мины</b> — напиши <code>мины 1000</code>. Ищи безопасные клетки и забирай куш!\n\n"
+        "Перед игрой убедись, что у тебя на балансе достаточно токенов. Баланс можно проверить командой <code>б</code> в чате.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🛡 Проблема с кланом")
+async def sup_clan_ru_big(message: Message):
+    await message.answer(
+        "🛡 <b>КЛАНЫ</b>\n\n"
+        "Кланы — это объединения игроков для совместных игр и общего банка.\n\n"
+        "Что нужно знать:\n"
+        "▫️ Создание клана стоит 100 000 токенов.\n"
+        "▫️ Вступить в клан можно бесплатно (если владелец пригласит).\n"
+        "▫️ У клана есть своя казна, куда игроки скидывают токены.\n\n"
+        "Если у тебя возник баг при создании клана (списались токены, но клан не создался) — пиши Админу @vctorw с чеком и описанием проблемы.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "⚠️ Сообщить об ошибке")
+async def sup_bug_ru_big(message: Message, state: FSMContext):
+    await message.answer(
+        "⚠️ <b>СООБЩИТЬ ОБ ОШИБКЕ</b>\n\n"
+        "Спасибо, что помогаешь нам делать казино лучше! Пожалуйста, опиши проблему в одном сообщении как можно подробнее:\n\n"
+        "▫️ Где произошла ошибка (в ЛС или в чате).\n"
+        "▫️ Что ты делал в этот момент.\n"
+        "▫️ Прикрепи скриншот, если это возможно.\n\n"
+        "<i>За критический баг можем наградить токенами!</i>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_bug")
+
+@user_router.message(StateFilter("waiting_bug"))
+async def process_bug_ru_big(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    try:
+        await bot.send_message(ADMIN_ID, f"🐞 <b>БАГ-РЕПОРТ</b>\nОт: @{message.from_user.username} (ID: <code>{user[0]}</code>)\n\n{message.text}")
+        await message.answer("✅ Спасибо! Твое сообщение отправлено Админу.", reply_markup=get_main_menu(user[2]))
+    except: 
+        await message.answer("❌ Ошибка отправки. Попробуй позже.")
+    await state.clear()
+
+@user_router.message(F.text == "✍️ Написать Админу")
+async def sup_ticket_ru_big(message: Message, state: FSMContext):
+    await message.answer(
+        "✍️ <b>СВЯЗЬ С АДМИНОМ</b>\n\n"
+        "Напиши свой вопрос одним сообщением. Админ ответит тебе в ЛС.\n\n"
+        "⚠️ <i>Пожалуйста, не спамь. Отвечаем в течение 24 часов. Если вопрос срочный — прикрепи чек или скриншот.</i>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_ticket")
+
+@user_router.message(StateFilter("waiting_ticket"))
+async def process_ticket_ru_big(message: Message, state: FSMContext):
+    user = get_user(message.from_user.id)
+    try:
+        admin_msg = await bot.send_message(
+            ADMIN_ID, 
+            f"📩 <b>ТИКЕТ</b>\nОт: @{message.from_user.username} (ID: <code>{user[0]}</code>)\n\n{message.text}\n\n<i>Ответь Reply на это сообщение.</i>"
+        )
+        db_execute("INSERT INTO logs (user_id, action, amount, date) VALUES (?, ?, 0, ?)", (user[0], f"ticket_{admin_msg.message_id}", datetime.datetime.now().isoformat()))
+        await message.answer("✅ Вопрос отправлен Админу. Ожидай ответа.", reply_markup=get_main_menu(user[2]))
+    except:
+        await message.answer("❌ Ошибка отправки. Попробуй позже.")
+    await state.clear()
+
+# ==============================================================================
+# АНГЛИЙСКИЕ ОТВЕТЫ (БОЛЬШИЕ ТЕКСТА)
+# ==============================================================================
+
+@user_router.message(F.text == "💰 How to earn?")
+async def sup_earn_en_big(message: Message):
+    await message.answer(
+        "💰 <b>HOW TO EARN TOKENS</b>\n\n"
+        "We have several proven ways to boost your balance:\n\n"
+        "🎁 <b>Daily Bonus</b>\n"
+        "Visit the 'Profile' section every day and claim your 5,000 tokens. Don't forget to log in to keep your progress!\n\n"
+        "💼 <b>Work</b>\n"
+        "In the 'Games' section, there is a 'Work' button. Click it to receive 1,500 tokens once an hour. It's a passive income that's always with you.\n\n"
+        "🎮 <b>Chat Games</b>\n"
+        "Join our game chat @tokenplays and play dice, roulette, or mines. Win tokens from other players and become the richest!\n\n"
+        "📦 <b>Cases</b>\n"
+        "Open a free case in your profile every day. You can get from 1,000 to 50,000 tokens inside!\n\n"
+        "👥 <b>Referrals</b>\n"
+        "Invite friends using your link in the profile and get bonuses for each player you bring.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Back").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "💳 Payment issue")
+async def sup_pay_en_big(message: Message):
+    await message.answer(
+        "💳 <b>PAYMENT ISSUE</b>\n\n"
+        "If you bought Stars or VIP but tokens didn't arrive in your balance, do the following:\n\n"
+        "1️⃣ Wait 5-10 minutes (sometimes Telegram delays payment processing, especially during peak hours).\n\n"
+        "2️⃣ Check your balance in the profile (click the 'Profile' button in the main menu).\n\n"
+        "3️⃣ If tokens still haven't arrived — write to Admin @vctorw. Be sure to attach a screenshot of the receipt from Telegram so we can quickly find your payment and credit the funds.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Back").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🎁 No bonus?")
+async def sup_bonus_en_big(message: Message):
+    await message.answer(
+        "🎁 <b>DAILY BONUS</b>\n\n"
+        "The bonus is available once every 24 hours. If you clicked the 'Bonus' button but tokens didn't arrive, it means you already claimed it today.\n\n"
+        "⏳ The system works precisely: once exactly 24 hours have passed since your last claim, the button becomes active again.\n\n"
+        "If you are sure that more than a day has passed and the bonus hasn't arrived — write to Admin @vctorw, but this is extremely rare.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Back").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🎰 How to play?")
+async def sup_games_en_big(message: Message):
+    await message.answer(
+        "🎰 <b>HOW TO PLAY IN CHAT</b>\n\n"
+        "All our games take place in the official chat: @tokenplays\n\n"
+        "To start playing, just type commands in the chat:\n\n"
+        "🎲 <b>Dice</b> — type <code>кости 1000</code>. If 4, 5 or 6 rolls, you win x2.\n"
+        "🎯 <b>Darts</b> — type <code>дартс 1000</code>. Same principle.\n"
+        "🎡 <b>Roulette</b> — type <code>к 1000</code> (for red) or <code>ч 1000</code> (for black). Start: <code>го</code>.\n"
+        "💣 <b>Mines</b> — type <code>мины 1000</code>. Find safe cells and claim the prize!\n\n"
+        "Make sure you have enough tokens in your balance before playing. You can check your balance with the <code>б</code> command in the chat.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Back").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "🛡 Clan issue")
+async def sup_clan_en_big(message: Message):
+    await message.answer(
+        "🛡 <b>CLANS</b>\n\n"
+        "Clans are associations of players for joint games and a shared treasury.\n\n"
+        "What you need to know:\n"
+        "▫️ Creating a clan costs 100,000 tokens.\n"
+        "▫️ Joining a clan is free (if the owner invites you).\n"
+        "▫️ The clan has its own treasury where players deposit tokens.\n\n"
+        "If you encountered a bug when creating a clan (tokens were deducted but the clan wasn't created) — write to Admin @vctorw with a receipt and a description of the problem.",
+        reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Back").as_markup(resize_keyboard=True)
+    )
+
+@user_router.message(F.text == "⚠️ Report a bug")
+async def sup_bug_en_big(message: Message, state: FSMContext):
+    await message.answer(
+        "⚠️ <b>REPORT A BUG</b>\n\n"
+        "Thank you for helping us make the casino better! Please describe the problem in one message as detailed as possible:\n\n"
+        "▫️ Where the error occurred (in DM or in chat).\n"
+        "▫️ What you were doing at that moment.\n"
+        "▫️ Attach a screenshot if possible.\n\n"
+        "<i>For a critical bug, we may reward you with tokens!</i>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_bug")
+
+@user_router.message(F.text == "✍️ Write to Admin")
+async def sup_ticket_en_big(message: Message, state: FSMContext):
+    await message.answer(
+        "✍️ <b>CONTACT ADMIN</b>\n\n"
+        "Write your question in one message. The Admin will reply to you in DM.\n\n"
+        "⚠️ <i>Please do not spam. We reply within 24 hours. If your question is urgent — attach a receipt or screenshot.</i>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.set_state("waiting_ticket")
     
 # 6. Перезапуск с принудительным сбросом вебхука (для групп)
 async def main_final():
