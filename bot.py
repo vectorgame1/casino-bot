@@ -1778,61 +1778,62 @@ async def pr_exit_fix(message: Message):
         await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
 
 # ==============================================================================
-# ПОЛНАЯ И ЧИСТАЯ СИСТЕМА КЛАНОВ (МЕНЮ, ИНФО, НАСТРОЙКИ, ВСТУПЛЕНИЕ)
+# ЧИСТАЯ СИСТЕМА КЛАНОВ (БЕЗ ДУБЛИКАТОВ)
 # ==============================================================================
 
-# --- 1. ГЛАВНОЕ МЕНЮ КЛАНА (ВИДЯТ ВСЕ) ---
+# --- 1. ГЛАВНОЕ МЕНЮ КЛАНА ---
 @user_router.message(F.text == "🛡 Клан")
 async def clan_menu_ultimate(message: Message):
     user = get_user(message.from_user.id)
     builder = ReplyKeyboardBuilder()
     
-    text = "🛡 <b>КЛАНОВАЯ СИСТЕМА</b>\n\n<i>Кланы — это объединения игроков. Вступай, чтобы качать общую казну.</i>\n\n"
+    text = "🛡 <b>КЛАНОВАЯ СИСТЕМА</b>\n\n<i>Кланы — это объединения игроков. Вступай и получай награду!</i>\n\n"
     
     if not user[12]:
-        # Если игрок НЕ в клане
+        # Если не в клане
         builder.row(KeyboardButton(text="➕ Создать клан (100к)"), KeyboardButton(text="🏆 Топ кланов"))
         builder.row(KeyboardButton(text="🤝 Вступить в клан"))
         text += "Ты пока не в клане."
     else:
-        # Если игрок В КЛАНЕ
+        # Если в клане
         clan = db_execute("SELECT name, treasury, owner_id, COALESCE(join_fee, 5000) FROM clans WHERE id = ?", (user[12],), fetchone=True)
         
         builder.row(KeyboardButton(text="💰 Внести в казну"), KeyboardButton(text="🏆 Топ кланов"))
-        builder.row(KeyboardButton(text="📜 Мой клан")) # <--- Кнопка доступна всем членам клана
+        builder.row(KeyboardButton(text="📜 Мой клан")) 
         
-        # Если это ВЛАДЕЛЕЦ — добавляем кнопку Настроек
+        # Если владелец — добавляем кнопку Настроек
         if clan[2] == user[0]:
             builder.row(KeyboardButton(text="⚙️ Настройки клана"))
+            role = "👑 Владелец"
+        else:
+            builder.row(KeyboardButton(text="🚪 Выйти из клана")) # Выйти может только рядовой
+            role = "🛡 Рядовой"
             
-        builder.row(KeyboardButton(text="🚪 Выйти из клана"))
-        
-        role = "👑 Владелец" if clan[2] == user[0] else "🛡 Рядовой"
         fee = clan[3]
         
         text += (
             f"<b>Твой клан:</b> {clan[0]}\n"
             f"<b>Роль:</b> {role}\n"
             f"<b>Казна:</b> {format_money(clan[1])}\n"
-            f"<b>Взнос за вход:</b> {format_money(fee)}"
+            f"<b>Награда за вход:</b> {format_money(fee)}"
         )
         
     builder.row(KeyboardButton(text="⬅️ В Игры"))
+    # Отправляем ОДИН раз
     await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
 
 
-# --- 2. ИНФОРМАЦИЯ О КЛАНЕ (ВИДЯТ ВСЕ УЧАСТНИКИ) ---
+# --- 2. ИНФОРМАЦИЯ О КЛАНЕ ---
 @user_router.message(F.text == "📜 Мой клан")
 async def clan_info_all_members(message: Message):
     user = get_user(message.from_user.id)
     if not user[12]: 
         return await message.answer("❌ Ты не в клане.")
 
-    # Берем инфу о клане и считаем участников
     clan = db_execute("SELECT id, name, treasury, owner_id, COALESCE(join_fee, 5000) FROM clans WHERE id = ?", (user[12],), fetchone=True)
     members_count = db_execute("SELECT COUNT(*) FROM users WHERE clan_id = ?", (clan[0],), fetchone=True)[0]
     
-    # Получаем ник владельца (если он есть в базе)
+    # Пытаемся взять ник владельца
     owner = db_execute("SELECT username FROM users WHERE user_id = ?", (clan[3],), fetchone=True)
     owner_name = f"@{owner[0]}" if owner and owner[0] and owner[0] != "Unknown" else f"ID: {clan[3]}"
 
@@ -1842,11 +1843,10 @@ async def clan_info_all_members(message: Message):
         f"👑 Владелец: {owner_name}\n"
         f"👥 Участников: <b>{members_count}</b>\n"
         f"💰 Казна: <b>{format_money(clan[2])}</b>\n"
-        f"💵 Взнос за вступление: <b>{format_money(clan[4])}</b>\n\n"
-        f"<i>Кланы создаются для совместных игр и накопления общей казны.</i>"
+        f"🎁 Награда за вступление: <b>{format_money(clan[4])}</b>\n\n"
+        f"<i>Вступай в клан и забирай бонус!</i>"
     )
     
-    # Возвращаем кнопку назад
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="⬅️ В Игры"))
     await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
@@ -1861,7 +1861,6 @@ async def clan_settings_start(message: Message, state: FSMContext):
 
     clan = db_execute("SELECT name, owner_id, COALESCE(join_fee, 5000) FROM clans WHERE id = ?", (user[12],), fetchone=True)
     
-    # Проверка, что это владелец
     if clan[1] != user[0]:
         return await message.answer("❌ Только владелец клана может менять настройки.")
 
@@ -1869,15 +1868,15 @@ async def clan_settings_start(message: Message, state: FSMContext):
     
     await message.answer(
         f"⚙️ <b>НАСТРОЙКИ КЛАНА</b>\n\n"
-        f"Текущий взнос: <b>{format_money(fee)}</b>\n\n"
-        f"Введи новую сумму взноса (от 0 до 1 000 000):\n"
-        f"<i>(или напиши «Отмена»)</i>",
+        f"Текущая награда за вход: <b>{format_money(fee)}</b>\n\n"
+        f"Введи новую сумму награды (от 0 до 1 000 000):\n"
+        f"<i>(Столько будет получать игрок при вступлении. Или напиши «Отмена»)</i>",
         reply_markup=ReplyKeyboardRemove()
     )
     await state.set_state("waiting_clan_join_fee")
 
 
-# --- 4. СОХРАНЕНИЕ НОВОЙ ЦЕНЫ ВХОДА ---
+# --- 4. СОХРАНЕНИЕ НАГРАДЫ ---
 @user_router.message(StateFilter("waiting_clan_join_fee"))
 async def clan_settings_finish(message: Message, state: FSMContext):
     if message.text.lower() == "отмена":
@@ -1895,18 +1894,18 @@ async def clan_settings_finish(message: Message, state: FSMContext):
 
     user = get_user(message.from_user.id)
     
-    # Обновляем цену в базе
+    # Обновляем награду в базе
     db_execute("UPDATE clans SET join_fee = ? WHERE id = ?", (new_fee, user[12]))
     
     await message.answer(
-        f"✅ <b>Цена входа обновлена!</b>\n\n"
-        f"Теперь новые игроки будут платить <b>{format_money(new_fee)}</b>.",
+        f"✅ <b>Награда за вход обновлена!</b>\n\n"
+        f"Теперь новые игроки будут получать <b>{format_money(new_fee)}</b> за вступление.",
         reply_markup=get_main_menu(user[2])
     )
     await state.clear()
 
 
-# --- 5. ВСТУПЛЕНИЕ В КЛАН (СПИСАНИЕ СРЕДСТВ) ---
+# --- 5. ВСТУПЛЕНИЕ В КЛАН (ИГРОКУ ПЛАТЯТ) ---
 @user_router.callback_query(F.data.startswith("clan_join_"))
 async def clan_join_process_real(callback: CallbackQuery):
     clan_id = int(callback.data.split("_")[2])
@@ -1916,24 +1915,15 @@ async def clan_join_process_real(callback: CallbackQuery):
         return await callback.answer("❌ Ты уже в клане.", show_alert=True)
     
     clan = db_execute("SELECT name, COALESCE(join_fee, 5000) FROM clans WHERE id = ?", (clan_id,), fetchone=True)
-    join_fee = clan[1]
+    reward = clan[1]
     
-    if user[3] < join_fee: 
-        return await callback.answer(f"❌ Нужно {format_money(join_fee)} для взноса.", show_alert=True)
-    
-    # Списываем взнос и зачисляем в казну
-    update_balance(user[0], -join_fee)
-    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (join_fee, clan_id))
+    # Игроку НАЧИСЛЯЕТСЯ награда, а не списывается!
+    update_balance(user[0], reward)
     db_execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, user[0]))
-    
-    # Даем бонус за вступление
-    update_bonus = 5000
-    update_balance(user[0], update_bonus)
     
     await callback.message.edit_text(
         f"✅ <b>Ты вступил в клан {clan[0]}!</b>\n\n"
-        f"💵 Взнос: {format_money(join_fee)}\n"
-        f"🎁 Бонус за вступление: +{format_money(update_bonus)}"
+        f"🎁 Твоя награда за вступление: <b>+{format_money(reward)}</b>"
     )
     await callback.answer("Добро пожаловать!")
 
