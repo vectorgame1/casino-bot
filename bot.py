@@ -1834,7 +1834,265 @@ async def claim_auto_drop(callback: CallbackQuery):
 # 4. ДОБАВЛЯЕМ ЗАДАЧИ В ПЛАНИРОВЩИК (ПРИ СТАРТЕ)
 # ВАЖНО: Это нужно вставить в функцию main(), где запускается scheduler!
 # Если ты не знаешь, куда вставить, я покажу ниже.
-#   
+
+# ==============================================================================
+# МЕГА-ПАТЧ: КРАСОТА, УСКОРЕНИЕ И АВТО-УДАЛЕНИЕ (ВСЁ В ОДНОМ)
+# ==============================================================================
+import asyncio
+from aiogram.types import FSInputFile
+
+# ==============================================================================
+# 1. АВТО-УДАЛЕНИЕ: КЕЙСЫ (В ЛС)
+# ==============================================================================
+
+@user_router.message(F.text == "🎁 Обычный кейс (5к)")
+async def open_common_case_mega(message: Message):
+    user = get_user(message.from_user.id)
+    now = datetime.datetime.now()
+    
+    if user[6] and now - datetime.datetime.fromisoformat(user[6]) < datetime.timedelta(hours=24):
+        return await message.answer("⏳ Кейс уже открыт. Жди 24 часа.")
+    if user[3] < 5000: 
+        return await message.answer("❌ Недостаточно средств.")
+    
+    # Анимация загрузки
+    status = await message.answer("📦 <i>Вскрываем кейс...</i> 🛠")
+    await asyncio.sleep(1)
+    await status.edit_text("📦 <i>Ищем prize...</i> 💎")
+    await asyncio.sleep(1)
+    await status.edit_text("🎁 <i>Почти готово...</i> 🔥")
+    await asyncio.sleep(1)
+    await status.delete()
+    
+    update_balance(user[0], -5000)
+    prize = random.choice([1000, 2000, 5000, 10000, 25000])
+    update_balance(user[0], prize)
+    db_execute("UPDATE users SET last_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    try:
+        msg = await message.answer_animation(
+            animation=FSInputFile("assets/case.gif"), 
+            caption=f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!"
+        )
+    except:
+        msg = await message.answer(f"🎁 Ты открыл кейс и выиграл <b>{format_money(prize)}</b>!")
+        
+    # Авто-удаление через 60 сек
+    await asyncio.sleep(60)
+    try: await msg.delete()
+    except: pass
+
+@user_router.message(F.text == "💎 VIP кейс (15к)")
+async def open_vip_case_mega(message: Message):
+    user = get_user(message.from_user.id)
+    if user[4] != "vip": 
+        return await message.answer("❌ Этот кейс доступен только VIP-игрокам.")
+    
+    now = datetime.datetime.now()
+    if user[7] and now - datetime.datetime.fromisoformat(user[7]) < datetime.timedelta(hours=12):
+        return await message.answer("⏳ VIP кейс уже открыт. Жди 12 часов.")
+    if user[3] < 15000: 
+        return await message.answer("❌ Недостаточно средств.")
+    
+    update_balance(user[0], -15000)
+    prize = random.choice([5000, 10000, 25000, 50000, 100000])
+    update_balance(user[0], prize)
+    db_execute("UPDATE users SET last_vip_case = ? WHERE user_id = ?", (now.isoformat(), user[0]))
+    
+    try:
+        msg = await message.answer_animation(
+            animation=FSInputFile("assets/case.gif"), 
+            caption=f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!"
+        )
+    except:
+        msg = await message.answer(f"💎 Ты открыл VIP кейс и выиграл <b>{format_money(prize)}</b>!")
+        
+    # Авто-удаление через 60 сек
+    await asyncio.sleep(60)
+    try: await msg.delete()
+    except: pass
+
+# ==============================================================================
+# 2. КРАСОТА: МЕНЮ ИГР И ПРОФИЛЬ
+# ==============================================================================
+
+@user_router.message(F.text.in_(["🎮 Игры", "🎮 Games"]))
+async def games_menu_mega(message: Message):
+    text = (
+        "🎰 <b>ДОБРО ПОЖАЛОВАТЬ В ИГРОВОЙ ЗАЛ</b>\n\n"
+        "👇 Выбери раздел, чтобы начать зарабатывать:\n\n"
+        "📦 <b>Кейсы</b> — Испытай удачу и сорви куш до 100 000!\n"
+        "🎡 <b>Колесо</b> — Крути и получай призы каждые 12 часов.\n"
+        "🎟 <b>Лотерея</b> — Купи билет и жди розыгрыша в 20:00.\n"
+        "💼 <b>Работа</b> — Пассивный доход 1 500 токенов в час.\n"
+        "🛡 <b>Клан</b> — Объединяйся с друзьями и качай казну."
+    )
+    await message.answer(text, reply_markup=get_games_menu())
+
+@user_router.message(F.text.in_(["👤 Профиль", "👤 Profile"]))
+async def profile_mega(message: Message):
+    user = get_user(message.from_user.id)
+    vip_status = "👑 <b>VIP</b>" if user[4] == "vip" else "❌ Нет"
+    
+    bal = user[3]
+    if bal > 1000000: rank = "💎 Легенда"
+    elif bal > 500000: rank = "🔥 Хайроллер"
+    elif bal > 100000: rank = "⭐ Профи"
+    else: rank = "🟢 Новичок"
+    
+    text = (
+        f"👤 <b>ЛИЧНЫЙ КАБИНЕТ</b>\n\n"
+        f"🆔 ID: <code>{user[0]}</code>\n"
+        f"🏆 Ранг: <b>{rank}</b>\n"
+        f"💰 Баланс: <b>{format_money(user[3])}</b>\n"
+        f"💎 VIP: {vip_status}\n"
+        f"⚠️ Варны: {user[10]}"
+    )
+    await message.answer(text, reply_markup=get_profile_menu())
+
+# ==============================================================================
+# 3. УСКОРЕНИЕ: СМЕНА ЯЗЫКА С АНИМАЦИЕЙ
+# ==============================================================================
+
+@user_router.message(F.text.in_(["🌐 Язык", "🌐 Language"]))
+async def change_lang_mega(message: Message):
+    user = get_user(message.from_user.id)
+    new_lang = "en" if user[2] == "ru" else "ru"
+    db_execute("UPDATE users SET lang = ? WHERE user_id = ?", (new_lang, user[0]))
+    
+    status_msg = await message.answer("🌐 <i>Переключаем язык...</i>")
+    await asyncio.sleep(0.5)
+    await status_msg.edit_text(get_text(new_lang, "lang_changed"), reply_markup=get_main_menu(new_lang))
+
+# ==============================================================================
+# 4. АВТО-УДАЛЕНИЕ: ИГРЫ В ЧАТЕ
+# ==============================================================================
+
+@group_router.message(Command("игры"))
+@group_router.message(F.text.lower().in_(["игры", "games"]))
+async def group_games_menu_mega(message: Message):
+    if message.chat.type not in ["group", "supergroup"]: return
+    msg = await message.answer(
+        "🎰 <b>ИГРОВОЙ ЗАЛ</b>\nВыбери игру (пиши ставку в чат, например: <code>кости 1000</code>):", 
+        reply_markup=get_group_games_menu()
+    )
+    # Удаление меню через 2 минуты
+    await asyncio.sleep(120)
+    try: await msg.delete()
+    except: pass
+
+@group_router.message(F.text.regexp(r"(?i)^(кости|дартс|баскет|футбол|боулинг)\s+(\d+)$"))
+async def play_dice_group_mega(message: Message):
+    parts = message.text.lower().split()
+    game, amount = parts[0], int(parts[1])
+    user = get_user(message.from_user.id)
+    if user[3] < amount: return await message.reply("❌ Мало средств.")
+    
+    update_balance(user[0], -amount)
+    emoji = {"кости": "🎲", "дартс": "🎯", "баскет": "🏀", "футбол": "⚽", "боулинг": "🎳"}[game]
+    
+    msg = await message.answer_dice(emoji=emoji)
+    await asyncio.sleep(3.5)
+    val = msg.dice.value
+    
+    win = False
+    if game in ["кости", "дартс"] and val >= 4: win = True
+    elif game == "баскет" and val >= 3: win = True
+    elif game == "футбол" and val >= 4: win = True
+    elif game == "боулинг" and val == 6: win = True
+    
+    if win:
+        update_balance(user[0], amount * 2)
+        res_msg = await message.reply(f"🎉 Победа! Выпало {val}. Выигрыш: {format_money(amount * 2)}!")
+    else:
+        res_msg = await message.reply(f"😢 Проигрыш. Выпало {val}.")
+        
+    # Удаление результата через 30 сек
+    await asyncio.sleep(30)
+    try: await res_msg.delete()
+    except: pass
+
+# ==============================================================================
+# ФИНАЛЬНЫЙ ПАТЧ: РАБОЧИЕ КНОПКИ ИВЕНТОВ И АДМИНКИ
+# ==============================================================================
+from aiogram.types import ReplyKeyboardRemove
+
+# --- 1. МЕНЮ ИВЕНТОВ (Исправляем кнопку "Дроп в чат") ---
+@admin_router.message(F.text == "🎁 Ивент")
+async def admin_event_menu_final(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="📉 Гиперинфляция"), KeyboardButton(text="💣 Дроп в чат"))
+    builder.row(KeyboardButton(text="⬅️ В меню админа"))
+    await message.answer(
+        "🎁 <b>ИВЕНТЫ</b>\n\n"
+        "Выбери ивент:\n"
+        "📉 <b>Гиперинфляция</b> — выдать всем случайную сумму (от 1к до 50к).\n"
+        "💣 <b>Дроп в чат</b> — отправить мешок с деньгами в чат (кто первый, того и тапки).",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+
+# --- 2. ГИПЕРИНФЛЯЦИЯ (Выдать всем рандом) ---
+@admin_router.message(F.text == "📉 Гиперинфляция")
+async def admin_hyperinflation(message: Message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    # Выдаем всем по случайной сумме
+    users = db_execute("SELECT user_id FROM users", fetchall=True)
+    total = 0
+    for u in users:
+        amount = random.randint(1000, 50000)
+        update_balance(u[0], amount)
+        total += amount
+        
+    await message.answer(
+        f"📉 <b>ГИПЕРИНФЛЯЦИЯ!</b>\n\n"
+        f"Всем игрокам выдано случайное количество токенов.\n"
+        f"Всего начислено: <b>{format_money(total)}</b>",
+        reply_markup=get_admin_menu()
+    )
+
+# --- 3. ДРОП В ЧАТ (Создаем кнопку в чате) ---
+@admin_router.message(F.text == "💣 Дроп в чат")
+async def admin_chat_drop(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("Введи сумму для дропа (например: 50000):", reply_markup=ReplyKeyboardRemove())
+    await state.set_state("waiting_drop_amount")
+
+@admin_router.message(StateFilter("waiting_drop_amount"))
+async def admin_chat_drop_finish(message: Message, state: FSMContext):
+    try: amount = int(message.text)
+    except: return await message.answer("❌ Введи число!")
+    
+    # Ищем чат (группу), куда отправить дроп
+    # ВАЖНО: Замени это на ID своей группы, если не хочешь, чтобы бот искал её
+    CHAT_ID = -1004366922819 # <--- ВСТАВЬ ID СВОЕЙ ГРУППЫ СЮДА
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 СХВАТИТЬ МЕШОК", callback_data=f"manual_drop_{amount}")
+    
+    try:
+        await bot.send_message(
+            CHAT_ID,
+            f"🚨 <b>ВНИМАНИЕ!</b> 🚨\n\nАдмин запустил дроп!\nКто первый нажмет кнопку — заберет <b>{format_money(amount)}</b>!",
+            reply_markup=builder.as_markup()
+        )
+        await message.answer(f"✅ Дроп на {format_money(amount)} отправлен в чат!", reply_markup=get_admin_menu())
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}\nПроверь CHAT_ID в коде.", reply_markup=get_admin_menu())
+    await state.clear()
+
+# --- 4. ОБРАБОТЧИК КНОПКИ ЗАБРАТЬ ДРОП ---
+@group_router.callback_query(F.data.startswith("manual_drop_"))
+async def claim_manual_drop(callback: CallbackQuery):
+    amount = int(callback.data.split("_")[2])
+    user = get_user(callback.from_user.id)
+    
+    update_balance(user[0], amount)
+    
+    await callback.message.edit_text(f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! Он получил {format_money(amount)}!")
+    await callback.answer("Ты забрал куш!", show_alert=True)
+
 # ==============================================================================
 # 9. ЗАПУСК БОТА
 # ==============================================================================
