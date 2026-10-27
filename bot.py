@@ -1939,6 +1939,12 @@ async def clan_join_process_real(callback: CallbackQuery):
     )
     await callback.answer("Добро пожаловать!")
 
+# --- 6. ВОЗВРАТ В ИГРЫ ИЗ КЛАНА ---
+@user_router.message(F.text == "⬅️ В Игры")
+async def back_to_games_from_clan(message: Message):
+    # Вызываем функцию, которая показывает главное игровое меню
+    await games_menu_mega(message)
+
 # ==============================================================================
 # 11. ЗАПУСК БОТА
 # ==============================================================================
