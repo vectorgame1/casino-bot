@@ -285,15 +285,13 @@ async def cmd_start_beauty(message: Message, state: FSMContext):
     if message.from_user.id == ADMIN_ID:
         await message.answer("👑 <b>ПАНЕЛЬ АДМИНА</b>", reply_markup=get_admin_menu())
     elif user[4] == "moderator":
-        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu())
+        await message.answer("🛡 <b>ПАНЕЛЬ МОДЕРА</b>", reply_markup=get_mod_menu_fixed())
     elif user[4] == "promoter":
-        await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu())
-    else:
+        await message.answer("📢 <b>ПАНЕЛЬ ПИАРЩИКА</b>", reply_markup=get_pr_menu_fixed())
         await message.answer(
             f"✨ <b>ДОБРО ПОЖАЛОВАТЬ В КАЗИНО</b> ✨\n\n"
             f"👋 Привет, <b>{message.from_user.first_name}</b>!\n"
             f"💰 Твой баланс: <b>{format_money(user[3])}</b>\n"
-            f"⚠️ Твои варны: <b>{user[10]}/3</b>\n\n"
             f"<i>Выбери действие на клавиатуре ниже:</i>",
             reply_markup=get_main_menu(user[2])
         )
@@ -316,7 +314,6 @@ async def profile_beauty(message: Message):
         f"🏆 Ранг: <b>{rank}</b>\n"
         f"💰 Баланс: <b>{format_money(user[3])}</b>\n"
         f"💎 VIP: {vip_status}\n"
-        f"⚠️ Варны: <b>{user[10]}/3</b>"
     )
     await message.answer(text, reply_markup=get_profile_menu())
 
