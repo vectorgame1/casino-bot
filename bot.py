@@ -1260,13 +1260,17 @@ async def play_joker(message: Message):
     user = get_user(message.from_user.id)
     if user[3] < amount: return await message.reply("❌ Мало средств.")
     update_balance(user[0], -amount)
-    msg = await message.answer_dice(emoji="🃏")
+    
+    # Используем стандартный джокер (или замени на 🎰, если снова выдаст ошибку)
+    msg = await message.answer_dice(emoji="🃏") 
+    
     await asyncio.sleep(3)
     if msg.dice.value in [1, 2]:
         update_balance(user[0], amount * 3)
         await message.reply(f"🃏 ДЖОКЕР! Выигрыш x3: {format_money(amount * 3)}!")
-    else: await message.reply("😢 Не повезло.")
-
+    else: 
+        await message.reply("😢 Не повезло.")
+        
 # ==============================================================================
 # ЧАСТЬ 5: АДМИНКА, МОДЕРЫ, ПИАРЩИКИ, ОТЧЕТ И ЗАПУСК
 # ==============================================================================
