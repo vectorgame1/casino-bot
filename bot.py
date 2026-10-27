@@ -731,7 +731,7 @@ async def buy_lottery(callback: CallbackQuery):
     user = get_user(callback.from_user.id)
     if user[3] < 5000: return await callback.answer("❌ Мало средств.", show_alert=True)
     update_balance(user[0], -5000)
-    db_execute("INSERT OR IGNORE INTO lottery (user_id) VALUES (?)", (user[0],))
+    db_execute("INSERT INTO lottery (user_id) VALUES (?) ON CONFLICT DO NOTHING", (user[0],))
     await callback.answer("✅ Билет куплен! Удачи в 20:00!", show_alert=True)
 
 # --- 5. РАБОТА ---
@@ -1402,7 +1402,7 @@ async def admin_promo_finish(message: Message, state: FSMContext):
     try: limit = int(message.text)
     except: return await message.answer("❌ Введи число!")
     data = await state.get_data()
-    db_execute("INSERT OR REPLACE INTO promos (code, reward, limit_count) VALUES (?, ?, ?)", (data['code'], data['amount'], limit))
+    db_execute("INSERT INTO promos (code, reward, limit_count) VALUES (?, ?, ?) ON CONFLICT (code) DO UPDATE SET reward = EXCLUDED.reward, limit_count = EXCLUDED.limit_count", (data['code'], data['amount'], limit))
     await message.answer(f"✅ Промокод <b>{data['code']}</b> создан!", reply_markup=get_admin_menu())
     await state.clear()
 
@@ -1774,13 +1774,75 @@ async def work_menu_final(message: Message):
         f"💼 Ты поработал и получил <b>{format_money(salary)}</b>!",
         reply_markup=ReplyKeyboardBuilder().button(text="⬅️ Назад").as_markup(resize_keyboard=True)
     )
+
+# ==============================================================================
+# ПАТЧ: ЛОТЕРЕЯ (РОЗЫГРЫШ) И АВТО-ДРОП (ЗОЛОТАЯ ЛИХОРАДКА)
+# ==============================================================================
+import asyncio
+import random
+import datetime
+
+# 1. ФУНКЦИЯ РОЗЫГРЫША ЛОТЕРЕИ (Вызывается Планировщиком в 20:00)
+async def lottery_draw():
+    players = db_execute("SELECT user_id FROM lottery", fetchall=True)
+    if not players:
+        return # Если билетов нет — ничего не делаем
+        
+    winner = random.choice(players)[0]
+    prize = 100000
     
+    update_balance(winner, prize)
+    db_execute("DELETE FROM lottery") # Очищаем билеты
+    
+    try:
+        await bot.send_message(winner, f"🎉 <b>ПОЗДРАВЛЯЕМ!</b>\n\nТы выиграл в лотерею <b>{format_money(prize)}</b>!")
+    except:
+        pass # Если игрок заблокировал бота — не падаем
+
+# 2. ФУНКЦИЯ АВТО-ДРОПА (Золотая лихорадка)
+async def auto_drop():
+    # ID твоей группы (замени на свой, если нужно)
+    CHAT_ID = -1004366922819 # <--- ВСТАВЬ ID СВОЕЙ ГРУППЫ СЮДА
+    
+    amount = random.choice([10000, 25000, 50000])
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 СХВАТИТЬ МЕШОК", callback_data=f"autodrop_{amount}")
+    
+    try:
+        await bot.send_message(
+            CHAT_ID, 
+            f"🚨 <b>ВНИМАНИЕ!</b> 🚨\n\nНа сцене появился мешок с деньгами!\nКто первый нажмет кнопку — заберет <b>{format_money(amount)}</b>!",
+            reply_markup=builder.as_markup()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка авто-дропа: {e}")
+
+# 3. ОБРАБОТЧИК КНОПКИ АВТО-ДРОПА
+@group_router.callback_query(F.data.startswith("autodrop_"))
+async def claim_auto_drop(callback: CallbackQuery):
+    amount = int(callback.data.split("_")[1])
+    user = get_user(callback.from_user.id)
+    
+    # Забираем деньги
+    update_balance(user[0], amount)
+    
+    # Меняем сообщение, чтобы другие не видели кнопку
+    await callback.message.edit_text(f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! Он получил {format_money(amount)}!")
+    await callback.answer("Ты забрал куш!", show_alert=True)
+
+# 4. ДОБАВЛЯЕМ ЗАДАЧИ В ПЛАНИРОВЩИК (ПРИ СТАРТЕ)
+# ВАЖНО: Это нужно вставить в функцию main(), где запускается scheduler!
+# Если ты не знаешь, куда вставить, я покажу ниже.
+#   
 # ==============================================================================
 # 9. ЗАПУСК БОТА
 # ==============================================================================
 async def main():
     init_db()
     scheduler.add_job(daily_report, "cron", hour=22, minute=0)
+    scheduler.add_job(lottery_draw, "cron", hour=20, minute=0) # Розыгрыш лотереи в 20:00
+    scheduler.add_job(auto_drop, "interval", hours=2) # Авто-дроп каждые 2 часа
     scheduler.start()
     asyncio.create_task(start_ping_server())
     
