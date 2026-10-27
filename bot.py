@@ -1959,6 +1959,51 @@ async def pr_exit_fix(message: Message):
         await message.answer("Главное меню:", reply_markup=get_main_menu(user[2]))
 
 # ==============================================================================
+# ФИКС: ВНЕСЕНИЕ В КАЗНУ (С защитой от зависаний)
+# ==============================================================================
+@user_router.message(StateFilter("waiting_clan_deposit"))
+async def clan_deposit_finish_fix(message: Message, state: FSMContext):
+    try: 
+        amount = int(message.text)
+    except: 
+        return await message.answer("❌ Введи число!")
+    
+    user = get_user(message.from_user.id)
+    
+    if not user[12]:
+        await state.clear()
+        return await message.answer("❌ Ты не в клане.")
+        
+    if user[3] < amount:
+        # НЕ очищаем стейт, чтобы игрок мог сразу ввести другую сумму
+        return await message.answer(
+            f"❌ <b>Недостаточно средств!</b>\n\n"
+            f"💰 Твой баланс: {format_money(user[3])}\n"
+            f"💵 Ты хотел внести: {format_money(amount)}\n\n"
+            f"<i>Введи сумму поменьше или напиши «Отмена».</i>"
+        )
+        
+    update_balance(user[0], -amount)
+    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[12]))
+    
+    await state.clear()
+    
+    # Безопасный возврат в меню (на случай, если user[2] = None)
+    lang = user[2] if user[2] else "ru"
+    await message.answer(
+        f"✅ <b>Успешно!</b>\n\n"
+        f"💰 Внесено в казну: <b>{format_money(amount)}</b>",
+        reply_markup=get_main_menu(lang)
+    )
+
+# Добавляем обработку "Отмена" для депозита
+@user_router.message(StateFilter("waiting_clan_deposit"), F.text.lower() == "отмена")
+async def clan_deposit_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    await message.answer("❌ Внесение отменено.", reply_markup=get_main_menu(user[2]))
+    
+# ==============================================================================
 # 11. ЗАПУСК БОТА
 # ==============================================================================
 async def main():
