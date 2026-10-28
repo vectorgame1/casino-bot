@@ -24,7 +24,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     Message, CallbackQuery,
     FSInputFile, LabeledPrice,
-    ReplyKeyboardRemove,
+    ReplyKeyboardRemove, ReplyKeyboardMarkup,   # <-- Добавлен ReplyKeyboardMarkup
     InlineKeyboardButton, InlineKeyboardMarkup,
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
