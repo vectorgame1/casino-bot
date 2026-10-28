@@ -928,32 +928,23 @@ async def cmd_balance_group(message: Message):
 
 @group_router.message(F.text.regexp(r"(?i)^перевод\s+(.+)$"))
 async def cmd_transfer_group(message: Message):
-    if message.chat.type not in ("group", "supergroup"): 
-        return
-        
-    # Если это не реплай — просим реплай
-    if not message.reply_to_message:
+    if message.chat.type not in ("group", "supergroup"): return
+    
+    # Проверка, что это реплай
+    if not message.reply_to_message: 
         return await message.reply("❌ Ответь (Reply) на сообщение получателя!")
-        
+    
     target_id = message.reply_to_message.from_user.id
     
-    # Проверки
     if target_id == message.from_user.id: 
         return await message.reply("❌ Себе нельзя!")
     if target_id == bot.id: 
         return await message.reply("❌ Боту нельзя!")
         
-    # Парсинг суммы
-    try:
-        amount_str = message.text.split()[1]
-    except IndexError:
-        return await message.reply("❌ Введи сумму!")
-        
-    amount = parse_amt(amount_str)
+    amount = parse_amt(message.text.split()[1])
     if not amount: 
-        return await message.reply("❌ Неверная сумма (макс 10кк)!")
+        return await message.reply("❌ Неверная сумма! (мин. 100)")
         
-    # Проверка баланса и перевод
     sender = await asyncio.to_thread(get_user, message.from_user.id)
     if sender[3] < amount: 
         return await message.reply("❌ Мало средств!")
@@ -962,13 +953,15 @@ async def cmd_transfer_group(message: Message):
     await asyncio.to_thread(get_user, target_id)
     await asyncio.to_thread(update_balance, target_id, amount)
     
-    # Оформление успеха
-    msg = await message.reply(f"✅ <b>Перевод выполнен!</b>\n\n👤 От: {message.from_user.first_name}\n👤 Кому: {message.reply_to_message.from_user.first_name}\n💰 Сумма: <b>{format_money(amount)}</b>")
+    msg = await message.reply(
+        f"✅ <b>Перевод выполнен!</b>\n\n"
+        f"👤 От: {message.from_user.first_name}\n"
+        f"👤 Кому: {message.reply_to_message.from_user.first_name}\n"
+        f"💰 Сумма: <b>{format_money(amount)}</b>"
+    )
     try: 
         await msg.reply_sticker(STICKER_TRANSFER)
-    except Exception: 
-        pass
-        
+    except Exception: pass
     asyncio.create_task(auto_delete(msg, 60))
 
 # ==============================================================================
