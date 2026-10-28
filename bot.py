@@ -3,9 +3,9 @@ import logging
 import datetime
 import os
 import random
-from aiogram import Bot, Dispatcher, types, F, Router
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command, StateFilter
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, FSInputFile, LabeledPrice
+from aiogram.types import Message, CallbackQuery, KeyboardButton, InlineKeyboardButton, ReplyKeyboardRemove, FSInputFile, LabeledPrice
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -14,21 +14,18 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import psycopg
 from psycopg_pool import ConnectionPool
 
-# ==============================================================================
-# НАСТРОЙКИ (ВПИШИ СВОИ!)
-# ==============================================================================
-BOT_TOKEN = "8940867005:AAHeQpS4_I1XZWfzC107G3EPNneQF_8JbYA" # ТВОЙ ТОКЕН
-ADMIN_ID = 6403424348 # ТВОЙ ID
-CHAT_ID = -1004366922819 # ID ЧАТА
+# НАСТРОЙКИ
+BOT_TOKEN = "8940867005:AAHeQpS4_I1XZWfzC107G3EPNneQF_8JbYA" 
+ADMIN_ID = 6403424348 
+CHAT_ID = -1004366922819 
 GROUP_LINK = "https://t.me/tokenplays"
 START_BONUS = 5000
 CURRENCY = "Tokens"
 LINK_TO_TERMS = "https://telegra.ph/Pravila-01-01"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -40,9 +37,7 @@ admin_router = Router()
 group_router = Router()
 dp.include_routers(user_router, admin_router, group_router)
 
-# ==============================================================================
-# БАЗА ДАННЫХ
-# ==============================================================================
+# БАЗА
 DATABASE_URL = os.getenv("DATABASE_URL")
 db_pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=10, open=True)
 
@@ -52,9 +47,7 @@ def db_execute(query, params=(), fetchone=False, fetchall=False):
         with db_pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(query, params)
-                result = None
-                if fetchone: result = cursor.fetchone()
-                elif fetchall: result = cursor.fetchall()
+                result = cursor.fetchone() if fetchone else cursor.fetchall() if fetchall else None
                 conn.commit()
                 return result
     except Exception as e:
@@ -75,36 +68,18 @@ def format_money(amount):
     return f"{amount:,}".replace(",", " ") + f" {CURRENCY}"
 
 def init_db():
-    try:
-        db_execute("""CREATE TABLE IF NOT EXISTS users (
-            user_id BIGINT PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru',
-            balance BIGINT DEFAULT 5000, role TEXT DEFAULT 'user', 
-            last_bonus TEXT, last_case TEXT, last_vip_case TEXT, last_wheel TEXT,
-            last_work TEXT, warns INTEGER DEFAULT 0, ref_id BIGINT DEFAULT NULL,
-            clan_id INTEGER DEFAULT NULL, clan_donated BIGINT DEFAULT 0, vip_sticker TEXT
-        )""")
-        db_execute("""CREATE TABLE IF NOT EXISTS clans (
-            id SERIAL PRIMARY KEY, name TEXT, owner_id BIGINT, treasury BIGINT DEFAULT 0, join_fee BIGINT DEFAULT 5000, level INTEGER DEFAULT 1
-        )""")
-        db_execute("""CREATE TABLE IF NOT EXISTS promos (
-            code TEXT PRIMARY KEY, reward BIGINT, limit_count INTEGER, used_count INTEGER DEFAULT 0
-        )""")
-        db_execute("""CREATE TABLE IF NOT EXISTS lottery (user_id BIGINT PRIMARY KEY)""")
-        db_execute("""CREATE TABLE IF NOT EXISTS games_log (
-            id SERIAL PRIMARY KEY, user_id BIGINT, game TEXT, bet BIGINT, win BIGINT, date TEXT
-        )""")
-        db_execute("""CREATE TABLE IF NOT EXISTS tickets (
-            id SERIAL PRIMARY KEY, user_id BIGINT, text TEXT, date TEXT
-        )""")
-        logger.info("Таблицы в Supabase созданы/проверены.")
-    except Exception as e:
-        logger.error(f"Ошибка инициализации БД: {e}")
-    try: db_execute("ALTER TABLE clans ADD COLUMN level INTEGER DEFAULT 1")
-    except: pass
+    db_execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id BIGINT PRIMARY KEY, username TEXT, lang TEXT DEFAULT 'ru', balance BIGINT DEFAULT 5000,
+        role TEXT DEFAULT 'user', last_bonus TEXT, clan_id INTEGER DEFAULT NULL, clan_donated BIGINT DEFAULT 0
+    )""")
+    db_execute("""CREATE TABLE IF NOT EXISTS clans (
+        id SERIAL PRIMARY KEY, name TEXT, owner_id BIGINT, treasury BIGINT DEFAULT 0, join_fee BIGINT DEFAULT 5000, level INTEGER DEFAULT 1
+    )""")
+    db_execute("""CREATE TABLE IF NOT EXISTS tickets (id SERIAL PRIMARY KEY, user_id BIGINT, text TEXT, date TEXT)""")
+    db_execute("""CREATE TABLE IF NOT EXISTS games_log (id SERIAL PRIMARY KEY, user_id BIGINT, game TEXT, bet BIGINT, win BIGINT, date TEXT)""")
+    logger.info("База готова.")
 
-# ==============================================================================
-# СТИКЕРЫ
-# ==============================================================================
+# СТИКЕРЫ (ПРАВИЛЬНЫЕ!)
 STICKER_MONEY = "CAACAgIAAxkBAAEj985q4eL9Brj-YpyQvGjLXw3FCOZZjQACSKgAAjAhEUsk5lafkHLFYD0E"
 STICKER_GIFT = "CAACAgIAAxkBAAEj98Bq4eLXEYu2vZI5kR8FAa-5At5VCwACLqwAAkDWEEu1vr_yoL997j0E"
 STICKER_CHECK = "CAACAgIAAxkBAAEj97Jq4eKR30htSL0IqPlPzJVRVzFtJwACYqIAAmLKEEtbsW05dAABQME9BA"
@@ -113,10 +88,9 @@ STICKER_VIP = "CAACAgIAAxkBAAEj99Bq4eL-1vc-E-lWg0SnnmQOohX96wACxaQAAu96EUteo43HZ
 STICKER_WAIT = "CAACAgIAAxkBAAEj97hq4eKu4LVAQjvc8bvWLJsPGs4AAfcAAu6lAAIhCRFLfU-i5scDVp49BA"
 STICKER_TRANSFER = "CAACAgEAAxkBAAEj9-Bq4eVW4VZEtByB92myle5Upux2mgACzgIAAgZEGETPmJF48lyuaD0E"
 STICKER_TICKET = "CAACAgIAAxkBAAEj975q4eLJDqoTYwmhP1WgPmG147qWZgACdKkAAlAcEEt7BK5iDF740T0E"
+STICKER_WHEEL = "CAACAgIAAxkBAAEj98Jq4eLY_6DZL-z-pta0MkNblBDoIAACY6YAAopJCEulegpkQ4jAtj0E"
 
-# ==============================================================================
 # КЛАВИАТУРЫ
-# ==============================================================================
 def get_main_menu():
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="👤 Профиль"), KeyboardButton(text="🎁 Бонус"))
@@ -127,7 +101,7 @@ def get_main_menu():
 def get_profile_menu():
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="📜 История"), KeyboardButton(text="🔗 Моя Рефка"))
-    builder.row(KeyboardButton(text="🎨 Стикер VIP"), KeyboardButton(text="⬅️ Назад"))
+    builder.row(KeyboardButton(text="⬅️ Назад"))
     return builder.as_markup(resize_keyboard=True)
 
 def get_support_menu():
@@ -149,17 +123,16 @@ def get_clan_menu():
     builder.row(KeyboardButton(text="🚪 Выйти из клана"), KeyboardButton(text="⬅️ В Игры"))
     return builder.as_markup(resize_keyboard=True)
 
-def get_admin_menu():
-    builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="📊 Статистика"), KeyboardButton(text="💸 Экономика"))
-    builder.row(KeyboardButton(text="🎁 Промокоды"), KeyboardButton(text="👥 Люди"))
-    builder.row(KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="🎁 Ивент"))
-    builder.row(KeyboardButton(text="⬅️ В меню игрока"))
-    return builder.as_markup(resize_keyboard=True)
+# ==============================================================================
+# ЧАСТЬ 2: СТАРТ, ПРОФИЛЬ, ДОНАТ, ПОДДЕРЖКА
+# ==============================================================================
 
-# ==============================================================================
-# ЧАСТЬ 2: СТАРТ, ПРОФИЛЬ, КОЛЕСО, ДОНАТ, ТИКЕТЫ
-# ==============================================================================
+# Стикеры для VIP (рандомный выбор)
+VIP_STICKERS = [
+    "CAACAgIAAxkBAAEj96xq4eJXgVef7iLshpSS5HehGR9fvAACX7IAAgOYEEtkVuP2AAGD3tY9BA", # 1-й VIP
+    "CAACAgIAAxkBAAEj965q4eJ3NdOJTNZKOXjLl-EefvciHgACJaAAAuNkEEtMkr6KfsoC1j0E", # 2-й VIP
+    "CAACAgIAAxkBAAEj97Bq4eJ6Nm0yg_NAkGH6X0a3pgmesAACXrgAAjPACUvbsySuV4_7ez0E"  # 3-й VIP
+]
 
 @user_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -209,28 +182,14 @@ async def profile(message: Message):
         f"💎 VIP: {vip}\n"
         f"🛡 Клан: {'Есть' if user[12] else 'Нет'}"
     )
+    
+    # Если VIP, показываем случайный VIP стикер
     if user[4] == "vip":
-        try: await message.answer_sticker(STICKER_VIP)
+        try: await message.answer_sticker(random.choice(VIP_STICKERS))
         except: pass
+        
     await message.answer(text, reply_markup=get_profile_menu())
 
-@user_router.message(F.text == "🔗 Моя Рефка")
-async def my_ref(message: Message):
-    bot_info = await bot.get_me()
-    link = f"https://t.me/{bot_info.username}?start=ref_{message.from_user.id}"
-    await message.answer(f"🔗 <b>Твоя реферальная ссылка:</b>\n\n<code>{link}</code>\n\n<i>Приглашай друзей и получай бонусы!</i>", reply_markup=get_profile_menu())
-
-@user_router.message(F.text == "📜 История")
-async def history_menu(message: Message):
-    user = get_user(message.from_user.id)
-    logs = db_execute("SELECT game, bet, win, date FROM games_log WHERE user_id = ? ORDER BY id DESC LIMIT 5", (user[0],), fetchall=True)
-    text = "📜 <b>ПОСЛЕДНИЕ 5 ИГР:</b>\n\n"
-    if not logs: text += "У тебя еще нет сыгранных игр."
-    else:
-        for l in logs: text += f"📅 {l[3][:10]} | 🎮 {l[0]}\n💰 Ставка: {l[1]} | Результат: {l[2]}\n\n"
-    await message.answer(text, reply_markup=get_profile_menu())
-
-# --- БОНУС (КОЛЕСО) ---
 @user_router.message(F.text == "🎁 Бонус")
 async def daily_bonus(message: Message):
     user = get_user(message.from_user.id)
@@ -242,7 +201,8 @@ async def daily_bonus(message: Message):
         except: pass
         return await message.answer(f"⏳ <b>Бонус уже забран.</b>\nСледующий через: <b>{time_left.seconds//3600} ч. {(time_left.seconds%3600)//60} мин.</b>", reply_markup=get_main_menu())
         
-    try: await message.answer_sticker(STICKER_GIFT)
+    # ТУТ СТИКЕР КОЛЕСА
+    try: await message.answer_sticker(STICKER_WHEEL)
     except: pass
     
     status = await message.answer("🎁 <i>Крутим колесо удачи...</i> 🎡")
@@ -303,18 +263,26 @@ async def process_buy_vip(callback: CallbackQuery):
 async def success_payment(message: Message):
     payment = message.successful_payment
     user = get_user(message.from_user.id)
+    
     if payment.invoice_payload.startswith("vip_"):
         days = int(payment.invoice_payload.split("_")[1])
         db_execute("UPDATE users SET role = 'vip' WHERE user_id = ?", (user[0],))
         update_balance(user[0], 10000 * days)
-        try: await message.answer_sticker(STICKER_VIP)
+        
+        # Рандомный VIP стикер
+        try: await message.answer_sticker(random.choice(VIP_STICKERS))
         except: pass
-        await message.answer(f"👑 <b>VIP АКТИВИРОВАН!</b>\nСрок: {days} дней.", reply_markup=get_main_menu())
+        
+        await message.answer(f"✅ <b>VIP АКТИВИРОВАН!</b>\nСрок: {days} дней.", reply_markup=get_main_menu())
+        
     elif payment.invoice_payload.startswith("stars_"):
         parts = payment.invoice_payload.split("_")
         update_balance(user[0], int(parts[1]) * int(parts[2]))
-        try: await message.answer_sticker(STICKER_MONEY)
+        
+        # Зеленая галочка (успех)
+        try: await message.answer_sticker(STICKER_CHECK)
         except: pass
+        
         await message.answer("✅ <b>ОПЛАТА УСПЕШНА!</b>", reply_markup=get_main_menu())
 
 # --- ПОДДЕРЖКА (ТИКЕТЫ) ---
@@ -336,13 +304,16 @@ async def process_ticket(message: Message, state: FSMContext):
     db_execute("INSERT INTO tickets (user_id, text, date) VALUES (?, ?, ?)", (user[0], message.text, datetime.datetime.now().isoformat()))
     try: await bot.send_message(ADMIN_ID, f"🎫 <b>ТИКЕТ</b>\nОт: @{message.from_user.username}\n{message.text}")
     except: pass
+    
+    # Ящик / Конверт (тикет)
     try: await message.answer_sticker(STICKER_TICKET)
     except: pass
+    
     await message.answer("✅ Тикет отправлен.", reply_markup=get_main_menu())
     await state.clear()
 
 # ==============================================================================
-# ЧАСТЬ 3: ИГРЫ В ЧАТЕ (Стикеры, Рулетка с гифкой, Мины, Блэкджек)
+# ЧАСТЬ 3: ИГРЫ В ЧАТЕ, КЛАНЫ, НЕЙРО-АДМИН И ЗАПУСК
 # ==============================================================================
 
 # --- БАЛАНС И ПЕРЕВОД ---
@@ -350,9 +321,9 @@ async def process_ticket(message: Message, state: FSMContext):
 async def cmd_balance_group(message: Message):
     if message.chat.type not in ["group", "supergroup"]: return
     user = get_user(message.from_user.id)
-    try: await message.answer_sticker(STICKER_MONEY)
-    except: pass
-    await message.reply(f"💰 <b>Баланс:</b> {format_money(user[3])}")
+    name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
+    text = f"💰 <b>Баланс</b> {name}:\n💵 <b>{format_money(user[3])}</b>"
+    await message.reply(text)
 
 @group_router.message(F.text.regexp(r"(?i)^перевод\s+(\d+)$"))
 async def cmd_transfer_group(message: Message):
@@ -364,11 +335,12 @@ async def cmd_transfer_group(message: Message):
     except: return await message.reply("❌ Введи число!")
     sender = get_user(message.from_user.id)
     if sender[3] < amount: return await message.reply("❌ Мало средств!")
+    
     update_balance(sender[0], -amount)
     update_balance(target_id, amount)
     try: await message.answer_sticker(STICKER_TRANSFER)
     except: pass
-    await message.reply(f"✅ <b>Перевод:</b> {message.from_user.first_name} ➡️ {message.reply_to_message.from_user.first_name}\n💰 Сумма: <b>{format_money(amount)}</b>")
+    await message.reply(f"✅ <b>Перевод выполнен!</b>\n\n👤 От: {message.from_user.first_name}\n👤 Кому: {message.reply_to_message.from_user.first_name}\n💰 Сумма: <b>{format_money(amount)}</b>")
 
 # --- СТИКЕРНЫЕ ИГРЫ ---
 @group_router.message(F.text.regexp(r"(?i)^(кости|дартс|баскет|футбол|боулинг|слот)\s+(\d+)$"))
@@ -398,9 +370,8 @@ async def play_dice_group(message: Message):
         except: pass
         await message.reply(f"😢 <b>Проигрыш.</b>\nВыпало: {val}")
 
-# --- РУЛЕТКА (С ГИФКОЙ И МУЛЬТИ-СТАВКАМИ) ---
+# --- УМНАЯ РУЛЕТКА ---
 active_roulette = {}
-
 @group_router.message(F.text.regexp(r"(?i)^(к|ч|з|красное|черное|зеро|чет|нечет|\d+-\d+|\d+)\s+(\d+)$"))
 async def bet_roulette(message: Message):
     chat_id = message.chat.id
@@ -410,7 +381,6 @@ async def bet_roulette(message: Message):
     parts = message.text.lower().split()
     bet, amount = parts[0], int(parts[1])
     if amount < 100: return await message.reply("❌ Минимальная ставка 100!")
-    
     user = get_user(message.from_user.id)
     if user[3] < amount: return await message.reply("❌ Мало средств.")
     
@@ -424,12 +394,9 @@ async def start_roulette(message: Message):
     if chat_id not in active_roulette or not active_roulette[chat_id]["bets"]: return
     active_roulette[chat_id]["status"] = "playing"
     
-    # ТУТ ТА САМАЯ ГИФКА
-    try:
-        msg = await message.answer_animation(animation=FSInputFile("assets/roulette.gif"), caption="🎡 <i>Рулетка крутится...</i>")
-    except:
-        msg = await message.answer("🎡 <i>Рулетка крутится...</i>")
-        
+    # ТА САМАЯ ГИФКА
+    try: msg = await message.answer_animation(animation=FSInputFile("assets/roulette.gif"), caption="🎡 <i>Рулетка крутится...</i>")
+    except: msg = await message.answer("🎡 <i>Рулетка крутится...</i>")
     await asyncio.sleep(3)
     
     result_num = random.randint(0, 36)
@@ -451,7 +418,6 @@ async def start_roulette(message: Message):
             if int(b['bet']) == result_num: win = True
             
         if win:
-            # Умные коэффициенты
             if b['bet'].isdigit(): mult = 36
             elif "-" in b['bet']: mult = 2.5
             else: mult = 2
@@ -460,13 +426,11 @@ async def start_roulette(message: Message):
             winners.append(f"👤 <b>{b['name']}</b> выиграл {format_money(prize)}")
             
     text += "\n".join(winners) if winners else "😢 Победителей нет."
-    
     try: await msg.edit_caption(caption=text)
     except: await msg.edit_text(text)
-    
     active_roulette[chat_id] = {"status": "waiting", "bets": []}
 
-# --- МИНЫ (Инлайн) ---
+# --- МИНЫ ---
 active_mines = {}
 @group_router.message(F.text.regexp(r"(?i)^мины\s+(\d+)$"))
 async def play_mines(message: Message):
@@ -524,62 +488,6 @@ async def cashout_mine(callback: CallbackQuery):
 @group_router.callback_query(F.data == "m_ign")
 async def ign_mine(callback: CallbackQuery): await callback.answer("Недоступно.")
 
-# --- БЛЭКДЖЕК ---
-active_bj = {}
-@group_router.message(F.text.regexp(r"(?i)^бж\s+(\d+)$"))
-async def play_bj(message: Message):
-    amount = int(message.text.split()[1])
-    user = get_user(message.from_user.id)
-    if user[3] < amount: return await message.reply("❌ Мало средств.")
-    update_balance(user[0], -amount)
-    game_key = f"{message.chat.id}_{message.from_user.id}"
-    p_cards = [random.randint(2, 11), random.randint(2, 11)]
-    d_cards = [random.randint(2, 11), random.randint(2, 11)]
-    active_bj[game_key] = {"uid": user[0], "bet": amount, "p": p_cards, "d": d_cards}
-    text = f"🃏 <b>БЛЭКДЖЕК</b>\nТвои карты: {p_cards[0]} + {p_cards[1]} = {sum(p_cards)}\nДилер: {d_cards[0]} + ?\n"
-    builder = InlineKeyboardBuilder().button(text="Взять", callback_data=f"bj_hit_{game_key}").button(text="Хватит", callback_data=f"bj_stand_{game_key}")
-    await message.reply(text, reply_markup=builder.as_markup())
-
-@group_router.callback_query(F.data.startswith("bj_hit_"))
-async def bj_hit(callback: CallbackQuery):
-    game_key = callback.data.split("bj_hit_")[1]
-    if game_key not in active_bj: return
-    game = active_bj[game_key]
-    game["p"].append(random.randint(2, 11))
-    score = sum(game["p"])
-    if score > 21:
-        await callback.message.edit_text(f"🃏 Перебор! {score}. Проигрыш {format_money(game['bet'])}.")
-        del active_bj[game_key]
-    else:
-        builder = InlineKeyboardBuilder().button(text="Взять", callback_data=f"bj_hit_{game_key}").button(text="Хватит", callback_data=f"bj_stand_{game_key}")
-        await callback.message.edit_text(f"🃏 <b>БЛЭКДЖЕК</b>\nТвои: {score}\nДилер: {game['d'][0]} + ?", reply_markup=builder.as_markup())
-    await callback.answer()
-
-@group_router.callback_query(F.data.startswith("bj_stand_"))
-async def bj_stand(callback: CallbackQuery):
-    game_key = callback.data.split("bj_stand_")[1]
-    if game_key not in active_bj: return
-    game = active_bj[game_key]
-    p_score, d_score = sum(game["p"]), sum(game["d"])
-    while d_score < 17:
-        game["d"].append(random.randint(2, 11))
-        d_score = sum(game["d"])
-    text = f"🃏 <b>БЛЭКДЖЕК</b>\nТвои: {p_score}\nДилер: {d_score}\n\n"
-    if d_score > 21 or p_score > d_score:
-        update_balance(game["uid"], game["bet"] * 2)
-        text += "🎉 Ты выиграл!"
-    elif p_score == d_score:
-        update_balance(game["uid"], game["bet"])
-        text += "🤝 Ничья."
-    else: text += "😢 Дилер выиграл."
-    await callback.message.edit_text(text)
-    del active_bj[game_key]
-    await callback.answer()
-
-# ==============================================================================
-# ЧАСТЬ 4: КЛАНЫ, НЕЙРО-АДМИН И ЗАПУСК
-# ==============================================================================
-
 # --- КЛАНЫ ---
 @user_router.message(F.text == "🛡 Клан")
 async def clan_menu(message: Message):
@@ -614,31 +522,6 @@ async def clan_menu(message: Message):
         )
     builder.row(KeyboardButton(text="⬅️ В Игры"))
     await message.answer(text, reply_markup=builder.as_markup(resize_keyboard=True))
-
-@user_router.message(F.text == "💰 Внести в казну")
-async def clan_deposit_start(message: Message, state: FSMContext):
-    user = get_user(message.from_user.id)
-    if not user[12]: return await message.answer("❌ Ты не в клане.")
-    await message.answer("💰 <b>ВНЕСЕНИЕ В КАЗНУ</b>\n\nВведи сумму:\n<i>(Или напиши «Отмена»)</i>", reply_markup=ReplyKeyboardRemove())
-    await state.set_state("waiting_clan_deposit")
-
-@user_router.message(StateFilter("waiting_clan_deposit"))
-async def clan_deposit_finish(message: Message, state: FSMContext):
-    if message.text.lower() == "отмена":
-        await state.clear()
-        return await clan_menu(message)
-    try: amount = int(message.text)
-    except: return await message.answer("❌ Введи число!")
-    user = get_user(message.from_user.id)
-    if user[3] < amount:
-        return await message.answer(f"❌ Недостаточно средств! Твой баланс: {format_money(user[3])}")
-    update_balance(user[0], -amount)
-    db_execute("UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[12]))
-    try: db_execute("UPDATE users SET clan_donated = COALESCE(clan_donated, 0) + ? WHERE user_id = ?", (amount, user[0]))
-    except: pass
-    await state.clear()
-    await message.answer(f"✅ <b>Успешно!</b>\n💰 Внесено в казну: <b>{format_money(amount)}</b>")
-    await clan_menu(message)
 
 # --- НЕЙРО-АДМИН ---
 @admin_router.message(F.text.startswith("@"))
@@ -698,8 +581,7 @@ async def claim_manual_drop(callback: CallbackQuery):
 async def auto_drop():
     amount = random.choice([10000, 25000, 50000])
     builder = InlineKeyboardBuilder().button(text="💰 СХВАТИТЬ", callback_data=f"autodrop_{amount}")
-    try:
-        await bot.send_message(CHAT_ID, f"🚨 <b>ЗОЛОТАЯ ЛИХОРАДКА!</b> 🚨\n\nКто первый нажмет — заберет {format_money(amount)}!", reply_markup=builder.as_markup())
+    try: await bot.send_message(CHAT_ID, f"🚨 <b>ЗОЛОТАЯ ЛИХОРАДКА!</b> 🚨\n\nКто первый нажмет — заберет {format_money(amount)}!", reply_markup=builder.as_markup())
     except: pass
 
 @group_router.callback_query(F.data.startswith("autodrop_"))
@@ -712,33 +594,15 @@ async def claim_auto_drop(callback: CallbackQuery):
     await callback.message.edit_text(f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! Он получил {format_money(amount)}!")
     await callback.answer("Ты забрал куш!", show_alert=True)
 
-# ==============================================================================
-# ВЕБ-СЕРВЕР И ЗАПУСК
-# ==============================================================================
-async def handle_ping(request):
-    return web.Response(text="Bot is alive!")
-
-async def start_ping_server():
-    app = web.Application()
-    app.router.add_get('/', handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Веб-сервер запущен на порту {port}")
-
+# --- ЗАПУСК ---
 async def main():
     init_db()
     scheduler.add_job(auto_drop, "interval", hours=2)
     scheduler.start()
-    asyncio.create_task(start_ping_server())
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    try: asyncio.run(main())
+    except KeyboardInterrupt: pass
