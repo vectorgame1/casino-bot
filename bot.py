@@ -1,6 +1,6 @@
 # ==============================================================================
 # ИМПЕРИЯ TOKENS — Telegram-бот (aiogram 3.x + PostgreSQL)
-# Финальная версия (Промокоды, Гарант, Личная Статистика)
+# Финальная версия (Исправлены все стикеры, Гарант, Промокоды, Авто-Ивенты)
 # ==============================================================================
 
 import os
@@ -301,12 +301,18 @@ async def cmd_start(message: Message, state: FSMContext):
     
     if user[4] == "banned":
         msg = await message.answer("🚫 <b>Твой аккаунт заблокирован.</b>")
-        asyncio.create_task(message.answer_sticker(STICKER_CROSS))
+        try: await message.answer_sticker(STICKER_CROSS)
+        except Exception: pass
         await state.update_data(last_msgs=[msg.message_id])
         return
+        
     text = f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В ИМПЕРИЮ TOKENS, {message.from_user.first_name}!</b>\n\n💎 Испытай удачу в играх, прокачай клан или сорви джекпот в чате!\n\n⚖️ <i>Виртуальная экономика. Ставки — развлечение.</i>"
-    try: msg = await message.answer_photo(FSInputFile("assets/start.jpg"), caption=text, reply_markup=get_main_menu(user))
-    except Exception: msg = await message.answer(text, reply_markup=get_main_menu(user))
+    
+    # Безопасная отправка фото
+    try:
+        msg = await message.answer_photo(FSInputFile("assets/start.jpg"), caption=text, reply_markup=get_main_menu(user))
+    except Exception:
+        msg = await message.answer(text, reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
 @user_router.message(F.text.in_(["⬅️ Меню", "⬅️ Главное меню"]))
@@ -323,7 +329,9 @@ async def profile(message: Message, state: FSMContext):
     bal = user[3]
     rank = "💎 Легенда" if bal > 1_000_000 else "🔥 Хайроллер" if bal > 500_000 else "⭐ Профи" if bal > 100_000 else "🟢 Новичок"
     text = _(user, "profile", uid=user[0], rank=rank, bal=format_money(bal), vip="👑 VIP" if user[4]=="vip" else "❌", clan="Есть" if user[12] else "Нет")
-    if user[4] == "vip": asyncio.create_task(message.answer_sticker(random.choice(VIP_STICKERS)))
+    if user[4] == "vip": 
+        try: await message.answer_sticker(random.choice(VIP_STICKERS))
+        except Exception: pass
     msg = await message.answer(text, reply_markup=get_profile_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -348,11 +356,9 @@ async def stats_cmd(message: Message, state: FSMContext):
     user = await asyncio.to_thread(get_user, message.from_user.id)
     total = await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM games_log WHERE user_id = ?", (user[0],), True)
     wins = await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM games_log WHERE user_id = ? AND win > 0", (user[0],), True)
-    
     total_games = total[0] if total else 0
     win_games = wins[0] if wins else 0
     lose_games = total_games - win_games
-    
     text = f"📊 <b>ЛИЧНАЯ СТАТИСТИКА</b>\n\n🎮 Всего игр: <b>{total_games}</b>\n🏆 Побед: <b>{win_games}</b>\n💀 Поражений: <b>{lose_games}</b>"
     msg = await message.answer(text, reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
@@ -362,7 +368,8 @@ async def refka(message: Message, state: FSMContext):
     await delete_old_messages(bot, state, message.chat.id)
     user = await asyncio.to_thread(get_user, message.from_user.id)
     link = f"https://t.me/{(await bot.get_me()).username}?start=ref_{user[0]}"
-    asyncio.create_task(message.answer_sticker(STICKER_REF))
+    try: await message.answer_sticker(STICKER_REF)
+    except Exception: pass
     msg = await message.answer(f"🔗 <b>Твоя реферальная ссылка:</b>\n<code>{link}</code>\n\nПриглашай друзей и получай бонусы!", reply_markup=get_profile_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -376,7 +383,8 @@ async def daily_bonus(message: Message, state: FSMContext):
             last_dt = datetime.datetime.fromisoformat(user[5])
             if now - last_dt < datetime.timedelta(hours=24):
                 delta = datetime.timedelta(hours=24) - (now - last_dt)
-                asyncio.create_task(message.answer_sticker(STICKER_CLOCK))
+                try: await message.answer_sticker(STICKER_CLOCK)
+                except Exception: pass
                 msg = await message.answer(_(user, "bonus_wait", h=delta.seconds // 3600, m=(delta.seconds % 3600) // 60), reply_markup=get_main_menu(user))
                 await state.update_data(last_msgs=[msg.message_id])
                 return
@@ -391,7 +399,8 @@ async def daily_bonus(message: Message, state: FSMContext):
     if streak >= 7: prize *= 2; text = f"🔥 <b>СТРИК 7 ДНЕЙ!</b> Бонус x2!\n\n💰 Ты выиграл: <b>+{format_money(prize)}</b>"
     await asyncio.to_thread(update_balance, user[0], prize)
     await asyncio.to_thread(db_execute, "UPDATE users SET last_bonus=?, streak=?, last_streak_date=? WHERE user_id=?", (now.isoformat(), streak, now.date().isoformat(), user[0]))
-    asyncio.create_task(message.answer_sticker(STICKER_WHEEL))
+    try: await message.answer_sticker(STICKER_WHEEL)
+    except Exception: pass
     msg = await message.answer(text, reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -468,7 +477,8 @@ async def process_buy_vip(callback: CallbackQuery):
 async def success_payment(message: Message, state: FSMContext):
     payment = message.successful_payment
     user = await asyncio.to_thread(get_user, message.from_user.id)
-    asyncio.create_task(message.answer_sticker(STICKER_FIREWORK))
+    try: await message.answer_sticker(STICKER_FIREWORK)
+    except Exception: pass
     if payment.invoice_payload.startswith("vip_"):
         days = int(payment.invoice_payload.split("_")[1])
         await asyncio.to_thread(db_execute, "UPDATE users SET role = 'vip' WHERE user_id = ?", (user[0],))
@@ -488,7 +498,8 @@ async def success_payment(message: Message, state: FSMContext):
 async def support_menu(message: Message, state: FSMContext):
     await delete_old_messages(bot, state, message.chat.id)
     user = await asyncio.to_thread(get_user, message.from_user.id)
-    asyncio.create_task(message.answer_sticker(STICKER_SUPPORT))
+    try: await message.answer_sticker(STICKER_SUPPORT)
+    except Exception: pass
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="💰 Как заработать?", callback_data="sup_earn"))
     kb.row(InlineKeyboardButton(text="💳 Проблема с оплатой?", callback_data="sup_pay"))
@@ -545,7 +556,8 @@ async def process_ticket(message: Message, state: FSMContext):
     await asyncio.to_thread(db_execute, "INSERT INTO tickets (user_id, text, date) VALUES (?, ?, ?)", (user[0], message.text, datetime.datetime.now().isoformat()))
     try: await bot.send_message(ADMIN_ID, f"🎫 <b>ТИКЕТ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}")
     except Exception as e: logger.warning(f"Тикет не отправлен: {e}")
-    asyncio.create_task(message.answer_sticker(STICKER_TICKET))
+    try: await message.answer_sticker(STICKER_TICKET)
+    except Exception: pass
     msg = await message.answer("✅ Тикет отправлен Админу.", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
     await state.clear()
@@ -555,7 +567,8 @@ async def process_bug(message: Message, state: FSMContext):
     user = await asyncio.to_thread(get_user, message.from_user.id)
     try: await bot.send_message(ADMIN_ID, f"⚠️ <b>БАГ-РЕПОРТ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}")
     except Exception as e: logger.warning(f"Баг не отправлен: {e}")
-    asyncio.create_task(message.answer_sticker(STICKER_TICKET))
+    try: await message.answer_sticker(STICKER_TICKET)
+    except Exception: pass
     msg = await message.answer("✅ Спасибо! Баг-репорт отправлен.", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
     await state.clear()
@@ -565,14 +578,17 @@ async def use_promo(message: Message):
     code = message.text.split()[1].upper()
     promo = await asyncio.to_thread(db_execute, "SELECT reward, limit_count, used_count FROM promos WHERE code = ?", (code,), True)
     if not promo:
-        asyncio.create_task(message.answer_sticker(STICKER_CROSS))
+        try: await message.answer_sticker(STICKER_CROSS)
+        except Exception: pass
         return await message.answer("❌ Неверный промокод.")
     if promo[2] >= promo[1]:
-        asyncio.create_task(message.answer_sticker(STICKER_CROSS))
+        try: await message.answer_sticker(STICKER_CROSS)
+        except Exception: pass
         return await message.answer("❌ Лимит активаций исчерпан.")
     await asyncio.to_thread(update_balance, message.from_user.id, promo[0])
     await asyncio.to_thread(db_execute, "UPDATE promos SET used_count = used_count + 1 WHERE code = ?", (code,))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     await message.answer(f"✅ Промокод активирован! Ты получил {format_money(promo[0])}!")
 
 # ==============================================================================
@@ -594,7 +610,8 @@ async def clan_menu(message: Message, state: FSMContext):
         return
     is_owner = clan[1] == user[0]
     bar = "🟩" * min(int((clan[2] / 1_000_000) * 10), 10) + "⬜️" * (10 - min(int((clan[2] / 1_000_000) * 10), 10))
-    asyncio.create_task(message.answer_sticker(STICKER_CROWN))
+    try: await message.answer_sticker(STICKER_CROWN)
+    except Exception: pass
     msg = await message.answer(f"🛡 <b>Клан: {clan[0]}</b>\n👑 Владелец: {'Ты' if is_owner else clan[1]}\n📈 Ур: {clan[4]}/5\n💰 {format_money(clan[2])}\n[{bar}]\nВход: {format_money(clan[3])}", reply_markup=get_clan_menu_kb(True, is_owner, user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -616,7 +633,8 @@ async def clan_create_finish(message: Message, state: FSMContext):
     clan = await asyncio.to_thread(db_execute, "INSERT INTO clans (name, owner_id, treasury, join_fee, level) VALUES (?, ?, 0, 5000, 1) RETURNING id", (name, user[0]), True)
     if clan:
         await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = ? WHERE user_id = ?", (clan[0], user[0]))
-        asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+        try: await message.answer_sticker(STICKER_CHECK)
+        except Exception: pass
         msg = await message.answer(f"✅ Клан <b>{name}</b> создан!", reply_markup=get_main_menu(user))
         await state.update_data(last_msgs=[msg.message_id])
     else: await message.answer("❌ Ошибка создания.")
@@ -652,7 +670,8 @@ async def clan_deposit_finish(message: Message, state: FSMContext):
     await asyncio.to_thread(update_balance, user[0], -amount)
     await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[12]))
     await asyncio.to_thread(db_execute, "UPDATE users SET clan_donated = clan_donated + ? WHERE user_id = ?", (amount, user[0]))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     msg = await message.answer(f"✅ Внесено в казну: <b>{format_money(amount)}</b>", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
     await state.clear()
@@ -677,7 +696,8 @@ async def clan_shield(message: Message, state: FSMContext):
     if user[3] < 250_000: return await message.answer("❌ Нужно 250 000 Tokens.")
     await asyncio.to_thread(update_balance, user[0], -250_000)
     await asyncio.to_thread(db_execute, "UPDATE clans SET shield_until = ? WHERE id = ?", ((datetime.datetime.now() + datetime.timedelta(days=7)).isoformat(), user[12]))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     msg = await message.answer("🛡 Щит клана активирован на 7 дней!", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -692,7 +712,8 @@ async def clan_upgrade(message: Message, state: FSMContext):
     if user[3] < cost: return await message.answer(f"❌ Нужно {format_money(cost)} на балансе.")
     await asyncio.to_thread(update_balance, user[0], -cost)
     await asyncio.to_thread(db_execute, "UPDATE clans SET level = level + 1 WHERE id = ?", (user[12],))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     msg = await message.answer(f"📈 Клан прокачан до уровня {clan[1] + 1}!", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -706,7 +727,8 @@ async def clan_tax(message: Message, state: FSMContext):
     if tax <= 0: return await message.answer("❌ Казна пуста.")
     await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury - ? WHERE id = ?", (tax, user[12]))
     await asyncio.to_thread(update_balance, user[0], tax)
-    asyncio.create_task(message.answer_sticker(STICKER_MONEY))
+    try: await message.answer_sticker(STICKER_MONEY)
+    except Exception: pass
     msg = await message.answer(f"💵 Собрано 10% налога: <b>{format_money(tax)}</b>", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
 
@@ -738,7 +760,8 @@ async def clan_kick_finish(message: Message, state: FSMContext):
         await state.clear()
         return await message.answer("❌ Игрок не в твоём клане.", reply_markup=get_main_menu(user))
     await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE user_id = ?", (target_id,))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     msg = await message.answer("✅ Игрок исключён из клана.", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
     await state.clear()
@@ -765,7 +788,8 @@ async def clan_join_finish(message: Message, state: FSMContext):
     await asyncio.to_thread(update_balance, user[0], -fee)
     await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury + ? WHERE id = ?", (fee, cid))
     await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = ? WHERE user_id = ?", (cid, user[0]))
-    asyncio.create_task(message.answer_sticker(STICKER_CHECK))
+    try: await message.answer_sticker(STICKER_CHECK)
+    except Exception: pass
     msg = await message.answer(f"✅ Ты вступил в клан <b>{name}</b>!", reply_markup=get_main_menu(user))
     await state.update_data(last_msgs=[msg.message_id])
     await state.clear()
@@ -790,7 +814,8 @@ async def cmd_balance_group(message: Message):
     name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
     text = _(user, "balance", name=name, bal=format_money(user[3]))
     sticker = random.choice(VIP_STICKERS) if user[4] == "vip" else STICKER_MONEY
-    asyncio.create_task(message.answer_sticker(sticker))
+    try: await message.answer_sticker(sticker)
+    except Exception: pass
     msg = await message.reply(text)
     asyncio.create_task(auto_delete(msg, 60))
 
@@ -808,7 +833,8 @@ async def cmd_transfer_group(message: Message):
     await asyncio.to_thread(update_balance, sender[0], -amount)
     await asyncio.to_thread(get_user, target_id)
     await asyncio.to_thread(update_balance, target_id, amount)
-    asyncio.create_task(message.answer_sticker(STICKER_TRANSFER))
+    try: await message.answer_sticker(STICKER_TRANSFER)
+    except Exception: pass
     msg = await message.reply(f"✅ <b>Перевод выполнен!</b>\n\n👤 От: {message.from_user.first_name}\n👤 Кому: {message.reply_to_message.from_user.first_name}\n💰 Сумма: <b>{format_money(amount)}</b>")
     asyncio.create_task(auto_delete(msg, 60))
 
@@ -816,148 +842,77 @@ active_deals = {}
 
 @group_router.message(F.text.regexp(r"(?i)^гарант\s+@?(\w+)\s+(.+)$"))
 async def cmd_guarant(message: Message):
-    if message.chat.type not in ("group", "supergroup"): 
-        return
-        
+    if message.chat.type not in ("group", "supergroup"): return
     try:
         match = re.match(r"(?i)^гарант\s+@?(\w+)\s+(.+)$", message.text)
         seller_username, amount_str = match.group(1), match.group(2)
-        
         buyer = await asyncio.to_thread(get_user, message.from_user.id)
         seller = await asyncio.to_thread(db_execute, "SELECT user_id FROM users WHERE username = ?", (seller_username,), True)
-        
-        if not seller: 
-            return await message.reply("❌ Продавец не найден.")
-        if seller[0] == buyer[0]: 
-            return await message.reply("❌ Нельзя делать сделку с собой.")
-            
+        if not seller: return await message.reply("❌ Продавец не найден.")
+        if seller[0] == buyer[0]: return await message.reply("❌ Нельзя делать сделку с собой.")
         amount = parse_amt(amount_str)
-        if not amount: 
-            return await message.reply("❌ Неверная сумма (макс 10кк).")
-        if buyer[3] < amount: 
-            return await message.reply("❌ Мало средств для сделки.")
-            
-        # Заморозка средств
+        if not amount: return await message.reply("❌ Неверная сумма (макс 10кк).")
+        if buyer[3] < amount: return await message.reply("❌ Мало средств для сделки.")
         await asyncio.to_thread(update_balance, buyer[0], -amount)
-        
-        # Создаем сделку
         deal_id = str(int(datetime.datetime.now().timestamp()))
-        active_deals[deal_id] = {
-            "buyer": buyer[0], 
-            "seller": seller[0], 
-            "amount": amount, 
-            "status": "waiting"
-        }
-        
+        active_deals[deal_id] = {"buyer": buyer[0], "seller": seller[0], "amount": amount, "status": "waiting"}
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"deal_{deal_id}_ok"))
         kb.row(InlineKeyboardButton(text="📦 Товар передан", callback_data=f"deal_{deal_id}_item"))
         kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data=f"deal_{deal_id}_cancel"))
-        
-        # Стикер Конверта перед текстом
-        try:
-            await message.answer_sticker(STICKER_TRANSFER)
-        except Exception: 
-            pass
-            
-        text = (
-            f"🤝 <b>СДЕЛКА СОЗДАНА</b>\n\n"
-            f"👤 Покупатель: {message.from_user.first_name} (оплатил)\n"
-            f"👤 Продавец: @{seller_username}\n"
-            f"💰 Сумма: {format_money(amount)} (заморожена)\n\n"
-            f"📦 Продавец, передайте товар и нажмите «Товар передан».\n"
-            f"✅ Покупатель, нажмите «Подтвердить», когда получите товар."
-        )
-        
+        try: await message.answer_sticker(STICKER_TRANSFER)
+        except Exception: pass
+        text = (f"🤝 <b>СДЕЛКА СОЗДАНА</b>\n\n"
+                f"👤 Покупатель: {message.from_user.first_name} (оплатил)\n"
+                f"👤 Продавец: @{seller_username}\n"
+                f"💰 Сумма: {format_money(amount)} (заморожена)\n\n"
+                f"📦 Продавец, передайте товар и нажмите «Товар передан».\n"
+                f"✅ Покупатель, нажмите «Подтвердить», когда получите товар.")
         msg = await message.reply(text, reply_markup=kb.as_markup())
-        asyncio.create_task(auto_delete(msg, 300)) # 5 минут на сделку
-        
+        asyncio.create_task(auto_delete(msg, 300))
     except Exception as e:
         logger.error(f"Ошибка в cmd_guarant: {e}")
-
 
 @group_router.callback_query(F.data.startswith("deal_"))
 async def process_deal(callback: CallbackQuery):
     try:
         _, deal_id, action = callback.data.split("_")
         deal = active_deals.get(deal_id)
+        if not deal: return await callback.answer("Сделка не найдена или уже завершена.", show_alert=True)
+        if callback.from_user.id not in (deal["buyer"], deal["seller"]): return await callback.answer("Не твоя сделка.", show_alert=True)
         
-        if not deal:
-            return await callback.answer("Сделка не найдена или уже завершена.", show_alert=True)
-            
-        if callback.from_user.id not in (deal["buyer"], deal["seller"]):
-            return await callback.answer("Не твоя сделка.", show_alert=True)
-            
-        # ОТМЕНА СДЕЛКИ
         if action == "cancel":
             await asyncio.to_thread(update_balance, deal["buyer"], deal["amount"])
-            
-            try:
-                await callback.message.answer_sticker(STICKER_CROSS) # await вместо create_task
-            except Exception: 
-                pass
-                
-            try:
-                await callback.message.edit_text(
-                    f"❌ <b>СДЕЛКА ОТМЕНЕНА</b>\n"
-                    f"Средства ({format_money(deal['amount'])}) возвращены покупателю."
-                )
-            except Exception: 
-                pass
-                
+            try: await callback.message.answer_sticker(STICKER_CROSS)
+            except Exception: pass
+            try: await callback.message.edit_text(f"❌ <b>СДЕЛКА ОТМЕНЕНА</b>\nСредства ({format_money(deal['amount'])}) возвращены покупателю.")
+            except Exception: pass
             del active_deals[deal_id]
             return await callback.answer("Сделка отменена")
             
-        # ТОВАР ПЕРЕДАН (нажимает только продавец)
         if action == "item":
-            if callback.from_user.id != deal["seller"]:
-                return await callback.answer("Только продавец может подтвердить передачу товара!", show_alert=True)
-                
+            if callback.from_user.id != deal["seller"]: return await callback.answer("Только продавец может подтвердить передачу товара!", show_alert=True)
             deal["status"] = "item_transferred"
-            
-            try:
-                await callback.message.edit_text(
-                    f"📦 <b>ТОВАР ПЕРЕДАН</b>\n"
-                    f"Покупатель, подтвердите получение кнопкой ниже.",
-                    reply_markup=callback.message.reply_markup # оставляем кнопки
-                )
-            except Exception: 
-                pass
-                
+            try: await callback.message.edit_text(f"📦 <b>ТОВАР ПЕРЕДАН</b>\nПокупатель, подтвердите получение кнопкой ниже.", reply_markup=callback.message.reply_markup)
+            except Exception: pass
             return await callback.answer("Товар передан. Ждем покупателя.")
             
-        # ПОДТВЕРЖДЕНИЕ (нажимает только покупатель)
         if action == "ok":
-            if callback.from_user.id != deal["buyer"]:
-                return await callback.answer("Только покупатель может подтвердить сделку!", show_alert=True)
-                
-            if deal["status"] != "item_transferred":
-                return await callback.answer("❌ Продавец еще не передал товар!", show_alert=True)
-                
+            if callback.from_user.id != deal["buyer"]: return await callback.answer("Только покупатель может подтвердить сделку!", show_alert=True)
+            if deal["status"] != "item_transferred": return await callback.answer("❌ Продавец еще не передал товар!", show_alert=True)
             await asyncio.to_thread(update_balance, deal["seller"], deal["amount"])
-            
-            try:
-                await callback.message.answer_sticker(STICKER_CHECK) # await вместо create_task
-            except Exception: 
-                pass
-                
-            try:
-                await callback.message.edit_text(
-                    f"✅ <b>СДЕЛКА ЗАВЕРШЕНА!</b>\n"
-                    f"Товар получен. Средства ({format_money(deal['amount'])}) переведены продавцу."
-                )
-            except Exception: 
-                pass
-                
+            try: await callback.message.answer_sticker(STICKER_CHECK)
+            except Exception: pass
+            try: await callback.message.edit_text(f"✅ <b>СДЕЛКА ЗАВЕРШЕНА!</b>\nТовар получен. Средства ({format_money(deal['amount'])}) переведены продавцу.")
+            except Exception: pass
             del active_deals[deal_id]
             return await callback.answer("Сделка успешно завершена!")
-            
     except Exception as e:
         logger.error(f"Ошибка в process_deal: {e}")
-        await callback.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
+        await callback.answer("Ошибка. Попробуйте позже.", show_alert=True)
 
 # ==============================================================================
-# 13. ИГРЫ (КОСТИ, РУЛЕТКА, МИНЫ, БЖ)
+# 13. ИГРЫ
 # ==============================================================================
 active_roulette, active_mines, active_bj = {}, {}, {}
 
@@ -1416,7 +1371,8 @@ async def neuro_admin(message: Message):
         uid = _find_user_id(args[1])
         if uid:
             db_execute("UPDATE users SET role = 'vip' WHERE user_id = ?", (uid,))
-            asyncio.create_task(message.reply_sticker(random.choice(VIP_STICKERS)))
+            try: await message.reply_sticker(random.choice(VIP_STICKERS))
+            except Exception: pass
             return await message.reply(f"👑 {args[1]} теперь VIP.")
 
     elif cmd == "@выдать" and len(args) >= 3:
@@ -1503,7 +1459,8 @@ async def claim_drop(callback: CallbackQuery):
     except Exception: return await callback.answer()
     user = await asyncio.to_thread(get_user, callback.from_user.id)
     await asyncio.to_thread(update_balance, user[0], amount)
-    asyncio.create_task(callback.message.answer_sticker(STICKER_MONEY))
+    try: await callback.message.answer_sticker(STICKER_MONEY)
+    except Exception: pass
     try: await callback.message.edit_text(f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! Он получил {format_money(amount)}!")
     except Exception: pass
     await callback.answer("Ты забрал куш!", show_alert=True)
@@ -1522,7 +1479,8 @@ async def admin_reply_ticket(message: Message):
             if found: target_id = found[0]
         elif user_info.isdigit(): target_id = int(user_info)
         if target_id:
-            asyncio.create_task(bot.send_sticker(target_id, STICKER_TICKET_REPLY))
+            try: await bot.send_sticker(target_id, STICKER_TICKET_REPLY)
+            except Exception: pass
             await bot.send_message(target_id, f"✉️ <b>Ответ от Администрации:</b>\n\n{message.text}")
             await message.reply("✅ Ответ доставлен!")
     except Exception as e:
@@ -1535,7 +1493,8 @@ async def admin_reply_ticket(message: Message):
 async def auto_lottery_start():
     kb = InlineKeyboardBuilder().row(InlineKeyboardButton(text="🎟 Купить билет (10к)", callback_data="buy_ticket"))
     msg = await bot.send_message(CHAT_ID, "🎟 <b>РОЗЫГРЫШ ЛОТЕРЕИ!</b>", reply_markup=kb.as_markup())
-    asyncio.create_task(bot.send_sticker(CHAT_ID, STICKER_GIFT))
+    try: await bot.send_sticker(CHAT_ID, STICKER_GIFT)
+    except Exception: pass
 
 @group_router.callback_query(F.data == "buy_ticket")
 async def buy_ticket(callback: CallbackQuery):
@@ -1552,7 +1511,8 @@ async def auto_lottery_end():
     winner = random.choice(tickets)[0]
     db_execute("DELETE FROM lottery")
     await asyncio.to_thread(update_balance, winner, 500_000)
-    asyncio.create_task(bot.send_sticker(CHAT_ID, STICKER_CROWN))
+    try: await bot.send_sticker(CHAT_ID, STICKER_CROWN)
+    except Exception: pass
     await bot.send_message(CHAT_ID, f"🏆 Победитель лотереи: <a href='tg://user?id={winner}'>Игрок</a>!\nВыигрыш: 500 000 Tokens!")
 
 async def auto_ping_dead():
@@ -1560,7 +1520,8 @@ async def auto_ping_dead():
     users = db_execute("SELECT user_id FROM users WHERE last_seen < ? AND role != 'banned'", (three_days_ago,), False, True)
     for u in (users or []):
         try:
-            asyncio.create_task(bot.send_sticker(u[0], STICKER_GIFT))
+            try: await bot.send_sticker(u[0], STICKER_GIFT)
+            except Exception: pass
             await bot.send_message(u[0], "Скучаем! Лови 5 000 Tokens 💰")
             update_balance(u[0], 5000)
         except Exception: pass
