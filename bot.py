@@ -40,12 +40,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("tokens_bot")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-CHAT_ID = int(os.getenv("CHAT_ID", "0"))
-GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/")
-LINK_TO_TERMS = os.getenv("LINK_TO_TERMS", "https://t.me/")
-PORT = int(os.getenv("PORT", "8080"))
+BOT_TOKEN   = os.getenv("BOT_TOKEN", "8940867005:AAHeQpS4_I1XZWfzC107G3EPNneQF_8JbYA")
+ADMIN_ID    = int(os.getenv("ADMIN_ID", "6403424348"))
+CHAT_ID     = int(os.getenv("CHAT_ID", "-1004366922819"))
+GROUP_LINK  = os.getenv("GROUP_LINK", "https://t.me/tokenplays")
+LINK_TO_TERMS = os.getenv("LINK_TO_TERMS", "https://telegra.ph/Pravila-01-01")
+PORT        = int(os.getenv("PORT", "8080"))
 
 START_BONUS = 5000
 CURRENCY = "Tokens"
