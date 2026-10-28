@@ -906,48 +906,69 @@ async def clan_leave(message: Message, state: FSMContext):
 # ==============================================================================
 @group_router.message(F.text.lower().in_(["б", "баланс"]))
 async def cmd_balance_group(message: Message):
-    if message.chat.type not in ("group", "supergroup"): return
+    if message.chat.type not in ("group", "supergroup"): 
+        return
+        
     user = await asyncio.to_thread(get_user, message.from_user.id)
     name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
     text = _(user, "balance", name=name, bal=format_money(user[3]))
     
-    # Сначала текст, потом стикер
-    msg = await message.reply(text)
+    # 1. Сначала отправляем стикер
+    sticker = random.choice(VIP_STICKERS) if user[4] == "vip" else STICKER_MONEY
     try:
-        sticker = random.choice(VIP_STICKERS) if user[4] == "vip" else STICKER_MONEY
-        await msg.reply_sticker(sticker)
-    except Exception: pass
+        st = await message.answer_sticker(sticker)
+        asyncio.create_task(auto_delete(st, 60))
+    except Exception: 
+        pass
+        
+    # 2. Затем отправляем текст (reply на сообщение юзера)
+    msg = await message.reply(text)
     asyncio.create_task(auto_delete(msg, 60))
 
-@group_router.message(Command("топ", "top"))
-async def cmd_top_group(message: Message):
-    if message.chat.type not in ("group", "supergroup"): return
-    rows = await asyncio.to_thread(db_execute, "SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10", (), False, True)
-    if not rows: return
-    text = "🏆 <b>ТОП-10 БОГАЧЕЙ:</b>\n\n"
-    for i, (un, bal) in enumerate(rows, 1):
-        icon = "👑" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-        text += f"{icon} @{un or '—'} — {format_money(bal)}\n"
-    msg = await message.reply(text)
-    asyncio.create_task(auto_delete(msg, 60))
 
 @group_router.message(F.text.regexp(r"(?i)^перевод\s+(.+)$"))
 async def cmd_transfer_group(message: Message):
-    if message.chat.type not in ("group", "supergroup"): return
-    if not message.reply_to_message: return await message.reply("❌ Ответь (Reply) на сообщение получателя!")
+    if message.chat.type not in ("group", "supergroup"): 
+        return
+        
+    # Если это не реплай — просим реплай
+    if not message.reply_to_message:
+        return await message.reply("❌ Ответь (Reply) на сообщение получателя!")
+        
     target_id = message.reply_to_message.from_user.id
-    if target_id == message.from_user.id: return await message.reply("❌ Себе нельзя!")
-    if target_id == bot.id: return await message.reply("❌ Боту нельзя!")
-    amount = parse_amt(message.text.split()[1])
-    if not amount: return await message.reply("❌ Неверная сумма!")
+    
+    # Проверки
+    if target_id == message.from_user.id: 
+        return await message.reply("❌ Себе нельзя!")
+    if target_id == bot.id: 
+        return await message.reply("❌ Боту нельзя!")
+        
+    # Парсинг суммы
+    try:
+        amount_str = message.text.split()[1]
+    except IndexError:
+        return await message.reply("❌ Введи сумму!")
+        
+    amount = parse_amt(amount_str)
+    if not amount: 
+        return await message.reply("❌ Неверная сумма (макс 10кк)!")
+        
+    # Проверка баланса и перевод
     sender = await asyncio.to_thread(get_user, message.from_user.id)
-    if sender[3] < amount: return await message.reply("❌ Мало средств!")
+    if sender[3] < amount: 
+        return await message.reply("❌ Мало средств!")
+        
     await asyncio.to_thread(update_balance, sender[0], -amount)
     await asyncio.to_thread(get_user, target_id)
     await asyncio.to_thread(update_balance, target_id, amount)
+    
+    # Оформление успеха
     msg = await message.reply(f"✅ <b>Перевод выполнен!</b>\n\n👤 От: {message.from_user.first_name}\n👤 Кому: {message.reply_to_message.from_user.first_name}\n💰 Сумма: <b>{format_money(amount)}</b>")
-    try: await msg.reply_sticker(STICKER_TRANSFER)
-    except Exception: pass
+    try: 
+        await msg.reply_sticker(STICKER_TRANSFER)
+    except Exception: 
+        pass
+        
     asyncio.create_task(auto_delete(msg, 60))
 
 # ==============================================================================
