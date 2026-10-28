@@ -816,51 +816,145 @@ active_deals = {}
 
 @group_router.message(F.text.regexp(r"(?i)^гарант\s+@?(\w+)\s+(.+)$"))
 async def cmd_guarant(message: Message):
-    if message.chat.type not in ("group", "supergroup"): return
-    match = re.match(r"(?i)^гарант\s+@?(\w+)\s+(.+)$", message.text)
-    seller_username, amount_str = match.group(1), match.group(2)
-    buyer = await asyncio.to_thread(get_user, message.from_user.id)
-    seller = await asyncio.to_thread(db_execute, "SELECT user_id FROM users WHERE username = ?", (seller_username,), True)
-    if not seller: return await message.reply("❌ Продавец не найден.")
-    if seller[0] == buyer[0]: return await message.reply("❌ Нельзя делать сделку с собой.")
-    amount = parse_amt(amount_str)
-    if not amount: return await message.reply("❌ Неверная сумма (макс 10кк).")
-    if buyer[3] < amount: return await message.reply("❌ Мало средств для сделки.")
-    await asyncio.to_thread(update_balance, buyer[0], -amount)
-    deal_id = str(int(datetime.datetime.now().timestamp()))
-    active_deals[deal_id] = {"buyer": buyer[0], "seller": seller[0], "amount": amount, "status": "waiting"}
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"deal_{deal_id}_ok"))
-    kb.row(InlineKeyboardButton(text="📦 Товар передан", callback_data=f"deal_{deal_id}_item"))
-    kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data=f"deal_{deal_id}_cancel"))
-    msg = await message.reply(f"🤝 <b>СДЕЛКА</b>\n\n👤 Покупатель: {message.from_user.first_name}\n👤 Продавец: @{seller_username}\n💰 Сумма: {format_money(amount)}\n\nОжидает подтверждения:", reply_markup=kb.as_markup())
-    asyncio.create_task(auto_delete(msg, 180))
+    if message.chat.type not in ("group", "supergroup"): 
+        return
+        
+    try:
+        match = re.match(r"(?i)^гарант\s+@?(\w+)\s+(.+)$", message.text)
+        seller_username, amount_str = match.group(1), match.group(2)
+        
+        buyer = await asyncio.to_thread(get_user, message.from_user.id)
+        seller = await asyncio.to_thread(db_execute, "SELECT user_id FROM users WHERE username = ?", (seller_username,), True)
+        
+        if not seller: 
+            return await message.reply("❌ Продавец не найден.")
+        if seller[0] == buyer[0]: 
+            return await message.reply("❌ Нельзя делать сделку с собой.")
+            
+        amount = parse_amt(amount_str)
+        if not amount: 
+            return await message.reply("❌ Неверная сумма (макс 10кк).")
+        if buyer[3] < amount: 
+            return await message.reply("❌ Мало средств для сделки.")
+            
+        # Заморозка средств
+        await asyncio.to_thread(update_balance, buyer[0], -amount)
+        
+        # Создаем сделку
+        deal_id = str(int(datetime.datetime.now().timestamp()))
+        active_deals[deal_id] = {
+            "buyer": buyer[0], 
+            "seller": seller[0], 
+            "amount": amount, 
+            "status": "waiting"
+        }
+        
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"deal_{deal_id}_ok"))
+        kb.row(InlineKeyboardButton(text="📦 Товар передан", callback_data=f"deal_{deal_id}_item"))
+        kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data=f"deal_{deal_id}_cancel"))
+        
+        # Стикер Конверта перед текстом
+        try:
+            await message.answer_sticker(STICKER_TRANSFER)
+        except Exception: 
+            pass
+            
+        text = (
+            f"🤝 <b>СДЕЛКА СОЗДАНА</b>\n\n"
+            f"👤 Покупатель: {message.from_user.first_name} (оплатил)\n"
+            f"👤 Продавец: @{seller_username}\n"
+            f"💰 Сумма: {format_money(amount)} (заморожена)\n\n"
+            f"📦 Продавец, передайте товар и нажмите «Товар передан».\n"
+            f"✅ Покупатель, нажмите «Подтвердить», когда получите товар."
+        )
+        
+        msg = await message.reply(text, reply_markup=kb.as_markup())
+        asyncio.create_task(auto_delete(msg, 300)) # 5 минут на сделку
+        
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_guarant: {e}")
+
 
 @group_router.callback_query(F.data.startswith("deal_"))
 async def process_deal(callback: CallbackQuery):
-    _, deal_id, action = callback.data.split("_")
-    deal = active_deals.get(deal_id)
-    if not deal: return await callback.answer("Сделка не найдена.", show_alert=True)
-    if callback.from_user.id not in (deal["buyer"], deal["seller"]): return await callback.answer("Не твоя сделка.", show_alert=True)
-    if action == "cancel":
-        await asyncio.to_thread(update_balance, deal["buyer"], deal["amount"])
-        asyncio.create_task(callback.message.answer_sticker(STICKER_CROSS))
-        try: await callback.message.edit_text("❌ <b>Сделка отменена.</b> Средства возвращены покупателю.")
-        except Exception: pass
-        del active_deals[deal_id]
-        return await callback.answer()
-    if action == "item" and callback.from_user.id == deal["seller"]:
-        deal["status"] = "item_transferred"
-        return await callback.answer("Вы отметили, что товар передан. Ждем подтверждения от покупателя.")
-    if action == "ok" and callback.from_user.id == deal["buyer"]:
-        if deal["status"] != "item_transferred":
-            return await callback.answer("❌ Продавец еще не передал товар!", show_alert=True)
-        await asyncio.to_thread(update_balance, deal["seller"], deal["amount"])
-        asyncio.create_task(callback.message.answer_sticker(STICKER_CHECK))
-        try: await callback.message.edit_text("✅ <b>Сделка завершена!</b> Товар получен, средства переведены продавцу.")
-        except Exception: pass
-        del active_deals[deal_id]
-        return await callback.answer()
+    try:
+        _, deal_id, action = callback.data.split("_")
+        deal = active_deals.get(deal_id)
+        
+        if not deal:
+            return await callback.answer("Сделка не найдена или уже завершена.", show_alert=True)
+            
+        if callback.from_user.id not in (deal["buyer"], deal["seller"]):
+            return await callback.answer("Не твоя сделка.", show_alert=True)
+            
+        # ОТМЕНА СДЕЛКИ
+        if action == "cancel":
+            await asyncio.to_thread(update_balance, deal["buyer"], deal["amount"])
+            
+            try:
+                await callback.message.answer_sticker(STICKER_CROSS) # await вместо create_task
+            except Exception: 
+                pass
+                
+            try:
+                await callback.message.edit_text(
+                    f"❌ <b>СДЕЛКА ОТМЕНЕНА</b>\n"
+                    f"Средства ({format_money(deal['amount'])}) возвращены покупателю."
+                )
+            except Exception: 
+                pass
+                
+            del active_deals[deal_id]
+            return await callback.answer("Сделка отменена")
+            
+        # ТОВАР ПЕРЕДАН (нажимает только продавец)
+        if action == "item":
+            if callback.from_user.id != deal["seller"]:
+                return await callback.answer("Только продавец может подтвердить передачу товара!", show_alert=True)
+                
+            deal["status"] = "item_transferred"
+            
+            try:
+                await callback.message.edit_text(
+                    f"📦 <b>ТОВАР ПЕРЕДАН</b>\n"
+                    f"Покупатель, подтвердите получение кнопкой ниже.",
+                    reply_markup=callback.message.reply_markup # оставляем кнопки
+                )
+            except Exception: 
+                pass
+                
+            return await callback.answer("Товар передан. Ждем покупателя.")
+            
+        # ПОДТВЕРЖДЕНИЕ (нажимает только покупатель)
+        if action == "ok":
+            if callback.from_user.id != deal["buyer"]:
+                return await callback.answer("Только покупатель может подтвердить сделку!", show_alert=True)
+                
+            if deal["status"] != "item_transferred":
+                return await callback.answer("❌ Продавец еще не передал товар!", show_alert=True)
+                
+            await asyncio.to_thread(update_balance, deal["seller"], deal["amount"])
+            
+            try:
+                await callback.message.answer_sticker(STICKER_CHECK) # await вместо create_task
+            except Exception: 
+                pass
+                
+            try:
+                await callback.message.edit_text(
+                    f"✅ <b>СДЕЛКА ЗАВЕРШЕНА!</b>\n"
+                    f"Товар получен. Средства ({format_money(deal['amount'])}) переведены продавцу."
+                )
+            except Exception: 
+                pass
+                
+            del active_deals[deal_id]
+            return await callback.answer("Сделка успешно завершена!")
+            
+    except Exception as e:
+        logger.error(f"Ошибка в process_deal: {e}")
+        await callback.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
 
 # ==============================================================================
 # 13. ИГРЫ (КОСТИ, РУЛЕТКА, МИНЫ, БЖ)
