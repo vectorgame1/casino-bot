@@ -26,6 +26,7 @@ from aiogram.types import (
     FSInputFile, LabeledPrice,
     ReplyKeyboardRemove, ReplyKeyboardMarkup,   # <-- Добавлен ReplyKeyboardMarkup
     InlineKeyboardButton, InlineKeyboardMarkup,
+    KeyboardButton
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
@@ -335,7 +336,7 @@ async def daily_bonus(message: Message):
             if now - last_dt < datetime.timedelta(hours=24):
                 delta = datetime.timedelta(hours=24) - (now - last_dt)
                 try:
-                    await message.answer_sticker(STICKER_WAIT)
+                    await message.answer_sticker(STICKER_WHEEL)
                 except Exception:
                     pass
                 return await message.answer(
