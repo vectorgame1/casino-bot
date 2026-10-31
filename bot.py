@@ -1,6 +1,6 @@
 # ==============================================================================
 # IMPERIA TOKENS — Telegram Bot (aiogram 3.x + PostgreSQL)
-# Clean build: no ads, no subscription checks, no sticker spam
+# Полная сборка: игры, гарант, дуэли, подарки, VIP, промокоды, нейро-админ
 # ==============================================================================
 
 import os
@@ -18,7 +18,7 @@ from psycopg_pool import ConnectionPool
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -45,9 +45,6 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "6403424348"))
 CHAT_ID = int(os.getenv("CHAT_ID", "-1004366922819"))
 PORT = int(os.getenv("PORT", "8080"))
 
-GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/")
-LINK_TO_TERMS = os.getenv("LINK_TO_TERMS", "https://t.me/")
-
 START_BONUS = 5000
 CURRENCY = "Tokens"
 MAX_BET = 10_000_000
@@ -55,7 +52,27 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 REF_BONUS = 5000
 
 # ==============================================================================
-# 2. BALANCE CACHE
+# 2. STICKERS (all declared here)
+# ==============================================================================
+STICKER_MONEY = "CAACAgIAAxkBAAEj985q4eL9Brj-YpyQvGjLXw3FCOZZjQACSKgAAjAhEUsk5lafkHLFYD0E"
+STICKER_GIFT = "CAACAgIAAxkBAAEj98Bq4eLXEYu2vZI5kR8FAa-5At5VCwACLqwAAkDWEEu1vr_yoL997j0E"
+STICKER_CHECK = "CAACAgIAAxkBAAEj97Jq4eKR30htSL0IqPlPzJVRVzFtJwACYqIAAmLKEEtbsW05dAABQME9BA"
+STICKER_CROSS = "CAACAgIAAxkBAAEj97Zq4eKm7xpZZNfngFE8pjITZLQJ8wACaqUAArUtEUtHgEGdmAH6CT0E"
+STICKER_TRANSFER = "CAACAgEAAxkBAAEj9-Bq4eVW4VZEtByB92myle5Upux2mgACzgIAAgZEGETPmJF48lyuaD0E"
+STICKER_TICKET = "CAACAgIAAxkBAAEj975q4eLJDqoTYwmhP1WgPmG147qWZgACdKkAAlAcEEt7BK5iDF740T0E"
+STICKER_WHEEL = "CAACAgIAAxkBAAEj98Jq4eLY_6DZL-z-pta0MkNblBDoIAACY6YAAopJCEulegpkQ4jAtj0E"
+STICKER_CROWN = "CAACAgIAAxkBAAEj99Bq4eL-1vc-E-lWg0SnnmQOohX96wACxaQAAu96EUteo43HZ6JM4T0E"
+STICKER_FIREWORK = "CAACAgIAAxkBAAEj98xq4eL9f_1pJgjxIaZqYyfRDkVuIwACX6UAAt7VEEtyBsfC0Eld5z0E"
+STICKER_CLOCK = "CAACAgIAAxkBAAEj97pq4eK_3AjVJQ0c8YUiUwIfWprFXQACPaEAAm2sEUtORD2DpdGqTz0E"
+STICKER_SUPPORT = "CAACAgUAAxkBAAEj-UBq4gLgU_KpjvP5klaeVLVjTVPXhgACcRcAAgFvCVUL3BYqgFb__j0E"
+
+VIP_STICKERS = [
+    "CAACAgIAAxkBAAEj965q4eJ3NdOJTNZKOXjLl-EefvciHgACJaAAAuNkEEtMkr6KfsoC1j0E",
+    "CAACAgIAAxkBAAEj96xq4eJXgVef7iLshpSS5HehGR9fvAACX7IAAgOYEEtkVuP2AAGD3tY9BA",
+]
+
+# ==============================================================================
+# 3. CACHE
 # ==============================================================================
 _balance_cache: Dict[int, int] = {}
 
@@ -73,7 +90,7 @@ def cache_invalidate(uid: int):
 
 
 # ==============================================================================
-# 3. DATABASE
+# 4. DATABASE
 # ==============================================================================
 db_pool = ConnectionPool(conninfo=DATABASE_URL, min_size=1, max_size=10, timeout=10)
 
@@ -126,7 +143,6 @@ def init_db():
     db_execute("""CREATE TABLE IF NOT EXISTS roulette_logs (
         id SERIAL PRIMARY KEY, chat_id BIGINT, result_num INT, color TEXT, date TEXT
     )""")
-
     cols = [
         ("vip_until", "TEXT"), ("streak", "INTEGER DEFAULT 1"), ("last_streak_date", "TEXT"),
         ("total_bets", "BIGINT DEFAULT 0"), ("total_win", "BIGINT DEFAULT 0"),
@@ -141,7 +157,7 @@ def init_db():
 
 
 # ==============================================================================
-# 4. USER HELPERS
+# 5. USER HELPERS
 # ==============================================================================
 def get_user(uid: int):
     user = db_execute("SELECT * FROM users WHERE user_id = ?", (uid,), True)
@@ -167,7 +183,7 @@ def set_username(uid: int, un: str):
     db_execute("UPDATE users SET username = ? WHERE user_id = ?", (un or "Unknown", uid))
 
 
-def format_money(amt: int) -> str:
+def format_money(amt) -> str:
     try:
         return f"{int(amt):,}".replace(",", " ") + f" {CURRENCY}"
     except Exception:
@@ -193,7 +209,7 @@ def log_game(uid: int, game: str, bet: int, win: int):
 
 def parse_amt(txt: str) -> Optional[int]:
     try:
-        txt = txt.lower().replace(" ", "")
+        txt = (txt or "").lower().replace(" ", "")
         m = re.match(r"^(\d+)(кк|к)?$", txt)
         if not m:
             return None
@@ -217,11 +233,22 @@ def is_vip(user) -> bool:
 
 
 def safe_text(text: Optional[str], fallback: str = "Ошибка") -> str:
-    return text if text and text.strip() else fallback
+    return text if text and str(text).strip() else fallback
 
 
 # ==============================================================================
-# 5. TEXTS
+# 6. ADMIN REPLY HELPERS (обязательно объявлены — иначе NameError)
+# ==============================================================================
+def _admin_reply_ok(text: str) -> str:
+    return f"✅ {safe_text(text)}"
+
+
+def _admin_reply_err(text: str) -> str:
+    return f"❌ {safe_text(text)}"
+
+
+# ==============================================================================
+# 7. TEXTS (RU/EN)
 # ==============================================================================
 TEXTS = {
     "ru": {
@@ -232,11 +259,16 @@ TEXTS = {
         "btn_profile": "👤 Профиль",
         "btn_top": "🏆 Топ",
         "btn_ref": "🔗 Рефералка",
+        "btn_support": "🆘 Поддержка",
         "btn_back": "⬅️ Назад в меню",
         "not_enough": "❌ Мало средств.",
         "profile": "👑 <b>Профиль:</b> {name}\n💰 Баланс: {bal}\n💎 VIP: {vip}\n🆔 ID: <code>{id}</code>",
         "bonus_wait": "⏳ <b>Бонус уже забран.</b>\nСледующий через: <b>{h} ч. {m} мин.</b>",
-        "ref_text": "🔗 <b>Твоя реферальная ссылка:</b>\n<code>{link}</code>\n\n🎁 За каждого друга ты получаешь <b>5 000 Tokens</b>!",
+        "ref_text": "🔗 <b>Твоя реферальная ссылка:</b>\n<code>{link}</code>\n\n🎁 За друга: <b>5 000 Tokens</b>.",
+        "lang_changed": "✅ Язык: RU",
+        "supp_earn": "💰 <b>КАК ЗАРАБОТАТЬ</b>\n\n• Бонус раз в 24ч\n• Игры в чате\n• Кланы\n• Промокоды\n• Рефералы (5000 за друга)",
+        "supp_pay": "💳 <b>ПРОБЛЕМА С ОПЛАТОЙ</b>\n\nПодожди 5–10 минут. Не пришло — напиши админу.",
+        "supp_play": "🎮 <b>КАК ИГРАТЬ</b>\n\nЗайди в чат. Напиши <code>игры</code> или используй текстовые команды: <code>кости 1000</code>, <code>к 500</code>, <code>мины 1000</code>, <code>бж 1000</code>.",
     },
     "en": {
         "menu": "🏠 <b>Main menu</b>",
@@ -246,11 +278,16 @@ TEXTS = {
         "btn_profile": "👤 Profile",
         "btn_top": "🏆 Top",
         "btn_ref": "🔗 Referral",
+        "btn_support": "🆘 Support",
         "btn_back": "⬅️ Back to menu",
         "not_enough": "❌ Not enough funds.",
         "profile": "👑 <b>Profile:</b> {name}\n💰 Balance: {bal}\n💎 VIP: {vip}\n🆔 ID: <code>{id}</code>",
         "bonus_wait": "⏳ <b>Bonus already taken.</b>\nNext in: <b>{h}h {m}m</b>",
-        "ref_text": "🔗 <b>Your referral link:</b>\n<code>{link}</code>\n\n🎁 Get <b>5 000 Tokens</b> per friend!",
+        "ref_text": "🔗 <b>Your referral link:</b>\n<code>{link}</code>\n\n🎁 Per friend: <b>5 000 Tokens</b>.",
+        "lang_changed": "✅ Language: EN",
+        "supp_earn": "💰 <b>HOW TO EARN</b>\n\n• Bonus every 24h\n• Chat games\n• Clans\n• Promo codes\n• Referrals (5000 per friend)",
+        "supp_pay": "💳 <b>PAYMENT ISSUE</b>\n\nWait 5–10 minutes. If nothing — message admin.",
+        "supp_play": "🎮 <b>HOW TO PLAY</b>\n\nGo to chat. Type <code>игры</code> or use: <code>кости 1000</code>, <code>к 500</code>, <code>мины 1000</code>, <code>бж 1000</code>.",
     },
 }
 
@@ -272,11 +309,14 @@ LOSE_PHRASES = [
 
 def _(user, key, **kwargs):
     lang = user[2] if user and len(user) > 2 and user[2] in TEXTS else "ru"
-    return TEXTS[lang].get(key, "").format(**kwargs)
+    try:
+        return TEXTS[lang].get(key, TEXTS["ru"].get(key, "")).format(**kwargs)
+    except Exception:
+        return TEXTS["ru"].get(key, "")
 
 
 # ==============================================================================
-# 6. BANNERS
+# 8. BANNERS
 # ==============================================================================
 BANNERS = {
     "how_to_play": "assets/how_to_play.jpg",
@@ -289,23 +329,22 @@ BANNERS = {
 
 
 async def send_banner(target: Message, banner_key: str, caption: str, reply_markup=None):
-    """Sends a photo with caption. No stickers attached."""
     text = safe_text(caption)
     path = BANNERS.get(banner_key)
     if path and os.path.exists(path):
         try:
             return await target.answer_photo(FSInputFile(path), caption=text, reply_markup=reply_markup)
         except Exception as e:
-            logger.warning(f"banner error {banner_key}: {e}")
+            logger.warning(f"banner {banner_key}: {e}")
     try:
         return await target.answer(text, reply_markup=reply_markup)
     except Exception as e:
-        logger.warning(f"text fallback error: {e}")
+        logger.warning(f"banner fallback: {e}")
         return None
 
 
 # ==============================================================================
-# 7. KEYBOARDS
+# 9. KEYBOARDS
 # ==============================================================================
 def get_main_menu(u):
     b = ReplyKeyboardBuilder()
@@ -322,7 +361,7 @@ def inline_back_menu(u):
 
 
 # ==============================================================================
-# 8. BOT / DISPATCHER
+# 10. BOT / DISPATCHER
 # ==============================================================================
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
@@ -335,7 +374,7 @@ dp.include_routers(user_router, admin_router, group_router)
 
 
 # ==============================================================================
-# 9. FSM
+# 11. FSM
 # ==============================================================================
 class SupportStates(StatesGroup):
     waiting_ticket = State()
@@ -361,7 +400,7 @@ class GameStates(StatesGroup):
 
 
 # ==============================================================================
-# 10. UTILS
+# 12. UTILS
 # ==============================================================================
 async def auto_delete(message: Message, delay: int = 60):
     await asyncio.sleep(delay)
@@ -382,14 +421,14 @@ async def delete_old_messages(bot_instance: Bot, state: FSMContext, chat_id: int
 
 
 # ==============================================================================
-# 11. START
+# 13. START
 # ==============================================================================
 @user_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await delete_old_messages(bot, state, message.chat.id)
 
     ref_arg = None
-    parts = message.text.split()
+    parts = (message.text or "").split()
     if len(parts) > 1 and parts[1].startswith("ref_"):
         try:
             ref_arg = int(parts[1].split("_")[1])
@@ -400,24 +439,20 @@ async def cmd_start(message: Message, state: FSMContext):
     if message.from_user.username:
         await asyncio.to_thread(set_username, message.from_user.id, message.from_user.username)
 
-    # referral payout
     if ref_arg and ref_arg != message.from_user.id and not user[17]:
         referrer = await asyncio.to_thread(get_user, ref_arg)
         if referrer:
             await asyncio.to_thread(update_balance, ref_arg, REF_BONUS)
             await asyncio.to_thread(
-                db_execute,
-                "UPDATE users SET referrer_id = ? WHERE user_id = ?",
-                (ref_arg, user[0]),
+                db_execute, "UPDATE users SET referrer_id = ? WHERE user_id = ?", (ref_arg, user[0])
             )
             try:
-                await bot.send_message(ref_arg, f"🎉 Друг пришёл по твоей ссылке! +{format_money(REF_BONUS)}")
+                await bot.send_message(ref_arg, f"🎉 +{format_money(REF_BONUS)} за друга!")
             except Exception:
                 pass
 
     await asyncio.to_thread(
-        db_execute,
-        "UPDATE users SET last_seen = ? WHERE user_id = ?",
+        db_execute, "UPDATE users SET last_seen = ? WHERE user_id = ?",
         (datetime.datetime.now().isoformat(), user[0]),
     )
 
@@ -426,7 +461,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
     text = (
         f"👑 <b>ДОБРО ПОЖАЛОВАТЬ В IMPERIA TOKENS, {message.from_user.first_name}!</b>\n\n"
-        "💎 Испытай удачу в играх и прокачай свой клан!\n\n"
+        "💎 Игры, кланы, джекпоты.\n\n"
         "⚖️ <i>Виртуальная экономика. Ставки — развлечение.</i>\n\n"
         "👇 Выбери раздел:"
     )
@@ -454,21 +489,23 @@ async def nav_menu(callback: CallbackQuery, state: FSMContext):
 
 
 # ==============================================================================
-# 12. HOW TO PLAY
+# 14. HOW TO PLAY
 # ==============================================================================
 GAMES_INFO = {
-    "dice": "🎲 <b>КОСТИ</b>\n\nКоманда: <code>кости 1000</code>\nВыпало 4/5/6 — победа x2.\nПример: <code>кости 5к</code>",
+    "dice": "🎲 <b>КОСТИ</b>\n\n<code>кости 1000</code>\n4/5/6 — x2.",
     "roulette": (
-        "🎡 <b>РУЛЕТКА</b>\n\nСтавки в любом порядке:\n"
-        "• <code>к 1000</code> — красное\n• <code>1000 к</code> — тоже красное\n"
-        "• <code>ч 500</code> — черное\n• <code>10-23 500</code> / <code>500 10-23</code> — диапазон\n"
-        "• <code>13 100</code> — конкретное число\n• <code>чет 1000</code> / <code>нечет 1000</code>\n\n"
-        "Коэф: число x36, диапазон x2.5, цвет/чётность x2.\nЗапуск: <code>го</code>"
+        "🎡 <b>РУЛЕТКА</b>\n\nЛюбой порядок:\n"
+        "• <code>к 1000</code> / <code>1000 к</code>\n"
+        "• <code>ч 500</code>\n"
+        "• <code>10-23 500</code> / <code>500 10-23</code>\n"
+        "• <code>13 100</code>\n"
+        "• <code>чет 1000</code> / <code>нечет 1000</code>\n\n"
+        "Коэф: число x36, диапазон x2.5, цвет/чёт x2.\nЗапуск: <code>го</code>"
     ),
-    "mines": "💣 <b>МИНЫ</b>\n\nКоманда: <code>мины 1000</code>\nКаждая клетка +20% к потенциалу.",
-    "bj": "🃏 <b>БЛЭКДЖЕК</b>\n\nКоманда: <code>бж 1000</code>\nНабери ближе к 21, чем дилер.",
-    "guarant": "🤝 <b>ГАРАНТ</b>\n\n<code>гарант @user 5000</code>\nКнопки: Подтвердить / Товар передан / Отмена.",
-    "duel": "⚔️ <b>ДУЭЛИ</b>\n\n<code>дуэль @user 1000</code>\nВторой игрок принимает, победитель забирает x2.",
+    "mines": "💣 <b>МИНЫ</b>\n\n<code>мины 1000</code>\nКаждая клетка +20%.",
+    "bj": "🃏 <b>БЛЭКДЖЕК</b>\n\n<code>бж 1000</code>\nБлиже к 21, чем дилер.",
+    "guarant": "🤝 <b>ГАРАНТ</b>\n\n<code>гарант @user 5000</code>\nКнопки для продавца и покупателя.",
+    "duel": "⚔️ <b>ДУЭЛИ</b>\n\n<code>дуэль @user 1000</code>\nПобедитель забирает x2.",
     "gift": "🎁 <b>ПОДАРКИ</b>\n\n<code>подарить @user 1000</code>",
 }
 
@@ -477,7 +514,6 @@ GAMES_INFO = {
 async def how_to_play(message: Message, state: FSMContext):
     await delete_old_messages(bot, state, message.chat.id)
     user = await asyncio.to_thread(get_user, message.from_user.id)
-
     text = "🎮 <b>КАК ИГРАТЬ</b>\n\nВыбери раздел:"
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🎲 Кости", callback_data="gameinfo_dice"),
@@ -488,7 +524,6 @@ async def how_to_play(message: Message, state: FSMContext):
            InlineKeyboardButton(text="⚔️ Дуэли", callback_data="gameinfo_duel"))
     kb.row(InlineKeyboardButton(text="🎁 Подарки", callback_data="gameinfo_gift"))
     kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
-
     msg = await send_banner(message, "how_to_play", text, kb.as_markup())
     if msg:
         await state.update_data(last_msgs=[msg.message_id])
@@ -499,8 +534,7 @@ async def gameinfo_callback(callback: CallbackQuery):
     await callback.answer()
     key = callback.data.split("_", 1)[1]
     text = safe_text(GAMES_INFO.get(key), "ℹ️ Информация отсутствует.")
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gameinfo_back"))
+    kb = InlineKeyboardBuilder().row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gameinfo_back"))
     try:
         if callback.message.photo:
             await callback.message.edit_caption(caption=text, reply_markup=kb.as_markup())
@@ -537,7 +571,7 @@ async def gameinfo_back(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 13. BONUS
+# 15. BONUS
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_bonus"], TEXTS["en"]["btn_bonus"]]))
 async def daily_bonus(message: Message, state: FSMContext):
@@ -570,10 +604,10 @@ async def daily_bonus(message: Message, state: FSMContext):
             pass
 
     prize = random.randint(2500, 25000)
-    text = f"🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС</b>\n\n💰 +{format_money(prize)}\n🔥 Стрик: {streak} дн."
+    text = f"🎁 <b>БОНУС</b>\n\n💰 +{format_money(prize)}\n🔥 Стрик: {streak} дн."
     if streak >= 7:
         prize *= 2
-        text = f"🔥 <b>СТРИК 7 ДНЕЙ!</b> Бонус x2!\n\n💰 +{format_money(prize)}\n🔥 Стрик: {streak} дн."
+        text = f"🔥 <b>СТРИК 7!</b> x2\n\n💰 +{format_money(prize)}\n🔥 Стрик: {streak}"
 
     await asyncio.to_thread(update_balance, user[0], prize)
     await asyncio.to_thread(
@@ -587,7 +621,7 @@ async def daily_bonus(message: Message, state: FSMContext):
 
 
 # ==============================================================================
-# 14. DONATE
+# 16. DONATE
 # ==============================================================================
 def current_rate() -> int:
     slot = int(datetime.datetime.now().timestamp()) // (3 * 3600)
@@ -599,7 +633,7 @@ async def donate_menu(message: Message, state: FSMContext):
     await delete_old_messages(bot, state, message.chat.id)
     user = await asyncio.to_thread(get_user, message.from_user.id)
     rate = current_rate()
-    text = f"💎 <b>ДОНАТ-ЦЕНТР</b>\n\n🔥 Курс: <b>1 ⭐ = {rate:,} Tokens</b>\n\nВыбери:"
+    text = f"💎 <b>ДОНАТ-ЦЕНТР</b>\n\n🔥 1 ⭐ = <b>{rate:,} Tokens</b>"
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="⭐ Купить Токены", callback_data="donate_tokens"))
     kb.row(InlineKeyboardButton(text="👑 Купить VIP", callback_data="donate_vip"))
@@ -613,7 +647,7 @@ async def donate_menu(message: Message, state: FSMContext):
 async def donate_tokens(callback: CallbackQuery):
     await callback.answer()
     rate = current_rate()
-    text = f"⭐ <b>ПОКУПКА ТОКЕНОВ</b>\n\nКурс: <b>1 ⭐ = {rate:,} Tokens</b>"
+    text = f"⭐ <b>ТОКЕНЫ</b>\n\nКурс: 1 ⭐ = {rate:,}"
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text=f"⭐ 15 Stars (+{rate*15:,})", callback_data="buy_stars_15"))
     kb.row(InlineKeyboardButton(text=f"⭐ 50 Stars (+{rate*50:,})", callback_data="buy_stars_50"))
@@ -634,7 +668,7 @@ async def nav_donate_back(callback: CallbackQuery):
     await callback.answer()
     user = await asyncio.to_thread(get_user, callback.from_user.id)
     rate = current_rate()
-    text = f"💎 <b>ДОНАТ-ЦЕНТР</b>\n\n🔥 Курс: <b>1 ⭐ = {rate:,} Tokens</b>"
+    text = f"💎 <b>ДОНАТ-ЦЕНТР</b>\n\n🔥 1 ⭐ = <b>{rate:,} Tokens</b>"
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="⭐ Купить Токены", callback_data="donate_tokens"))
     kb.row(InlineKeyboardButton(text="👑 Купить VIP", callback_data="donate_vip"))
@@ -656,7 +690,7 @@ async def donate_vip(callback: CallbackQuery):
         "• 💰 Авто-бонус <b>30 000 Tokens</b> каждый день\n"
         "• 🎡 Золотая рулетка x3\n"
         "• 🚫 Без комиссии\n"
-        "• 👑 VIP-значок в чате\n\n"
+        "• 👑 VIP-значок\n\n"
         "Выбери срок:"
     )
     kb = InlineKeyboardBuilder()
@@ -687,7 +721,7 @@ async def stars_custom_amount(message: Message, state: FSMContext):
         if not 1 <= amount <= 10000:
             raise ValueError
     except ValueError:
-        return await message.answer("❌ Целое число от 1 до 10000.")
+        return await message.answer("❌ Целое число 1–10000.")
     await message.answer_invoice(
         title=f"Звезды ({amount})",
         description=f"Обмен {amount} Stars",
@@ -752,6 +786,7 @@ async def process_buy_vip(callback: CallbackQuery):
         start_parameter="buy",
     )
 
+
 @user_router.message(F.successful_payment)
 async def success_payment(message: Message, state: FSMContext):
     payment = message.successful_payment
@@ -770,12 +805,10 @@ async def success_payment(message: Message, state: FSMContext):
                 pass
         vip_until = (base + datetime.timedelta(days=days)).isoformat()
         await asyncio.to_thread(
-            db_execute,
-            "UPDATE users SET role='vip', vip_until=? WHERE user_id=?",
-            (vip_until, user[0]),
+            db_execute, "UPDATE users SET role='vip', vip_until=? WHERE user_id=?", (vip_until, user[0])
         )
         cache_invalidate(user[0])
-        msg = await message.answer(f"✅ <b>VIP АКТИВИРОВАН НА {days} ДН.</b>", reply_markup=get_main_menu(user))
+        msg = await message.answer(f"✅ <b>VIP НА {days} ДН.</b>", reply_markup=get_main_menu(user))
 
     elif payment.invoice_payload.startswith("stars_"):
         amount = int(payment.invoice_payload.split("_")[1])
@@ -783,13 +816,10 @@ async def success_payment(message: Message, state: FSMContext):
         total = amount * rate
         await asyncio.to_thread(update_balance, user[0], total)
         await asyncio.to_thread(
-            db_execute,
-            "UPDATE users SET total_donated = total_donated + ? WHERE user_id = ?",
-            (total, user[0]),
+            db_execute, "UPDATE users SET total_donated = total_donated + ? WHERE user_id = ?", (total, user[0])
         )
         msg = await message.answer(
-            f"✅ <b>ОПЛАЧЕНО!</b> Зачислено {format_money(total)}",
-            reply_markup=get_main_menu(user),
+            f"✅ <b>ОПЛАЧЕНО!</b> +{format_money(total)}", reply_markup=get_main_menu(user)
         )
 
     elif payment.invoice_payload == "secret_promo":
@@ -801,7 +831,7 @@ async def success_payment(message: Message, state: FSMContext):
             (code, reward),
         )
         msg = await message.answer(
-            f"🎟 <b>Твой промокод:</b> <code>{code}</code>\n"
+            f"🎟 <b>Промокод:</b> <code>{code}</code>\n"
             f"Активация: <code>промо {code}</code>\n"
             f"Награда: {format_money(reward)}",
             reply_markup=get_main_menu(user),
@@ -812,7 +842,7 @@ async def success_payment(message: Message, state: FSMContext):
 
 
 # ==============================================================================
-# 15. PROFILE
+# 17. PROFILE
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_profile"], TEXTS["en"]["btn_profile"]]))
 async def profile(message: Message, state: FSMContext):
@@ -828,8 +858,9 @@ async def profile(message: Message, state: FSMContext):
     )
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="📋 Скопировать ID", callback_data="profile_copy_id"))
-    kb.row(InlineKeyboardButton(text="📜 История игр", callback_data="profile_history"))
-    kb.row(InlineKeyboardButton(text="🌐 Язык", callback_data="profile_lang"))
+    kb.row(InlineKeyboardButton(text="📜 История", callback_data="profile_history"))
+    kb.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="profile_settings"))
+    kb.row(InlineKeyboardButton(text="🆘 Поддержка", callback_data="profile_support"))
     kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
     msg = await send_banner(message, "profile", text, kb.as_markup())
     if msg:
@@ -862,9 +893,21 @@ async def profile_history(callback: CallbackQuery):
         return
     lines = ["📜 <b>Последние 10 игр:</b>\n"]
     for game, bet, win, date in rows:
-        lines.append(f"{'🟢' if win > 0 else '🔴'} <b>{game}</b> · ставка {format_money(bet)} · выигрыш {format_money(win)}")
+        lines.append(f"{'🟢' if win > 0 else '🔴'} <b>{game}</b> · {format_money(bet)} → {format_money(win)}")
     try:
         await callback.message.answer("\n".join(lines))
+    except Exception:
+        pass
+
+
+@user_router.callback_query(F.data == "profile_settings")
+async def profile_settings(callback: CallbackQuery):
+    await callback.answer()
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🌐 Язык / Language", callback_data="profile_lang"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu"))
+    try:
+        await callback.message.answer("⚙️ <b>НАСТРОЙКИ</b>", reply_markup=kb.as_markup())
     except Exception:
         pass
 
@@ -876,7 +919,7 @@ async def profile_lang(callback: CallbackQuery):
     kb.row(InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
            InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"))
     try:
-        await callback.message.answer("🌐 <b>Выбери язык:</b>", reply_markup=kb.as_markup())
+        await callback.message.answer("🌐 <b>Выбери язык / Choose language:</b>", reply_markup=kb.as_markup())
     except Exception:
         pass
 
@@ -893,13 +936,30 @@ async def set_lang(callback: CallbackQuery):
     cache_invalidate(callback.from_user.id)
     user = await asyncio.to_thread(get_user, callback.from_user.id)
     try:
-        await callback.message.answer(f"✅ Язык изменён на {lang.upper()}", reply_markup=get_main_menu(user))
+        await callback.message.answer(_(user, "lang_changed"), reply_markup=get_main_menu(user))
+    except Exception:
+        pass
+
+
+@user_router.callback_query(F.data == "profile_support")
+async def profile_support_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    user = await asyncio.to_thread(get_user, callback.from_user.id)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="💰 Как заработать?", callback_data="sup_earn"))
+    kb.row(InlineKeyboardButton(text="💳 Проблема с оплатой?", callback_data="sup_pay"))
+    kb.row(InlineKeyboardButton(text="🎮 Как играть?", callback_data="sup_play"))
+    kb.row(InlineKeyboardButton(text="✍️ Написать Админу", callback_data="sup_admin"))
+    kb.row(InlineKeyboardButton(text="⚠️ Сообщить об ошибке", callback_data="sup_bug"))
+    kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
+    try:
+        await callback.message.answer("🆘 <b>ПОДДЕРЖКА</b>", reply_markup=kb.as_markup())
     except Exception:
         pass
 
 
 # ==============================================================================
-# 16. TOP (3 categories)
+# 18. TOP
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_top"], TEXTS["en"]["btn_top"]]))
 async def top_menu(message: Message, state: FSMContext):
@@ -937,18 +997,17 @@ async def top_callback(callback: CallbackQuery):
         rows = await asyncio.to_thread(
             db_execute, "SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10", (), False, True
         )
-        text = _(user, "top_balance") if "top_balance" in TEXTS.get("ru", {}) else "💰 <b>ТОП-10 по балансу</b>"
-        text = f"💰 <b>ТОП-10 по балансу</b>\n\n{_format_top_rows(rows)}"
+        text = f"💰 <b>ТОП-10 ПО БАЛАНСУ</b>\n\n{_format_top_rows(rows)}"
     elif action == "donated":
         rows = await asyncio.to_thread(
             db_execute, "SELECT username, total_donated FROM users ORDER BY total_donated DESC LIMIT 10", (), False, True
         )
-        text = f"💎 <b>ТОП-10 по донатам</b>\n\n{_format_top_rows(rows)}"
+        text = f"💎 <b>ТОП-10 ПО ДОНАТАМ</b>\n\n{_format_top_rows(rows)}"
     elif action == "wins":
         rows = await asyncio.to_thread(
             db_execute, "SELECT username, total_win FROM users ORDER BY total_win DESC LIMIT 10", (), False, True
         )
-        text = f"🏆 <b>ТОП-10 по выигрышам</b>\n\n{_format_top_rows(rows)}"
+        text = f"🏆 <b>ТОП-10 ПО ВЫИГРЫШАМ</b>\n\n{_format_top_rows(rows)}"
     else:
         return
 
@@ -970,7 +1029,7 @@ async def top_callback(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 17. REFERRAL
+# 19. REFERRAL
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_ref"], TEXTS["en"]["btn_ref"]]))
 async def refka(message: Message, state: FSMContext):
@@ -985,11 +1044,87 @@ async def refka(message: Message, state: FSMContext):
 
 
 # ==============================================================================
-# 18. PROMO CODES
+# 20. SUPPORT (RU/EN)
+# ==============================================================================
+@user_router.message(F.text.in_([TEXTS["ru"]["btn_support"], TEXTS["en"]["btn_support"]]))
+async def support_menu(message: Message, state: FSMContext):
+    await delete_old_messages(bot, state, message.chat.id)
+    user = await asyncio.to_thread(get_user, message.from_user.id)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="💰 Как заработать?", callback_data="sup_earn"))
+    kb.row(InlineKeyboardButton(text="💳 Проблема с оплатой?", callback_data="sup_pay"))
+    kb.row(InlineKeyboardButton(text="🎮 Как играть?", callback_data="sup_play"))
+    kb.row(InlineKeyboardButton(text="✍️ Написать Админу", callback_data="sup_admin"))
+    kb.row(InlineKeyboardButton(text="⚠️ Сообщить об ошибке", callback_data="sup_bug"))
+    kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
+    msg = await message.answer("🆘 <b>ПОДДЕРЖКА</b>", reply_markup=kb.as_markup())
+    await state.update_data(last_msgs=[msg.message_id])
+
+
+@user_router.callback_query(F.data.startswith("sup_"))
+async def support_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    action = callback.data.split("_", 1)[1]
+    user = await asyncio.to_thread(get_user, callback.from_user.id)
+
+    if action in ("earn", "pay", "play"):
+        text = _(user, f"supp_{action}")
+        try:
+            await callback.message.answer(text)
+        except Exception:
+            pass
+        return
+
+    if action == "admin":
+        await callback.message.answer("✍️ Опиши проблему:", reply_markup=ReplyKeyboardRemove())
+        await state.set_state(SupportStates.waiting_ticket)
+        return
+
+    if action == "bug":
+        await callback.message.answer("⚠️ Опиши ошибку:", reply_markup=ReplyKeyboardRemove())
+        await state.set_state(SupportStates.waiting_bug)
+        return
+
+
+@user_router.message(SupportStates.waiting_ticket)
+async def process_ticket(message: Message, state: FSMContext):
+    user = await asyncio.to_thread(get_user, message.from_user.id)
+    await asyncio.to_thread(
+        db_execute,
+        "INSERT INTO tickets (user_id, text, date) VALUES (?, ?, ?)",
+        (user[0], message.text, datetime.datetime.now().isoformat()),
+    )
+    try:
+        await bot.send_message(
+            ADMIN_ID, f"🎫 <b>ТИКЕТ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}"
+        )
+    except Exception:
+        pass
+    msg = await message.answer("✅ Тикет отправлен.", reply_markup=get_main_menu(user))
+    await state.update_data(last_msgs=[msg.message_id])
+    await state.clear()
+
+
+@user_router.message(SupportStates.waiting_bug)
+async def process_bug(message: Message, state: FSMContext):
+    user = await asyncio.to_thread(get_user, message.from_user.id)
+    try:
+        await bot.send_message(
+            ADMIN_ID, f"⚠️ <b>БАГ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}"
+        )
+    except Exception:
+        pass
+    msg = await message.answer("✅ Баг-репорт отправлен.", reply_markup=get_main_menu(user))
+    await state.update_data(last_msgs=[msg.message_id])
+    await state.clear()
+
+
+# ==============================================================================
+# 21. PROMO CODES (user side)
 # ==============================================================================
 @user_router.message(F.text.regexp(r"(?i)^промо\s+(.+)$"))
 async def use_promo(message: Message):
-    code = message.text.split()[1].upper()
+    code = (message.text or "").split()[1].upper()
     promo = await asyncio.to_thread(
         db_execute, "SELECT reward, limit_count, used_count FROM promos WHERE code = ?", (code,), True
     )
@@ -1007,366 +1142,11 @@ async def use_promo(message: Message):
     await asyncio.to_thread(
         db_execute, "INSERT INTO promo_uses (code, user_id) VALUES (?, ?)", (code, message.from_user.id)
     )
-    await message.answer(f"✅ Промокод активирован! +{format_money(promo[0])}")
+    await message.answer(f"✅ Промокод! +{format_money(promo[0])}")
 
 
 # ==============================================================================
-# 19. CLANS
-# ==============================================================================
-def get_clan_menu_kb(has_clan, is_owner, u):
-    b = ReplyKeyboardBuilder()
-    if not has_clan:
-        b.row(KeyboardButton(text="➕ Создать"), KeyboardButton(text="🏆 Топ"))
-        b.row(KeyboardButton(text="🤝 Вступить"))
-    else:
-        b.row(KeyboardButton(text="💰 Внести"), KeyboardButton(text="🏆 Топ"))
-        b.row(KeyboardButton(text="📜 Мой клан"), KeyboardButton(text="🛡 Щит"))
-        if is_owner:
-            b.row(KeyboardButton(text="📈 Прокачать"), KeyboardButton(text="💵 Налог"))
-            b.row(KeyboardButton(text="🥾 Кик"))
-        else:
-            b.row(KeyboardButton(text="🚪 Выйти"))
-    b.row(KeyboardButton(text="⬅️ Меню"))
-    return b.as_markup(resize_keyboard=True)
-
-
-@user_router.message(F.text == "🛡 Клан")
-async def clan_menu(message: Message, state: FSMContext):
-    await delete_old_messages(bot, state, message.chat.id)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        msg = await message.answer("🛡 <b>КЛАНЫ</b>\n\nТы пока не в клане.", reply_markup=get_clan_menu_kb(False, False, user))
-        await state.update_data(last_msgs=[msg.message_id])
-        return
-    clan = await asyncio.to_thread(
-        db_execute, "SELECT name, owner_id, treasury, join_fee, level FROM clans WHERE id = ?", (user[6],), True
-    )
-    if not clan:
-        await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE user_id = ?", (user[0],))
-        cache_invalidate(user[0])
-        msg = await message.answer("Клан не найден.", reply_markup=get_clan_menu_kb(False, False, user))
-        await state.update_data(last_msgs=[msg.message_id])
-        return
-    is_owner = clan[1] == user[0]
-    msg = await message.answer(
-        f"🛡 <b>Клан: {clan[0]}</b>\n👑 Владелец: {'Ты' if is_owner else clan[1]}\n💰 {format_money(clan[2])}",
-        reply_markup=get_clan_menu_kb(True, is_owner, user),
-    )
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "➕ Создать")
-async def clan_create_start(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if user[3] < 100_000:
-        return await message.answer("❌ Нужно 100 000 Tokens.")
-    if user[6]:
-        return await message.answer("❌ Ты уже в клане.")
-    await message.answer("✍️ Введи название клана:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(ClanStates.waiting_name)
-
-
-@user_router.message(ClanStates.waiting_name)
-async def clan_create_finish(message: Message, state: FSMContext):
-    name = (message.text or "").strip()[:30]
-    if not name:
-        return await message.answer("❌ Пустое имя.")
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if user[3] < 100_000:
-        await state.clear()
-        return await message.answer("❌ Мало средств.")
-    await asyncio.to_thread(update_balance, user[0], -100_000)
-    clan = await asyncio.to_thread(
-        db_execute,
-        "INSERT INTO clans (name, owner_id, treasury, join_fee, level) VALUES (?, ?, 0, 5000, 1) RETURNING id",
-        (name, user[0]), True,
-    )
-    if clan:
-        await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = ? WHERE user_id = ?", (clan[0], user[0]))
-        cache_invalidate(user[0])
-        msg = await message.answer(f"✅ Клан <b>{name}</b> создан!", reply_markup=get_main_menu(user))
-        await state.update_data(last_msgs=[msg.message_id])
-    else:
-        await message.answer("❌ Ошибка.")
-    await state.clear()
-
-
-@user_router.message(F.text == "🏆 Топ")
-async def clan_top(message: Message, state: FSMContext):
-    await delete_old_messages(bot, state, message.chat.id)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    rows = await asyncio.to_thread(
-        db_execute, "SELECT name, treasury, level FROM clans ORDER BY treasury DESC LIMIT 10", (), False, True
-    )
-    if not rows:
-        msg = await message.answer("🏆 Пока нет кланов.", reply_markup=get_main_menu(user))
-        await state.update_data(last_msgs=[msg.message_id])
-        return
-    lines = ["🏆 <b>ТОП-10 КЛАНОВ</b>\n"]
-    for i, (name, treasury, level) in enumerate(rows, 1):
-        lines.append(f"{i}. <b>{name}</b> · ур.{level} · {format_money(treasury)}")
-    msg = await message.answer("\n".join(lines), reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "💰 Внести")
-async def clan_deposit_start(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return await message.answer("❌ Ты не в клане.")
-    await message.answer("💰 Введи сумму:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(ClanStates.waiting_deposit)
-
-
-@user_router.message(ClanStates.waiting_deposit)
-async def clan_deposit_finish(message: Message, state: FSMContext):
-    amount = parse_amt(message.text or "")
-    if not amount:
-        await state.clear()
-        return await message.answer("❌ Введи положительное число.")
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if user[3] < amount:
-        await state.clear()
-        return await message.answer("❌ Мало средств.")
-    await asyncio.to_thread(update_balance, user[0], -amount)
-    await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury + ? WHERE id = ?", (amount, user[6]))
-    await asyncio.to_thread(
-        db_execute, "UPDATE users SET clan_donated = clan_donated + ? WHERE user_id = ?", (amount, user[0])
-    )
-    msg = await message.answer(f"✅ Внесено: {format_money(amount)}", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-    await state.clear()
-
-
-@user_router.message(F.text == "📜 Мой клан")
-async def clan_my(message: Message, state: FSMContext):
-    await delete_old_messages(bot, state, message.chat.id)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return await message.answer("❌ Ты не в клане.")
-    clan = await asyncio.to_thread(
-        db_execute, "SELECT name, treasury, level, owner_id FROM clans WHERE id = ?", (user[6],), True
-    )
-    members = await asyncio.to_thread(
-        db_execute, "SELECT COUNT(*) FROM users WHERE clan_id = ?", (user[6],), True
-    )
-    if not clan:
-        return await message.answer("❌ Клан не найден.")
-    name, treasury, level, owner_id = clan
-    owner = await asyncio.to_thread(db_execute, "SELECT username FROM users WHERE user_id = ?", (owner_id,), True)
-    msg = await message.answer(
-        f"📜 <b>{name}</b>\n👑 Владелец: @{owner[0] if owner else '—'}\n📈 Ур: {level}\n"
-        f"👥 Участников: {members[0] if members else 0}\n💰 Казна: {format_money(treasury)}",
-        reply_markup=get_main_menu(user),
-    )
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "🛡 Щит")
-async def clan_shield(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return
-    if user[3] < 250_000:
-        return await message.answer("❌ Нужно 250 000 Tokens.")
-    await asyncio.to_thread(update_balance, user[0], -250_000)
-    await asyncio.to_thread(
-        db_execute,
-        "UPDATE clans SET shield_until = ? WHERE id = ?",
-        ((datetime.datetime.now() + datetime.timedelta(days=7)).isoformat(), user[6]),
-    )
-    msg = await message.answer("🛡 Щит активирован на 7 дней!", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "📈 Прокачать")
-async def clan_upgrade(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return
-    clan = await asyncio.to_thread(
-        db_execute, "SELECT owner_id, level, treasury FROM clans WHERE id = ?", (user[6],), True
-    )
-    if not clan or clan[0] != user[0]:
-        return await message.answer("❌ Только владелец.")
-    if clan[1] >= 5:
-        return await message.answer("✅ Макс. уровень.")
-    cost = 250_000 * clan[1]
-    if user[3] < cost:
-        return await message.answer(f"❌ Нужно {format_money(cost)}.")
-    await asyncio.to_thread(update_balance, user[0], -cost)
-    await asyncio.to_thread(db_execute, "UPDATE clans SET level = level + 1 WHERE id = ?", (user[6],))
-    msg = await message.answer(f"📈 Клан прокачан до уровня {clan[1] + 1}!", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "💵 Налог")
-async def clan_tax(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return
-    clan = await asyncio.to_thread(
-        db_execute, "SELECT owner_id, treasury FROM clans WHERE id = ?", (user[6],), True
-    )
-    if not clan or clan[0] != user[0]:
-        return await message.answer("❌ Только владелец.")
-    tax = int(clan[1] * 0.10)
-    if tax <= 0:
-        return await message.answer("❌ Казна пуста.")
-    await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury - ? WHERE id = ?", (tax, user[6]))
-    await asyncio.to_thread(update_balance, user[0], tax)
-    msg = await message.answer(f"💵 Собрано 10%: {format_money(tax)}", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.message(F.text == "🥾 Кик")
-async def clan_kick_start(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return
-    clan = await asyncio.to_thread(
-        db_execute, "SELECT owner_id FROM clans WHERE id = ?", (user[6],), True
-    )
-    if not clan or clan[0] != user[0]:
-        return await message.answer("❌ Только владелец.")
-    await message.answer("🥾 Отправь @username или ID:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(ClanStates.waiting_kick)
-
-
-@user_router.message(ClanStates.waiting_kick)
-async def clan_kick_finish(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    target_id = None
-    if message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-    else:
-        raw = (message.text or "").strip().lstrip("@")
-        if raw.isdigit():
-            target_id = int(raw)
-        else:
-            found = await asyncio.to_thread(
-                db_execute, "SELECT user_id FROM users WHERE username = ?", (raw,), True
-            )
-            if found:
-                target_id = found[0]
-    if not target_id:
-        await state.clear()
-        return await message.answer("❌ Не найден.", reply_markup=get_main_menu(user))
-    target = await asyncio.to_thread(get_user, target_id)
-    if not target or target[6] != user[6]:
-        await state.clear()
-        return await message.answer("❌ Не в твоём клане.", reply_markup=get_main_menu(user))
-    await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE user_id = ?", (target_id,))
-    cache_invalidate(target_id)
-    msg = await message.answer("✅ Исключён.", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-    await state.clear()
-
-
-@user_router.message(F.text == "🤝 Вступить")
-async def clan_join_start(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if user[6]:
-        return await message.answer("❌ Ты уже в клане.")
-    await message.answer("✍️ Введи название клана:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(ClanStates.waiting_join)
-
-
-@user_router.message(ClanStates.waiting_join)
-async def clan_join_finish(message: Message, state: FSMContext):
-    name = (message.text or "").strip()
-    clan = await asyncio.to_thread(db_execute, "SELECT id, join_fee FROM clans WHERE name = ?", (name,), True)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not clan:
-        await state.clear()
-        return await message.answer("❌ Не найден.", reply_markup=get_main_menu(user))
-    cid, fee = clan
-    if user[3] < fee:
-        await state.clear()
-        return await message.answer(f"❌ Нужно {format_money(fee)}.", reply_markup=get_main_menu(user))
-    await asyncio.to_thread(update_balance, user[0], -fee)
-    await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = treasury + ? WHERE id = ?", (fee, cid))
-    await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = ? WHERE user_id = ?", (cid, user[0]))
-    cache_invalidate(user[0])
-    msg = await message.answer(f"✅ Ты в клане <b>{name}</b>!", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-    await state.clear()
-
-
-@user_router.message(F.text == "🚪 Выйти")
-async def clan_leave(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    if not user[6]:
-        return await message.answer("❌ Ты не в клане.")
-    clan = await asyncio.to_thread(db_execute, "SELECT owner_id FROM clans WHERE id = ?", (user[6],), True)
-    if clan and clan[0] == user[0]:
-        return await message.answer("👑 Владелец не может выйти.")
-    await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE user_id = ?", (user[0],))
-    cache_invalidate(user[0])
-    msg = await message.answer("✅ Ты вышел из клана.", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-# ==============================================================================
-# 20. SUPPORT
-# ==============================================================================
-@user_router.message(F.text.in_(["🆘 Поддержка", "🆘 Support"]))
-async def support_menu(message: Message, state: FSMContext):
-    await delete_old_messages(bot, state, message.chat.id)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="✍️ Написать Админу", callback_data="sup_admin"))
-    kb.row(InlineKeyboardButton(text="⚠️ Ошибка", callback_data="sup_bug"))
-    kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
-    msg = await message.answer("🆘 <b>ПОДДЕРЖКА</b>", reply_markup=kb.as_markup())
-    await state.update_data(last_msgs=[msg.message_id])
-
-
-@user_router.callback_query(F.data == "sup_admin")
-async def sup_admin(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await callback.message.answer("✍️ Опиши проблему:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(SupportStates.waiting_ticket)
-
-
-@user_router.callback_query(F.data == "sup_bug")
-async def sup_bug(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await callback.message.answer("⚠️ Опиши ошибку:", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(SupportStates.waiting_bug)
-
-
-@user_router.message(SupportStates.waiting_ticket)
-async def process_ticket(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    await asyncio.to_thread(
-        db_execute,
-        "INSERT INTO tickets (user_id, text, date) VALUES (?, ?, ?)",
-        (user[0], message.text, datetime.datetime.now().isoformat()),
-    )
-    try:
-        await bot.send_message(ADMIN_ID, f"🎫 <b>ТИКЕТ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}")
-    except Exception:
-        pass
-    msg = await message.answer("✅ Тикет отправлен.", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-    await state.clear()
-
-
-@user_router.message(SupportStates.waiting_bug)
-async def process_bug(message: Message, state: FSMContext):
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    try:
-        await bot.send_message(ADMIN_ID, f"⚠️ <b>БАГ</b>\nОт: @{message.from_user.username or message.from_user.id}\n{message.text}")
-    except Exception:
-        pass
-    msg = await message.answer("✅ Баг-репорт отправлен.", reply_markup=get_main_menu(user))
-    await state.update_data(last_msgs=[msg.message_id])
-    await state.clear()
-
-
-# ==============================================================================
-# 21. GROUP: BALANCE / TRANSFER / NEW COMMANDS (ставки, лог)
+# 22. GROUP: BALANCE / TRANSFER / ставки / лог
 # ==============================================================================
 @group_router.message(F.text.lower().in_(["б", "баланс"]))
 async def cmd_balance_group(message: Message):
@@ -1402,15 +1182,13 @@ async def cmd_transfer_group(message: Message):
     await asyncio.to_thread(get_user, target_id)
     await asyncio.to_thread(update_balance, target_id, amount)
     msg = await message.reply(
-        f"✅ <b>Перевод выполнен</b>\n"
-        f"👤 От: {message.from_user.first_name}\n"
+        f"✅ <b>Перевод</b>\n👤 От: {message.from_user.first_name}\n"
         f"👤 Кому: {message.reply_to_message.from_user.first_name}\n"
-        f"💰 Сумма: {format_money(amount)}"
+        f"💰 {format_money(amount)}"
     )
     asyncio.create_task(auto_delete(msg, 60))
 
 
-# --- NEW: ставки ---
 @group_router.message(F.text.lower() == "ставки")
 async def cmd_my_bets(message: Message):
     if message.chat.type not in ("group", "supergroup"):
@@ -1423,7 +1201,6 @@ async def cmd_my_bets(message: Message):
     )
     if not rows:
         return await message.reply("У тебя пока нет ставок.")
-
     lines = ["📊 <b>Твои последние ставки:</b>"]
     for game, bet, win in rows:
         lines.append(f"🎲 {game} | Ставка: {format_money(bet)} | Выигрыш: {format_money(win)}")
@@ -1431,7 +1208,6 @@ async def cmd_my_bets(message: Message):
     asyncio.create_task(auto_delete(msg, 90))
 
 
-# --- NEW: лог рулетки ---
 @group_router.message(F.text.lower() == "лог")
 async def cmd_roulette_log(message: Message):
     if message.chat.type not in ("group", "supergroup"):
@@ -1443,7 +1219,6 @@ async def cmd_roulette_log(message: Message):
     )
     if not rows:
         return await message.reply("Логов пока нет.")
-
     emoji = {"к": "🔴", "ч": "⚫", "з": "🟢"}
     lines = ["📜 <b>Лог рулетки:</b>"]
     for num, color in rows:
@@ -1453,7 +1228,7 @@ async def cmd_roulette_log(message: Message):
 
 
 # ==============================================================================
-# 22. GROUP: GIFTS / GUARANT / DUELS
+# 23. GROUP: GIFTS / GUARANT / DUELS
 # ==============================================================================
 @group_router.message(F.text.regexp(r"(?i)^подарить\s+@?(\w+)\s+(.+)$"))
 async def cmd_gift(message: Message):
@@ -1466,7 +1241,7 @@ async def cmd_gift(message: Message):
         if not amount:
             return await message.reply("❌ Неверная сумма.")
         found = await asyncio.to_thread(
-            db_execute, "SELECT user_id FROM users WHERE username = ?", (target_username,), True
+            db_execute, "SELECT user_id FROM users WHERE LOWER(username)=LOWER(?)", (target_username,), True
         )
         if not found:
             return await message.reply("❌ Получатель не найден.")
@@ -1486,7 +1261,7 @@ async def cmd_gift(message: Message):
         )
         asyncio.create_task(auto_delete(msg, 120))
     except Exception as e:
-        logger.error(f"gift error: {e}")
+        logger.error(f"gift: {e}")
 
 
 active_deals: Dict[str, dict] = {}
@@ -1501,7 +1276,7 @@ async def cmd_guarant(message: Message):
         seller_username, amount_str = m.group(1), m.group(2)
         buyer = await asyncio.to_thread(get_user, message.from_user.id)
         seller = await asyncio.to_thread(
-            db_execute, "SELECT user_id FROM users WHERE username = ?", (seller_username,), True
+            db_execute, "SELECT user_id FROM users WHERE LOWER(username)=LOWER(?)", (seller_username,), True
         )
         if not seller:
             return await message.reply("❌ Продавец не найден.")
@@ -1516,31 +1291,25 @@ async def cmd_guarant(message: Message):
 
         deal_id = str(int(datetime.datetime.now().timestamp()))
         active_deals[deal_id] = {
-            "buyer": buyer[0],
-            "seller": seller[0],
-            "amount": amount,
-            "status": "waiting",
-            "chat": message.chat.id,
-            "seller_username": seller_username,
+            "buyer": buyer[0], "seller": seller[0], "amount": amount,
+            "status": "waiting", "chat": message.chat.id, "seller_username": seller_username,
         }
-
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"deal_{deal_id}_ok"))
         kb.row(InlineKeyboardButton(text="📦 Товар передан", callback_data=f"deal_{deal_id}_item"))
         kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data=f"deal_{deal_id}_cancel"))
-
         text = (
             f"🤝 <b>СДЕЛКА СОЗДАНА</b>\n\n"
             f"👤 Покупатель: {message.from_user.first_name} (оплатил)\n"
             f"👤 Продавец: @{seller_username}\n"
-            f"💰 Сумма: {format_money(amount)} (заморожена)\n\n"
+            f"💰 {format_money(amount)} (заморожено)\n\n"
             f"📦 Продавец: передай товар и нажми «Товар передан».\n"
             f"✅ Покупатель: подтверди получение."
         )
         msg = await message.reply(text, reply_markup=kb.as_markup())
         asyncio.create_task(auto_delete(msg, 600))
     except Exception as e:
-        logger.error(f"cmd_guarant: {e}")
+        logger.error(f"guarant: {e}")
 
 
 async def _deal_timeout_watcher(deal_id: str):
@@ -1552,9 +1321,8 @@ async def _deal_timeout_watcher(deal_id: str):
         try:
             await bot.send_message(
                 deal["buyer"],
-                f"⏰ <b>Напоминание по сделке</b>\n"
-                f"Продавец @{deal['seller_username']} передал товар.\n"
-                f"Нажми «Подтвердить» в чате, если всё получил.",
+                f"⏰ <b>Напоминание по сделке</b>\nПродавец @{deal['seller_username']} передал товар.\n"
+                f"Нажми «Подтвердить», если всё получил.",
             )
         except Exception:
             pass
@@ -1576,8 +1344,7 @@ async def process_deal(callback: CallbackQuery):
                 try:
                     await callback.message.edit_text(
                         "⚠️ <b>Подозрительная активность</b>\n\n"
-                        "Отмена невозможна: продавец уже передал товар.\n"
-                        "Сделка передана администрации."
+                        "Отмена невозможна: продавец уже передал товар."
                     )
                 except Exception:
                     pass
@@ -1592,9 +1359,7 @@ async def process_deal(callback: CallbackQuery):
                 return
             await asyncio.to_thread(update_balance, deal["buyer"], deal["amount"])
             try:
-                await callback.message.edit_text(
-                    f"❌ <b>СДЕЛКА ОТМЕНЕНА</b>\nСредства возвращены покупателю."
-                )
+                await callback.message.edit_text("❌ <b>СДЕЛКА ОТМЕНЕНА</b>\nСредства возвращены.")
             except Exception:
                 pass
             del active_deals[deal_id]
@@ -1606,7 +1371,7 @@ async def process_deal(callback: CallbackQuery):
             deal["status"] = "item_transferred"
             try:
                 await callback.message.edit_text(
-                    "📦 <b>ТОВАР ПЕРЕДАН</b>\nПокупатель, подтвердите получение.",
+                    "📦 <b>ТОВАР ПЕРЕДАН</b>\nПокупатель, подтвердите.",
                     reply_markup=callback.message.reply_markup,
                 )
             except Exception:
@@ -1626,7 +1391,7 @@ async def process_deal(callback: CallbackQuery):
             await asyncio.to_thread(update_balance, deal["seller"], deal["amount"])
             try:
                 await callback.message.edit_text(
-                    f"✅ <b>СДЕЛКА ЗАВЕРШЕНА!</b>\n"
+                    f"✅ <b>СДЕЛКА ЗАВЕРШЕНА</b>\n"
                     f"Средства ({format_money(deal['amount'])}) переведены продавцу."
                 )
             except Exception:
@@ -1636,7 +1401,6 @@ async def process_deal(callback: CallbackQuery):
         logger.error(f"process_deal: {e}")
 
 
-# --- DUELS ---
 active_duels: Dict[str, dict] = {}
 
 
@@ -1651,7 +1415,7 @@ async def cmd_duel(message: Message):
         if not amount:
             return await message.reply("❌ Неверная сумма.")
         target = await asyncio.to_thread(
-            db_execute, "SELECT user_id FROM users WHERE username = ?", (target_username,), True
+            db_execute, "SELECT user_id FROM users WHERE LOWER(username)=LOWER(?)", (target_username,), True
         )
         if not target:
             return await message.reply("❌ Игрок не найден.")
@@ -1676,13 +1440,13 @@ async def cmd_duel(message: Message):
         msg = await message.reply(
             f"⚔️ <b>ВЫЗОВ НА ДУЭЛЬ</b>\n\n"
             f"{message.from_user.first_name} → @{target_username}\n"
-            f"💰 Ставка: {format_money(amount)}\n\n"
+            f"💰 {format_money(amount)}\n\n"
             f"@{target_username}, принимаешь?",
             reply_markup=kb.as_markup(),
         )
         asyncio.create_task(auto_delete(msg, 300))
     except Exception as e:
-        logger.error(f"cmd_duel: {e}")
+        logger.error(f"duel: {e}")
 
 
 @group_router.callback_query(F.data.startswith("duel_"))
@@ -1731,7 +1495,7 @@ async def process_duel(callback: CallbackQuery):
         if v1 == v2:
             await asyncio.to_thread(update_balance, c[0], amount)
             await asyncio.to_thread(update_balance, t[0], amount)
-            text = f"🤝 <b>НИЧЬЯ!</b>\n{v1} : {v2}\nСтавки возвращены."
+            text = f"🤝 <b>НИЧЬЯ</b>\n{v1} : {v2}\nСтавки возвращены."
         else:
             if v1 > v2:
                 winner_id, winner_name = c[0], duel["challenger_name"]
@@ -1743,7 +1507,7 @@ async def process_duel(callback: CallbackQuery):
             await asyncio.to_thread(log_game, winner_id, "дуэль", amount, prize)
             loser_id = c[0] if winner_id != c[0] else t[0]
             await asyncio.to_thread(log_game, loser_id, "дуэль", amount, 0)
-            text = f"⚔️ <b>ДУЭЛЬ</b>\n{v1} : {v2}\n\n🏆 <b>{winner_name}</b>\n💰 Приз: {format_money(prize)}"
+            text = f"⚔️ <b>ДУЭЛЬ</b>\n{v1} : {v2}\n\n🏆 <b>{winner_name}</b>\n💰 {format_money(prize)}"
         try:
             await callback.message.edit_text(text)
         except Exception:
@@ -1754,7 +1518,7 @@ async def process_duel(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 23. GAMES: DICE / ROULETTE / MINES / BJ
+# 24. GAMES
 # ==============================================================================
 active_roulette: Dict[int, dict] = {}
 active_mines: Dict[str, dict] = {}
@@ -1788,7 +1552,7 @@ async def game_dice_choice(callback: CallbackQuery, state: FSMContext):
     game = callback.data.split("_", 2)[2]
     await state.update_data(dice_game=game)
     msg = await callback.message.reply(
-        f"🎲 Выбрана игра <b>{game}</b>.\nНапиши ставку: <code>1000</code> или <code>10к</code>",
+        f"🎲 Игра: <b>{game}</b>\nНапиши ставку: <code>1000</code> или <code>10к</code>",
         reply_markup=ForceReply(selective=True),
     )
     asyncio.create_task(auto_delete(msg, 60))
@@ -1799,7 +1563,7 @@ async def game_dice_choice(callback: CallbackQuery, state: FSMContext):
 async def game_roulette_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     msg = await callback.message.reply(
-        "🎡 Напиши ставку: <code>к 1000</code>, <code>13 500</code> или <code>10-23 500</code>",
+        "🎡 Ставка: <code>к 1000</code>, <code>13 500</code>, <code>10-23 500</code>",
         reply_markup=ForceReply(selective=True),
     )
     asyncio.create_task(auto_delete(msg, 60))
@@ -1810,7 +1574,7 @@ async def game_roulette_choice(callback: CallbackQuery, state: FSMContext):
 async def game_mines_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     msg = await callback.message.reply(
-        "💣 Напиши сумму ставки:", reply_markup=ForceReply(selective=True)
+        "💣 Сумма ставки:", reply_markup=ForceReply(selective=True)
     )
     asyncio.create_task(auto_delete(msg, 60))
     await state.set_state(GameStates.waiting_mines_bet)
@@ -1820,7 +1584,7 @@ async def game_mines_choice(callback: CallbackQuery, state: FSMContext):
 async def game_bj_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     msg = await callback.message.reply(
-        "🃏 Напиши сумму ставки:", reply_markup=ForceReply(selective=True)
+        "🃏 Сумма ставки:", reply_markup=ForceReply(selective=True)
     )
     asyncio.create_task(auto_delete(msg, 60))
     await state.set_state(GameStates.waiting_bj_bet)
@@ -1870,12 +1634,14 @@ async def process_bj_bet(message: Message, state: FSMContext):
     await _start_bj(message, amount)
 
 
-# ---- Dice ----
+# ---- DICE ----
 @group_router.message(F.text.regexp(r"(?i)^(кости|дартс|баскет|футбол|боулинг|слот)\s+(.+)$"))
 async def play_dice_group_text(message: Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    parts = message.text.lower().split()
+    parts = (message.text or "").lower().split()
+    if len(parts) < 2:
+        return
     game, amount = parts[0], parse_amt(parts[1])
     if not amount:
         return await message.reply("❌ Неверная ставка.")
@@ -1912,7 +1678,7 @@ async def _run_dice(message: Message, game: str, amount: int):
     asyncio.create_task(auto_delete(res, 60))
 
 
-# ---- Roulette parser ----
+# ---- ROULETTE PARSER ----
 def _parse_roulette_value(raw: str):
     raw = raw.lower().strip()
     if raw in ("к", "красное", "red"):
@@ -1975,7 +1741,7 @@ async def _place_roulette_bet(message: Message, kind, value, bet_raw: str, amoun
         "kind": kind, "value": value, "raw": bet_raw, "amount": amount,
     })
     res = await message.reply(
-        f"✅ <b>Ставка принята</b>\n🎯 На: {bet_raw.upper()}\n💰 Сумма: {format_money(amount)}"
+        f"✅ <b>Ставка принята</b>\n🎯 {bet_raw.upper()}\n💰 {format_money(amount)}"
     )
     asyncio.create_task(auto_delete(res, 60))
 
@@ -2002,7 +1768,6 @@ async def start_roulette(message: Message):
     color = "з" if result == 0 else "к" if result in RED_NUMS else "ч"
     color_name = {"к": "Красное 🔴", "ч": "Черное ⚫", "з": "Зеро 🟢"}[color]
 
-    # SAVE ROULETTE LOG
     await asyncio.to_thread(
         db_execute,
         "INSERT INTO roulette_logs (chat_id, result_num, color, date) VALUES (?, ?, ?, ?)",
@@ -2046,7 +1811,7 @@ async def start_roulette(message: Message):
     asyncio.create_task(auto_delete(msg, 60))
 
 
-# ---- Mines ----
+# ---- MINES ----
 def _mines_keyboard(game_key: str, opened: list, cash: Optional[int] = None, reveal_all=None):
     kb = InlineKeyboardBuilder()
     for i in range(25):
@@ -2087,7 +1852,10 @@ async def _start_mines(message: Message, amount: int):
 async def play_mines_text(message: Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    amount = parse_amt(message.text.split()[1])
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        return
+    amount = parse_amt(parts[1])
     if not amount:
         return await message.reply("❌ Неверная ставка.")
     await _start_mines(message, amount)
@@ -2135,8 +1903,7 @@ async def mines_callback(callback: CallbackQuery):
         kb = _mines_keyboard(game_key, [], None, reveal_all=game["mines"])
         try:
             await callback.message.edit_text(
-                f"💥 <b>БУМ!</b> {random.choice(LOSE_PHRASES)}",
-                reply_markup=kb,
+                f"💥 <b>БУМ!</b> {random.choice(LOSE_PHRASES)}", reply_markup=kb
             )
         except Exception:
             pass
@@ -2152,7 +1919,7 @@ async def mines_callback(callback: CallbackQuery):
         pass
 
 
-# ---- Blackjack ----
+# ---- BLACKJACK ----
 BJ_SUITS = ["♠", "♥", "♦", "♣"]
 BJ_RANKS = [("2",2),("3",3),("4",4),("5",5),("6",6),("7",7),("8",8),("9",9),("10",10),("J",10),("Q",10),("K",10),("A",11)]
 
@@ -2209,7 +1976,10 @@ async def _start_bj(message: Message, amount: int):
 async def play_bj_text(message: Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    amount = parse_amt(message.text.split()[1])
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        return
+    amount = parse_amt(parts[1])
     if not amount:
         return await message.reply("❌ Неверная ставка.")
     await _start_bj(message, amount)
@@ -2266,7 +2036,7 @@ async def _bj_finish(message: Message, game_key: str, chat_id: int, bust: bool =
         prize = game["bet"]
         result = f"🤝 Ничья. Возврат: {format_money(prize)}"
     else:
-        result, prize = f"😢 Дилер победил. {random.choice(LOSE_PHRASES)}", 0
+        result, prize = f"😢 Дилер победил.", 0
 
     if prize:
         await asyncio.to_thread(update_balance, game["uid"], prize)
@@ -2287,133 +2057,307 @@ async def _bj_finish(message: Message, game_key: str, chat_id: int, bust: bool =
 
 
 # ==============================================================================
-# 24. ADMIN
+# 25. ADMIN — helpers
 # ==============================================================================
 def _find_user_id(token: str) -> Optional[int]:
-    token = token.replace("@", "")
+    token = token.replace("@", "").strip()
     if token.isdigit():
         res = db_execute("SELECT user_id FROM users WHERE user_id = ?", (int(token),), True)
         return res[0] if res else None
-    res = db_execute("SELECT user_id FROM users WHERE username = ?", (token,), True)
+    res = db_execute("SELECT user_id FROM users WHERE LOWER(username) = LOWER(?)", (token,), True)
     return res[0] if res else None
 
 
 def _parse_amount(raw: str) -> Optional[int]:
-    raw = raw.lower().strip().replace("кк", "000000").replace("к", "000")
-    try:
-        return int(raw)
-    except Exception:
+    raw = (raw or "").lower().strip().replace(" ", "")
+    m = re.match(r"^(\d+)(кк|к)?$", raw)
+    if not m:
         return None
+    val = int(m.group(1))
+    if m.group(2) == "к":
+        val *= 1000
+    elif m.group(2) == "кк":
+        val *= 1_000_000
+    return val
 
 
+# ==============================================================================
+# 26. ADMIN — neuro_admin (30+ commands)
+# ==============================================================================
 @admin_router.message(F.text.startswith("@"))
 async def neuro_admin(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-    args = message.text.split()
+    raw = message.text.strip()
+    args = raw.split()
     cmd = args[0].lower()
+    argc = len(args)
 
     if cmd == "@помощь":
         return await message.reply(
-            "👑 <b>КОМАНДЫ</b>\n\n"
-            "<code>@бан [ник]</code> / <code>@анбан [ник]</code>\n"
-            "<code>@вип [ник]</code>\n"
-            "<code>@выдать [ник] 10к</code>\n"
-            "<code>@забрать [ник] 5к</code>\n"
-            "<code>@очистить_баланс [ник]</code>\n"
-            "<code>@дроп 50к</code>\n"
-            "<code>@стата</code>\n"
-            "<code>@рассылка [текст]</code>\n"
+            "👑 <b>НЕЙРО-АДМИН</b>\n\n"
+            "<b>1. Игроки</b>\n"
+            "<code>@выдать/забрать [ник/ID] [сумма]</code>\n"
+            "<code>@очистить_баланс [ник/ID]</code>\n"
+            "<code>@бан/анбан [ник/ID]</code>\n"
+            "<code>@вип/снять_вип [ник/ID]</code>\n"
+            "<code>@мут/размут [ник/ID]</code>\n"
+            "<code>@кик [ник/ID]</code>\n"
+            "<code>@сброс_кулдауна [ник/ID]</code>\n\n"
+            "<b>2. Кланы</b>\n"
+            "<code>@клан_казна [название] [сумма]</code>\n"
+            "<code>@клан_лвл [название] [1-5]</code>\n"
+            "<code>@клан_удалить [название]</code>\n\n"
+            "<b>3. Ивенты</b>\n"
+            "<code>@дроп [сумма]</code>\n"
+            "<code>@дождь [сумма]</code>\n"
+            "<code>@ивент лотерея</code>\n"
+            "<code>@ивент колесо</code>\n"
+            "<code>@всем [сумма]</code>\n\n"
+            "<b>4. Промокоды</b>\n"
             "<code>@промо [код] [сумма] [лимит]</code>\n"
             "<code>@промо_список</code>\n"
-            "<code>@промо_удалить [код]</code>"
+            "<code>@промо_удалить [код]</code>\n\n"
+            "<b>5. Статистика</b>\n"
+            "<code>@стата</code>\n"
+            "<code>@онлайн</code>\n"
+            "<code>@топ_баланс / @топ_донат</code>\n"
+            "<code>@рассылка [текст]</code>\n"
+            "<code>@рассылка_юзер [ник/ID] [текст]</code>\n"
+            "<code>@очистить_чат</code>\n"
+            "<code>@бэкап</code>\n\n"
+            "💡 Суммы: <code>10</code>, <code>10к</code>, <code>1кк</code>."
         )
 
-    if cmd == "@стата":
-        users = db_execute("SELECT COUNT(*) FROM users", (), True)[0]
-        total_bal = db_execute("SELECT SUM(balance) FROM users", (), True)[0] or 0
-        return await message.reply(f"📊 Игроков: {users}\n💰 Баланс: {format_money(total_bal)}")
-
-    if cmd == "@бан" and len(args) >= 2:
-        uid = _find_user_id(args[1])
-        if uid:
-            db_execute("UPDATE users SET role='banned' WHERE user_id=?", (uid,))
-            cache_invalidate(uid)
-            return await message.reply(f"🚫 {args[1]} забанен.")
-
-    if cmd == "@анбан" and len(args) >= 2:
-        uid = _find_user_id(args[1])
-        if uid:
-            db_execute("UPDATE users SET role='user' WHERE user_id=?", (uid,))
-            cache_invalidate(uid)
-            return await message.reply(f"✅ {args[1]} разбанен.")
-
-    if cmd == "@вип" and len(args) >= 2:
-        uid = _find_user_id(args[1])
-        if uid:
-            until = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
-            db_execute("UPDATE users SET role='vip', vip_until=? WHERE user_id=?", (until, uid))
-            cache_invalidate(uid)
-            return await message.reply(f"👑 {args[1]} теперь VIP.")
-
-    if cmd == "@выдать" and len(args) >= 3:
+    # ----- 1. PLAYER MANAGEMENT -----
+    if cmd == "@выдать" and argc >= 3:
         uid = _find_user_id(args[1]); amount = _parse_amount(args[2])
-        if uid and amount:
-            update_balance(uid, amount)
-            return await message.reply(f"✅ +{format_money(amount)} → {args[1]}")
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        await asyncio.to_thread(update_balance, uid, amount)
+        return await message.reply(_admin_reply_ok(f"+{format_money(amount)} → {args[1]}"))
 
-    if cmd == "@забрать" and len(args) >= 3:
+    if cmd == "@забрать" and argc >= 3:
         uid = _find_user_id(args[1]); amount = _parse_amount(args[2])
-        if uid and amount:
-            update_balance(uid, -amount)
-            return await message.reply(f"✅ -{format_money(amount)} у {args[1]}")
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        await asyncio.to_thread(update_balance, uid, -amount)
+        return await message.reply(_admin_reply_ok(f"-{format_money(amount)} у {args[1]}"))
 
-    if cmd == "@очистить_баланс" and len(args) >= 2:
+    if cmd == "@очистить_баланс" and argc >= 2:
         uid = _find_user_id(args[1])
-        if uid:
-            db_execute("UPDATE users SET balance=0 WHERE user_id=?", (uid,))
-            cache_invalidate(uid)
-            return await message.reply("🧹 Обнулено.")
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET balance = 0 WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"Баланс {args[1]} обнулён."))
 
-    if cmd == "@дроп" and len(args) >= 2:
+    if cmd == "@бан" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET role = 'banned' WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} забанен."))
+
+    if cmd == "@анбан" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET role = 'user' WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} разбанен."))
+
+    if cmd == "@вип" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        until = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
+        await asyncio.to_thread(
+            db_execute, "UPDATE users SET role = 'vip', vip_until = ? WHERE user_id = ?", (until, uid)
+        )
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} теперь VIP на 30 дней."))
+
+    if cmd == "@снять_вип" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(
+            db_execute, "UPDATE users SET role = 'user', vip_until = NULL WHERE user_id = ?", (uid,)
+        )
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"VIP снят у {args[1]}."))
+
+    if cmd == "@мут" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET role = 'muted' WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} заглушён."))
+
+    if cmd == "@размут" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET role = 'user' WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} размучен."))
+
+    if cmd == "@кик" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE user_id = ?", (uid,))
+        cache_invalidate(uid)
+        return await message.reply(_admin_reply_ok(f"{args[1]} исключён из клана."))
+
+    if cmd == "@сброс_кулдауна" and argc >= 2:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE users SET last_bonus = NULL WHERE user_id = ?", (uid,))
+        return await message.reply(_admin_reply_ok(f"Кулдаун сброшен у {args[1]}."))
+
+    # ----- 2. CLANS -----
+    if cmd == "@клан_казна" and argc >= 3:
+        clan_name = " ".join(args[1:-1])
+        amount = _parse_amount(args[-1])
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        clan = await asyncio.to_thread(
+            db_execute, "SELECT id, treasury FROM clans WHERE LOWER(name)=LOWER(?)", (clan_name,), True
+        )
+        if not clan:
+            return await message.reply(_admin_reply_err("Клан не найден."))
+        new_treasury = max(0, (clan[1] or 0) + amount)
+        await asyncio.to_thread(db_execute, "UPDATE clans SET treasury = ? WHERE id = ?", (new_treasury, clan[0]))
+        return await message.reply(
+            _admin_reply_ok(f"Казна «{clan_name}»: {format_money(clan[1])} → {format_money(new_treasury)}")
+        )
+
+    if cmd == "@клан_лвл" and argc >= 3:
+        clan_name = " ".join(args[1:-1])
+        try:
+            level = int(args[-1])
+            if not 1 <= level <= 5:
+                raise ValueError
+        except ValueError:
+            return await message.reply(_admin_reply_err("Уровень 1–5."))
+        clan = await asyncio.to_thread(
+            db_execute, "SELECT id FROM clans WHERE LOWER(name)=LOWER(?)", (clan_name,), True
+        )
+        if not clan:
+            return await message.reply(_admin_reply_err("Клан не найден."))
+        await asyncio.to_thread(db_execute, "UPDATE clans SET level = ? WHERE id = ?", (level, clan[0]))
+        return await message.reply(_admin_reply_ok(f"Уровень «{clan_name}» → {level}."))
+
+    if cmd == "@клан_удалить" and argc >= 2:
+        clan_name = " ".join(args[1:])
+        clan = await asyncio.to_thread(
+            db_execute, "SELECT id FROM clans WHERE LOWER(name)=LOWER(?)", (clan_name,), True
+        )
+        if not clan:
+            return await message.reply(_admin_reply_err("Клан не найден."))
+        members = await asyncio.to_thread(
+            db_execute, "SELECT user_id FROM users WHERE clan_id = ?", (clan[0],), False, True
+        )
+        for (uid,) in members or []:
+            cache_invalidate(uid)
+        await asyncio.to_thread(db_execute, "UPDATE users SET clan_id = NULL WHERE clan_id = ?", (clan[0],))
+        await asyncio.to_thread(db_execute, "DELETE FROM clans WHERE id = ?", (clan[0],))
+        return await message.reply(
+            _admin_reply_ok(f"Клан «{clan_name}» расформирован ({len(members or [])} участников).")
+        )
+
+    # ----- 3. EVENTS -----
+    if cmd == "@дроп" and argc >= 2:
         amount = _parse_amount(args[1])
-        if amount:
-            kb = InlineKeyboardBuilder().button(text="💰 СХВАТИТЬ", callback_data=f"drop_{amount}")
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        kb = InlineKeyboardBuilder().button(text="💰 СХВАТИТЬ", callback_data=f"drop_{amount}")
+        try:
             msg = await bot.send_message(
                 CHAT_ID,
                 f"🚨 <b>ДРОП!</b> Кто первый нажмёт — заберёт {format_money(amount)}!",
                 reply_markup=kb.as_markup(),
             )
             asyncio.create_task(auto_delete(msg, 60))
-            return await message.reply("✅ Дроп запущен.")
+        except Exception as e:
+            return await message.reply(_admin_reply_err(f"Ошибка: {e}"))
+        return await message.reply(_admin_reply_ok("Дроп запущен."))
 
-    if cmd == "@рассылка" and len(args) >= 2:
-        text = message.text[len("@рассылка "):]
-        users = db_execute("SELECT user_id FROM users", (), False, True)
-        count = 0
-        for u in users or []:
-            try:
-                await bot.send_message(u[0], f"📢 <b>ОБЪЯВЛЕНИЕ</b>\n\n{text}")
-                count += 1
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
-        return await message.reply(f"✅ Доставлено: {count}")
-
-    if cmd == "@промо" and len(args) >= 4:
-        code = args[1].upper()
-        reward = _parse_amount(args[2])
-        limit = _parse_amount(args[3])
-        if reward and limit:
-            db_execute(
-                "INSERT INTO promos (code, reward, limit_count) VALUES (?, ?, ?) "
-                "ON CONFLICT (code) DO UPDATE SET reward=?, limit_count=?",
-                (code, reward, limit, reward, limit),
+    if cmd == "@дождь" and argc >= 2:
+        amount = _parse_amount(args[1])
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        kb = InlineKeyboardBuilder().row(InlineKeyboardButton(text="☔ ПОЙМАТЬ", callback_data=f"rain_{amount}"))
+        try:
+            msg = await bot.send_message(
+                CHAT_ID,
+                f"🌧 <b>ДОЖДЬ ТОКЕНОВ!</b>\nКаждый получит {format_money(amount)}!\n<i>60 секунд.</i>",
+                reply_markup=kb.as_markup(),
             )
-            return await message.reply(f"✅ Промокод {code} создан.")
+            asyncio.create_task(auto_delete(msg, 60))
+        except Exception as e:
+            return await message.reply(_admin_reply_err(f"Ошибка: {e}"))
+        return await message.reply(_admin_reply_ok("Дождь запущен."))
+
+    if cmd == "@ивент" and argc >= 2:
+        sub = args[1].lower()
+        if sub == "лотерея":
+            try:
+                await auto_lottery_start()
+                return await message.reply(_admin_reply_ok("Лотерея запущена."))
+            except Exception as e:
+                return await message.reply(_admin_reply_err(f"Ошибка: {e}"))
+        if sub == "колесо":
+            try:
+                await bot.send_message(
+                    CHAT_ID,
+                    "🎡 <b>РУЛЕТКА!</b> Ставки: <code>к 1000</code>, <code>13 500</code>.\nЗапуск: <code>го</code>",
+                )
+                return await message.reply(_admin_reply_ok("Рулетка объявлена."))
+            except Exception as e:
+                return await message.reply(_admin_reply_err(f"Ошибка: {e}"))
+        return await message.reply(_admin_reply_err("Подкоманды: лотерея | колесо."))
+
+    if cmd == "@всем" and argc >= 2:
+        amount = _parse_amount(args[1])
+        if not amount:
+            return await message.reply(_admin_reply_err("Неверная сумма."))
+        rows = await asyncio.to_thread(db_execute, "SELECT user_id FROM users", (), False, True)
+        count = 0
+        for (uid,) in rows or []:
+            await asyncio.to_thread(update_balance, uid, amount)
+            count += 1
+        return await message.reply(_admin_reply_ok(f"Начислено {format_money(amount)} всем ({count})."))
+
+    # ----- 4. PROMO -----
+    if cmd == "@промо" and argc >= 4:
+        code = args[1].upper()
+        reward = _parse_amount(args[2]); limit = _parse_amount(args[3])
+        if not reward or not limit:
+            return await message.reply(_admin_reply_err("Неверная сумма/лимит."))
+        await asyncio.to_thread(
+            db_execute,
+            "INSERT INTO promos (code, reward, limit_count) VALUES (?, ?, ?) "
+            "ON CONFLICT (code) DO UPDATE SET reward=?, limit_count=?",
+            (code, reward, limit, reward, limit),
+        )
+        return await message.reply(
+            _admin_reply_ok(f"Промокод {code}: {format_money(reward)}, лимит {limit}.")
+        )
 
     if cmd == "@промо_список":
-        rows = db_execute("SELECT code, reward, limit_count, used_count FROM promos", (), False, True)
+        rows = await asyncio.to_thread(
+            db_execute, "SELECT code, reward, limit_count, used_count FROM promos ORDER BY code", (), False, True
+        )
         if not rows:
             return await message.reply("Промокодов нет.")
         text = "🎟 <b>ПРОМОКОДЫ</b>\n\n"
@@ -2421,12 +2365,119 @@ async def neuro_admin(message: Message):
             text += f"<code>{c}</code> — {format_money(r)} (Исп: {u}/{l})\n"
         return await message.reply(text)
 
-    if cmd == "@промо_удалить" and len(args) >= 2:
+    if cmd == "@промо_удалить" and argc >= 2:
         code = args[1].upper()
-        db_execute("DELETE FROM promos WHERE code=?", (code,))
-        return await message.reply(f"🗑 {code} удалён.")
+        await asyncio.to_thread(db_execute, "DELETE FROM promos WHERE code = ?", (code,))
+        return await message.reply(_admin_reply_ok(f"{code} удалён."))
+
+    # ----- 5. STATS -----
+    if cmd == "@стата":
+        users = (await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM users", (), True))[0]
+        total_bal = (await asyncio.to_thread(db_execute, "SELECT SUM(balance) FROM users", (), True))[0] or 0
+        tickets = (await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM tickets", (), True))[0]
+        clans = (await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM clans", (), True))[0]
+        games = (await asyncio.to_thread(db_execute, "SELECT COUNT(*) FROM games_log", (), True))[0]
+        return await message.reply(
+            f"📊 <b>СТАТИСТИКА</b>\n\n"
+            f"👥 Игроков: <b>{users}</b>\n"
+            f"💰 Баланс: <b>{format_money(total_bal)}</b>\n"
+            f"🛡 Кланов: <b>{clans}</b>\n"
+            f"🎮 Игр: <b>{games}</b>\n"
+            f"🎫 Тикетов: <b>{tickets}</b>"
+        )
+
+    if cmd == "@онлайн":
+        day_ago = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat()
+        online = (await asyncio.to_thread(
+            db_execute, "SELECT COUNT(*) FROM users WHERE last_seen > ?", (day_ago,), True
+        ))[0]
+        return await message.reply(f"👥 Активность за 24ч: {online}.")
+
+    if cmd == "@топ_баланс":
+        rows = await asyncio.to_thread(
+            db_execute, "SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10", (), False, True
+        )
+        if not rows:
+            return await message.reply("Пусто.")
+        text = "💰 <b>ТОП-10 БАЛАНС</b>\n\n"
+        for i, (un, bal) in enumerate(rows, 1):
+            icon = "👑" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            text += f"{icon} @{un or '—'} — {format_money(bal)}\n"
+        return await message.reply(text)
+
+    if cmd == "@топ_донат":
+        rows = await asyncio.to_thread(
+            db_execute, "SELECT username, total_donated FROM users ORDER BY total_donated DESC LIMIT 10",
+            (), False, True,
+        )
+        if not rows:
+            return await message.reply("Пусто.")
+        text = "💎 <b>ТОП-10 ДОНАТ</b>\n\n"
+        for i, (un, don) in enumerate(rows, 1):
+            icon = "👑" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            text += f"{icon} @{un or '—'} — {format_money(don or 0)}\n"
+        return await message.reply(text)
+
+    if cmd == "@рассылка" and argc >= 2:
+        text = raw[len("@рассылка "):]
+        if not text.strip():
+            return await message.reply(_admin_reply_err("Пустой текст."))
+        rows = await asyncio.to_thread(db_execute, "SELECT user_id FROM users", (), False, True)
+        await message.reply(f"⏳ Рассылка на {len(rows or [])}...")
+        count = 0
+        for (uid,) in rows or []:
+            try:
+                await bot.send_message(uid, f"📢 <b>ОБЪЯВЛЕНИЕ</b>\n\n{text}")
+                count += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
+        return await message.reply(_admin_reply_ok(f"Доставлено: {count}/{len(rows or [])}."))
+
+    if cmd == "@рассылка_юзер" and argc >= 3:
+        uid = _find_user_id(args[1])
+        if not uid:
+            return await message.reply(_admin_reply_err("Игрок не найден."))
+        text = raw[len(f"@рассылка_юзер {args[1]} "):]
+        if not text.strip():
+            return await message.reply(_admin_reply_err("Пустой текст."))
+        try:
+            await bot.send_message(uid, f"📢 <b>СООБЩЕНИЕ ОТ АДМИНА</b>\n\n{text}")
+            return await message.reply(_admin_reply_ok("Доставлено."))
+        except Exception as e:
+            return await message.reply(_admin_reply_err(f"Не доставлено: {e}"))
+
+    if cmd == "@очистить_чат":
+        deleted = 0
+        for mid in range(message.message_id, max(message.message_id - 100, 0), -1):
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=mid)
+                deleted += 1
+                await asyncio.sleep(0.03)
+            except Exception:
+                continue
+        return await message.reply(_admin_reply_ok(f"Удалено: {deleted}."))
+
+    if cmd == "@бэкап":
+        try:
+            import tempfile, subprocess, shutil
+            if not shutil.which("pg_dump"):
+                return await message.reply(_admin_reply_err("pg_dump недоступен."))
+            tmp = tempfile.NamedTemporaryFile(suffix=".sql", delete=False)
+            tmp.close()
+            subprocess.run(["pg_dump", DATABASE_URL, "-f", tmp.name], check=True, timeout=60)
+            await message.answer_document(FSInputFile(tmp.name), caption="💾 Бэкап")
+            os.unlink(tmp.name)
+        except Exception as e:
+            return await message.reply(_admin_reply_err(f"Бэкап не удался: {e}"))
+        return
+
+    return await message.reply(_admin_reply_err("Неизвестная команда. <code>@помощь</code>."))
 
 
+# ==============================================================================
+# 27. DROP / RAIN callbacks
+# ==============================================================================
 @group_router.callback_query(F.data.startswith("drop_"))
 async def claim_drop(callback: CallbackQuery):
     await callback.answer("Ты забрал куш!", show_alert=True)
@@ -2438,14 +2489,45 @@ async def claim_drop(callback: CallbackQuery):
     await asyncio.to_thread(update_balance, user[0], amount)
     try:
         await callback.message.edit_text(
-            f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! Он получил {format_money(amount)}!"
+            f"💰 Мешок забрал <b>{callback.from_user.first_name}</b>! +{format_money(amount)}"
+        )
+    except Exception:
+        pass
+
+
+@group_router.callback_query(F.data.startswith("rain_"))
+async def claim_rain(callback: CallbackQuery):
+    await callback.answer("☔ Поймал каплю!", show_alert=True)
+    try:
+        amount = int(callback.data.split("_")[1])
+    except Exception:
+        return
+    user = await asyncio.to_thread(get_user, callback.from_user.id)
+    await asyncio.to_thread(update_balance, user[0], amount)
+    try:
+        await callback.message.answer(
+            f"☔ <b>{callback.from_user.first_name}</b> поймал {format_money(amount)}!"
         )
     except Exception:
         pass
 
 
 # ==============================================================================
-# 25. AUTO EVENTS
+# 28. LOTTERY callback
+# ==============================================================================
+@group_router.callback_query(F.data == "buy_ticket")
+async def buy_ticket(callback: CallbackQuery):
+    await callback.answer()
+    user = await asyncio.to_thread(get_user, callback.from_user.id)
+    if user[3] < 10000:
+        return await callback.answer("Мало средств!", show_alert=True)
+    await asyncio.to_thread(update_balance, user[0], -10000)
+    await asyncio.to_thread(db_execute, "INSERT INTO lottery (user_id) VALUES (?)", (user[0],))
+    await callback.answer("Билет куплен!", show_alert=True)
+
+
+# ==============================================================================
+# 29. AUTO EVENTS
 # ==============================================================================
 async def auto_drop():
     amount = random.choice([10000, 25000, 50000, 100000])
@@ -2453,7 +2535,7 @@ async def auto_drop():
     try:
         msg = await bot.send_message(
             CHAT_ID,
-            f"🚨 <b>АВТО-ДРОП!</b> Кто первый нажмёт — заберёт {format_money(amount)}!",
+            f"🚨 <b>АВТО-ДРОП!</b> Забери {format_money(amount)}!",
             reply_markup=kb.as_markup(),
         )
         asyncio.create_task(auto_delete(msg, 90))
@@ -2464,25 +2546,26 @@ async def auto_drop():
 async def auto_promo_create():
     code = f"TOKENS{random.randint(1000, 9999)}"
     reward = 10000
-    db_execute(
+    await asyncio.to_thread(
+        db_execute,
         "INSERT INTO promos (code, reward, limit_count) VALUES (?, ?, 5) ON CONFLICT DO NOTHING",
         (code, reward),
     )
     try:
         await bot.send_message(
             CHAT_ID,
-            f"🎟 <b>АВТО-ПРОМОКОД!</b>\n\n"
-            f"Код: <code>{code}</code>\n"
-            f"Награда: {format_money(reward)}\n"
-            f"Лимит: 5 активаций!\n\n"
-            f"Активируй: <code>промо {code}</code>",
+            f"🎟 <b>АВТО-ПРОМОКОД!</b>\n\nКод: <code>{code}</code>\n"
+            f"Награда: {format_money(reward)}\nЛимит: 5\n\n"
+            f"Активация: <code>промо {code}</code>",
         )
     except Exception:
         pass
 
 
 async def auto_lottery_start():
-    kb = InlineKeyboardBuilder().row(InlineKeyboardButton(text="🎟 Купить билет (10к)", callback_data="buy_ticket"))
+    kb = InlineKeyboardBuilder().row(
+        InlineKeyboardButton(text="🎟 Купить билет (10к)", callback_data="buy_ticket")
+    )
     try:
         msg = await bot.send_message(CHAT_ID, "🎟 <b>РОЗЫГРЫШ ЛОТЕРЕИ!</b>", reply_markup=kb.as_markup())
         asyncio.create_task(auto_delete(msg, 3600))
@@ -2490,18 +2573,8 @@ async def auto_lottery_start():
         pass
 
 
-@group_router.callback_query(F.data == "buy_ticket")
-async def buy_ticket(callback: CallbackQuery):
-    user = await asyncio.to_thread(get_user, callback.from_user.id)
-    if user[3] < 10000:
-        return await callback.answer("Мало средств!", show_alert=True)
-    await asyncio.to_thread(update_balance, user[0], -10000)
-    db_execute("INSERT INTO lottery (user_id) VALUES (?)", (user[0],))
-    await callback.answer("Билет куплен!", show_alert=True)
-
-
 async def auto_lottery_end():
-    tickets = db_execute("SELECT user_id FROM lottery", (), False, True)
+    tickets = await asyncio.to_thread(db_execute, "SELECT user_id FROM lottery", (), False, True)
     if not tickets:
         try:
             await bot.send_message(CHAT_ID, "Лотерея не состоялась (нет билетов).")
@@ -2509,12 +2582,13 @@ async def auto_lottery_end():
             pass
         return
     winner = random.choice(tickets)[0]
-    db_execute("DELETE FROM lottery")
+    await asyncio.to_thread(db_execute, "DELETE FROM lottery")
     await asyncio.to_thread(update_balance, winner, 500_000)
     try:
         await bot.send_message(
             CHAT_ID,
-            f"🏆 Победитель лотереи: <a href='tg://user?id={winner}'>Игрок</a>!\nВыигрыш: 500 000 Tokens!",
+            f"🏆 Победитель лотереи: <a href='tg://user?id={winner}'>Игрок</a>!\n"
+            f"Выигрыш: 500 000 Tokens!",
         )
     except Exception:
         pass
@@ -2522,11 +2596,11 @@ async def auto_lottery_end():
 
 async def vip_daily_bonus():
     now = datetime.datetime.now()
-    rows = db_execute(
-        "SELECT user_id FROM users WHERE role='vip' AND vip_until IS NOT NULL", (), False, True
+    rows = await asyncio.to_thread(
+        db_execute, "SELECT user_id FROM users WHERE role='vip' AND vip_until IS NOT NULL", (), False, True
     )
     for (uid,) in rows or []:
-        u = get_user(uid)
+        u = await asyncio.to_thread(get_user, uid)
         if not u or not is_vip(u):
             continue
         await asyncio.to_thread(update_balance, uid, 30000)
@@ -2534,7 +2608,8 @@ async def vip_daily_bonus():
             await bot.send_message(uid, "👑 <b>VIP-БОНУС</b>: +30 000 Tokens!")
         except Exception:
             pass
-    db_execute(
+    await asyncio.to_thread(
+        db_execute,
         "UPDATE users SET role='user' WHERE role='vip' AND vip_until IS NOT NULL AND vip_until < ?",
         (now.isoformat(),),
     )
@@ -2543,19 +2618,20 @@ async def vip_daily_bonus():
 async def vip_renewal_reminder():
     now = datetime.datetime.now()
     tomorrow = (now + datetime.timedelta(days=1)).isoformat()
-    rows = db_execute(
-        "SELECT user_id, vip_until FROM users WHERE role='vip' AND vip_until IS NOT NULL "
+    rows = await asyncio.to_thread(
+        db_execute,
+        "SELECT user_id FROM users WHERE role='vip' AND vip_until IS NOT NULL "
         "AND vip_until > ? AND vip_until < ?",
         (now.isoformat(), tomorrow), False, True,
     )
-    for uid, until in rows or []:
+    for (uid,) in rows or []:
         try:
             kb = InlineKeyboardBuilder().row(
                 InlineKeyboardButton(text="👑 Продлить VIP", callback_data="donate_vip")
             )
             await bot.send_message(
                 uid,
-                "👑 <b>VIP скоро истекает!</b>\n\nПродлить VIP за 30 ⭐?",
+                "👑 <b>VIP скоро истекает!</b>\n\nПродлить VIP?",
                 reply_markup=kb.as_markup(),
             )
         except Exception:
@@ -2563,7 +2639,7 @@ async def vip_renewal_reminder():
 
 
 # ==============================================================================
-# 26. STARTUP
+# 30. STARTUP
 # ==============================================================================
 async def health(_):
     return web.Response(text="OK")
@@ -2600,4 +2676,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        pass
+        pass 
