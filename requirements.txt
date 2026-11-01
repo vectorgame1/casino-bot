@@ -1,4 +1,4 @@
-aiogram==3.x.x
+aiogram>=3.7.0
 aiohttp
 apscheduler
 psycopg_pool
