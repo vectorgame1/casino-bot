@@ -1,7 +1,6 @@
 # ==============================================================================
 # IMPERIA TOKENS — Telegram Bot (aiogram 3.x + PostgreSQL)
-# Финальная сборка: кнопки повтор/удвоить, умный гарант, клановый босс,
-# rain_claimed, roulette_logs, огромный GAMES_INFO, VIP-значок, RU/EN
+# Финальная сборка: фиксы ставки/парсер/лог/автоудаление
 # ==============================================================================
 
 import os
@@ -41,9 +40,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("tokens_bot")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-CHAT_ID = int(os.getenv("CHAT_ID", "0"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8940867005:AAHeQpS4_I1XZWfzC107G3EPNneQF_8JbYA")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "6403424348"))
+CHAT_ID = int(os.getenv("CHAT_ID", "-1004366922819"))
 PORT = int(os.getenv("PORT", "8080"))
 
 START_BONUS = 5000
@@ -73,12 +72,10 @@ VIP_STICKERS = [
 ]
 
 # ==============================================================================
-# 3. CACHE & IN-MEMORY STATE
+# 3. CACHE & STATE
 # ==============================================================================
 _balance_cache: Dict[int, int] = {}
-_rain_claimed: Set[int] = set()  # per message_id: {'msg_id_user_id'} — см. ниже
-_rain_claimed_map: Dict[int, Set[int]] = {}  # msg_id -> {user_ids}
-_repeat_last: Dict[int, dict] = {}  # user_id -> last game params
+_rain_claimed_map: Dict[int, Set[int]] = {}
 
 
 def cache_set_balance(uid: int, val: int):
@@ -256,7 +253,7 @@ def _admin_reply_err(text: str) -> str:
 
 
 # ==============================================================================
-# 6. TEXTS (RU/EN)
+# 6. TEXTS
 # ==============================================================================
 TEXTS = {
     "ru": {
@@ -337,6 +334,7 @@ BANNERS = {
 
 
 async def send_banner(target: Message, banner_key: str, caption: str, reply_markup=None):
+    """No sticker, no auto-delete, safe text."""
     text = safe_text(caption)
     path = BANNERS.get(banner_key)
     if path and os.path.exists(path):
@@ -420,6 +418,8 @@ class GameStates(StatesGroup):
 # 11. UTILS
 # ==============================================================================
 async def auto_delete(message: Message, delay: int = 60):
+    """Используется ТОЛЬКО для игровых сообщений и служебных уведомлений,
+    но НЕ для баннеров и НЕ для 'ставки'."""
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -506,108 +506,46 @@ async def nav_menu(callback: CallbackQuery, state: FSMContext):
 
 
 # ==============================================================================
-# 13. GAMES_INFO (огромные тексты)
+# 13. GAMES_INFO
 # ==============================================================================
 GAMES_INFO = {
     "dice": (
-        "🎲 <b>КОСТИ</b>\n\n"
-        "<b>Как играть:</b>\n"
-        "Напиши в чат: <code>кости 1000</code>\n\n"
-        "<b>Правила:</b>\n"
-        "Бот кидает кубик. Выпало 4, 5 или 6 — победа x2.\n"
-        "Выпало 1, 2, 3 — проигрыш.\n\n"
-        "<b>Коэффициент:</b> x2\n"
-        "<b>Шанс победы:</b> 50%\n\n"
-        "<b>Примеры ставок:</b>\n"
-        "<code>кости 1000</code> — 1 000\n"
-        "<code>кости 5к</code> — 5 000\n"
-        "<code>кости 1кк</code> — 1 000 000\n\n"
-        "💡 После игры доступны кнопки <b>🔄 Повторить</b> и <b>⏫ Удвоить</b>."
+        "🎲 <b>КОСТИ</b>\n\n<code>кости 1000</code>\n4/5/6 — x2.\n\n"
+        "💡 После игры: <b>🔄 Повторить</b> и <b>⏫ Удвоить</b>."
     ),
     "roulette": (
         "🎡 <b>РУЛЕТКА</b>\n\n"
-        "<b>Как играть:</b>\n"
-        "Ставки принимаются в любом порядке слов.\n\n"
-        "<b>Типы ставок:</b>\n"
-        "• <code>к 1000</code> или <code>1000 к</code> — Красное (x2)\n"
-        "• <code>ч 500</code> или <code>500 ч</code> — Черное (x2)\n"
-        "• <code>з 100</code> — Зеро (x36)\n"
-        "• <code>чет 1000</code> — Чётные (x2)\n"
-        "• <code>нечет 1000</code> — Нечётные (x2)\n"
-        "• <code>10-23 500</code> или <code>500 10-23</code> — Диапазон (x2.5)\n"
-        "• <code>13 100</code> или <code>100 13</code> — Конкретное число (x36)\n"
-        "• <code>583350 к</code> — 583 350 на красное\n\n"
-        "<b>Запуск раунда:</b> кто-то пишет <code>го</code> — рулетка крутится.\n\n"
-        "<b>Вывод:</b>\n"
-        "🎉 Выигрыш: <i>Ставка: к 1000. Выпало 14 🔴. Выплата: 2000</i>\n"
-        "😢 Проигрыш: <i>Ставка: к 1000. Выпало 15 ⚫</i>\n\n"
-        "Команда <code>лог</code> — последние 10 чисел.\n"
-        "💡 Кнопки <b>🔄 Повторить</b> / <b>⏫ Удвоить</b> после ставки."
+        "Ставки в любом порядке:\n"
+        "• <code>к 1000</code> / <code>1000 к</code> — Красное x2\n"
+        "• <code>ч 500</code> / <code>500 ч</code> — Черное x2\n"
+        "• <code>з 100</code> — Зеро x36\n"
+        "• <code>чет 1000</code> / <code>нечет 1000</code> — x2\n"
+        "• <code>10-23 500</code> / <code>500 10-23</code> — диапазон x2.5\n"
+        "• <code>13 100</code> / <code>100 13</code> — число x36\n\n"
+        "Запуск: <code>го</code>\nЛог: <code>лог</code>\n\n"
+        "💡 <b>🔄 Повторить</b> / <b>⏫ Удвоить</b> после ставки."
     ),
     "mines": (
-        "💣 <b>МИНЫ</b>\n\n"
-        "<b>Как играть:</b>\n"
-        "Напиши: <code>мины 1000</code>\n\n"
-        "<b>Правила:</b>\n"
-        "Поле 5×5. Под некоторыми клетками мины (5 штук).\n"
-        "Ты открываешь клетки, ищешь алмазы 💎 и боишься бомб 💥.\n"
-        "Каждая безопасная клетка — +20% к потенциалу.\n\n"
-        "<b>Забрать выигрыш:</b> кнопка <b>💰 Забрать</b>\n\n"
-        "<b>Пример:</b>\n"
-        "Ставка 1000 → открыл 3 клетки → потенциал 1600 → забрал.\n\n"
-        "💡 Кнопки <b>🔄 Повторить</b> / <b>⏫ Удвоить</b> доступны после завершения."
+        "💣 <b>МИНЫ</b>\n\n<code>мины 1000</code>\n"
+        "Каждая безопасная клетка +20%.\n"
+        "💡 <b>🔄 Повторить</b> / <b>⏫ Удвоить</b>."
     ),
     "bj": (
-        "🃏 <b>БЛЭКДЖЕК</b>\n\n"
-        "<b>Как играть:</b>\n"
-        "Напиши: <code>бж 1000</code>\n\n"
-        "<b>Цель:</b> набрать 21 или ближе к 21, чем дилер, но не больше.\n\n"
-        "<b>Карты:</b> 2–10 = номинал, J/Q/K = 10, A = 1 или 11.\n"
-        "<b>Перебор</b> (&gt;21) — сразу проигрыш.\n\n"
-        "<b>Кнопки:</b>\n"
-        "🃏 Взять — ещё карту\n"
-        "✋ Хватит — остановиться\n\n"
-        "<b>Коэффициенты:</b>\n"
-        "Победа — x2, ничья — возврат, проигрыш — 0.\n\n"
-        "💡 Кнопки <b>🔄 Повторить</b> / <b>⏫ Удвоить</b> после итога."
+        "🃏 <b>БЛЭКДЖЕК</b>\n\n<code>бж 1000</code>\n"
+        "Ближе к 21, чем дилер.\n"
+        "💡 <b>🔄 Повторить</b> / <b>⏫ Удвоить</b>."
     ),
     "guarant": (
-        "🤝 <b>ГАРАНТ (сделки)</b>\n\n"
-        "<b>Как создать:</b>\n"
-        "<code>гарант @user 5000</code>\n\n"
-        "<b>Механика:</b>\n"
-        "1. Покупатель пишет команду — сумма замораживается.\n"
-        "2. Продавец передаёт товар и жмёт <b>📦 Товар передан</b>.\n"
-        "3. Покупатель подтверждает — деньги уходят продавцу.\n\n"
-        "<b>Защита:</b>\n"
-        "• Если покупатель молчит 15 минут после передачи — бот пишет ему напоминание.\n"
-        "• Отмена после передачи товара — блокируется, зовётся админ.\n\n"
-        "<b>Кнопки:</b>\n"
-        "✅ Подтвердить (покупатель)\n"
-        "📦 Товар передан (продавец)\n"
-        "❌ Отмена"
+        "🤝 <b>ГАРАНТ</b>\n\n<code>гарант @user 5000</code>\n"
+        "Продавец: «Товар передан». Покупатель: «Подтвердить».\n"
+        "Через 15 мин — напоминание покупателю."
     ),
     "duel": (
-        "⚔️ <b>ДУЭЛИ</b>\n\n"
-        "<b>Как вызвать:</b>\n"
-        "<code>дуэль @user 1000</code>\n\n"
-        "<b>Правила:</b>\n"
-        "Второй игрок жмёт <b>⚔️ Принять</b>. Оба ставят по 1000.\n"
-        "Бот кидает 2 кубика. У кого больше — забирает банк (x2).\n\n"
-        "<b>Ничья:</b> возврат ставок обоим.\n\n"
-        "<b>Пример:</b>\n"
-        "<code>дуэль @vasya 5000</code> → победитель получает 10 000."
+        "⚔️ <b>ДУЭЛИ</b>\n\n<code>дуэль @user 1000</code>\n"
+        "Кубики. Победитель забирает x2."
     ),
     "gift": (
-        "🎁 <b>ПОДАРКИ</b>\n\n"
-        "<b>Как подарить:</b>\n"
-        "<code>подарить @user 1000</code>\n\n"
-        "<b>Особенности:</b>\n"
-        "• Мгновенный перевод\n• Комиссия: 0%\n• Красивое сообщение в чат\n\n"
-        "<b>VIP:</b> без комиссии, ускоренный перевод.\n\n"
-        "<b>Примеры:</b>\n"
-        "<code>подарить @masha 5к</code> — 5 000\n"
-        "<code>подарить @petya 1кк</code> — 1 000 000"
+        "🎁 <b>ПОДАРКИ</b>\n\n<code>подарить @user 1000</code>"
     ),
 }
 
@@ -673,7 +611,7 @@ async def gameinfo_back(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 14. BONUS
+# 14. BONUS (без auto_delete)
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_bonus"], TEXTS["en"]["btn_bonus"]]))
 async def daily_bonus(message: Message, state: FSMContext):
@@ -730,21 +668,6 @@ def current_rate() -> int:
     return random.Random(slot).randint(5000, 10000)
 
 
-@user_router.message(F.text.in_([TEXTS["ru"]["btn_donate"], TEXTS["en"]["btn_donate"]]))
-async def donate_menu(message: Message, state: FSMContext):
-    await delete_old_messages(bot, state, message.chat.id)
-    user = await asyncio.to_thread(get_user, message.from_user.id)
-    rate = current_rate()
-    text = f"💎 <b>ДОНАТ-ЦЕНТР</b>\n\n🔥 1 ⭐ = <b>{rate:,} Tokens</b>"
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🟢⭐ Купить Токены", callback_data="donate_tokens"))
-    kb.row(InlineKeyboardButton(text="🟢👑 Купить VIP", callback_data="donate_vip"))
-    kb.row(InlineKeyboardButton(text=_(user, "btn_back"), callback_data="nav_menu"))
-    msg = await send_banner(message, "donate", text, kb.as_markup())
-    if msg:
-        await state.update_data(last_msgs=[msg.message_id])
-
-
 @user_router.callback_query(F.data == "donate_tokens")
 async def donate_tokens(callback: CallbackQuery):
     await callback.answer()
@@ -792,7 +715,7 @@ async def donate_vip(callback: CallbackQuery):
         "• 💰 Авто-бонус <b>30 000 Tokens</b> каждый день\n"
         "• 🎡 <b>Эксклюзивный доступ к Золотой Рулетке (выигрыш x3)</b>\n"
         "• 🚫 Без комиссии при переводах\n"
-        "• 👑 VIP-значок в чате (жирный ник + корона)\n\n"
+        "• 👑 VIP-значок в чате\n\n"
         "Выбери срок:"
     )
     kb = InlineKeyboardBuilder()
@@ -933,9 +856,7 @@ async def success_payment(message: Message, state: FSMContext):
             (code, reward),
         )
         msg = await message.answer(
-            f"🎟 <b>Промокод:</b> <code>{code}</code>\n"
-            f"Активация: <code>промо {code}</code>\n"
-            f"Награда: {format_money(reward)}",
+            f"🎟 <b>Промокод:</b> <code>{code}</code>\nАктивация: <code>промо {code}</code>\nНаграда: {format_money(reward)}",
             reply_markup=get_main_menu(user),
         )
     else:
@@ -944,7 +865,7 @@ async def success_payment(message: Message, state: FSMContext):
 
 
 # ==============================================================================
-# 16. PROFILE
+# 16. PROFILE (без auto_delete, без стикера поверх баннера)
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_profile"], TEXTS["en"]["btn_profile"]]))
 async def profile(message: Message, state: FSMContext):
@@ -1061,7 +982,7 @@ async def profile_support_cb(callback: CallbackQuery, state: FSMContext):
 
 
 # ==============================================================================
-# 17. TOP
+# 17. TOP (без auto_delete)
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_top"], TEXTS["en"]["btn_top"]]))
 async def top_menu(message: Message, state: FSMContext):
@@ -1131,7 +1052,7 @@ async def top_callback(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 18. REFERRAL
+# 18. REF (без auto_delete)
 # ==============================================================================
 @user_router.message(F.text.in_([TEXTS["ru"]["btn_ref"], TEXTS["en"]["btn_ref"]]))
 async def refka(message: Message, state: FSMContext):
@@ -1249,6 +1170,7 @@ async def use_promo(message: Message):
     )
     await message.answer(f"✅ Промокод! +{format_money(promo[0])}")
 
+
 # ==============================================================================
 # 21. GROUP: BALANCE / TRANSFER / ставки / лог
 # ==============================================================================
@@ -1297,6 +1219,7 @@ async def cmd_transfer_group(message: Message):
     asyncio.create_task(auto_delete(msg, 60))
 
 
+# --- ИСПРАВЛЕНО: только рулетка, без auto_delete ---
 @group_router.message(F.text.lower() == "ставки")
 async def cmd_my_bets(message: Message):
     if message.chat.type not in ("group", "supergroup"):
@@ -1304,18 +1227,19 @@ async def cmd_my_bets(message: Message):
     user = await asyncio.to_thread(get_user, message.from_user.id)
     rows = await asyncio.to_thread(
         db_execute,
-        "SELECT game, bet, win FROM games_log WHERE user_id = ? ORDER BY id DESC LIMIT 10",
+        "SELECT game, bet, win FROM games_log WHERE user_id = ? AND game = 'рулетка' ORDER BY id DESC LIMIT 10",
         (user[0],), False, True,
     )
     if not rows:
-        return await message.reply("У тебя пока нет ставок.")
-    lines = ["📊 <b>Твои последние ставки:</b>"]
+        return await message.reply("У тебя пока нет ставок в рулетке.")
+    lines = ["📊 <b>Твои последние ставки в рулетке:</b>"]
     for game, bet, win in rows:
-        lines.append(f"🎲 {game} | Ставка: {format_money(bet)} | Выигрыш: {format_money(win)}")
-    msg = await message.reply("\n".join(lines))
-    asyncio.create_task(auto_delete(msg, 90))
+        emoji = "🟢" if win > 0 else "🔴"
+        lines.append(f"{emoji} Ставка: {format_money(bet)} | Выигрыш: {format_money(win)}")
+    await message.reply("\n".join(lines))
 
 
+# --- без auto_delete, чтобы лог висел ---
 @group_router.message(F.text.lower() == "лог")
 async def cmd_roulette_log(message: Message):
     if message.chat.type not in ("group", "supergroup"):
@@ -1331,8 +1255,7 @@ async def cmd_roulette_log(message: Message):
     lines = ["📜 <b>Лог рулетки:</b>"]
     for num, color in rows:
         lines.append(f"{num} {emoji.get(color, '⚪')}")
-    msg = await message.reply("\n".join(lines))
-    asyncio.create_task(auto_delete(msg, 90))
+    await message.reply("\n".join(lines))
 
 
 # ==============================================================================
@@ -1374,7 +1297,6 @@ async def cmd_gift(message: Message):
         asyncio.create_task(auto_delete(msg, 120))
     except Exception as e:
         logger.error(f"gift: {e}")
-
 
 # ==============================================================================
 # 23. SMART GUARANT
@@ -1440,8 +1362,8 @@ async def _deal_timeout_watcher(deal_id: str):
         try:
             await bot.send_message(
                 deal["buyer"],
-                "⏰ <b>Напоминание по сделке</b>\n\n"
-                "Ты получил товар? Жми «Подтвердить» или напиши в поддержку.",
+                "⏰ <b>Напоминание по сделке</b>\n\nТы получил товар? "
+                "Жми «Подтвердить» или напиши в поддержку.",
             )
         except Exception:
             pass
@@ -1709,7 +1631,7 @@ async def game_bj_choice(callback: CallbackQuery, state: FSMContext):
     await state.set_state(GameStates.waiting_bj_bet)
 
 
-# ---- FSM bet handlers (с clear при ошибке) ----
+# ---- FSM bet handlers ----
 @group_router.message(GameStates.waiting_dice_bet)
 async def process_dice_bet(message: Message, state: FSMContext):
     amount = parse_amt(message.text or "")
@@ -1754,7 +1676,7 @@ async def process_bj_bet(message: Message, state: FSMContext):
 
 
 # ==============================================================================
-# 26. REPEAT / DOUBLE (inline callbacks)
+# 26. REPEAT / DOUBLE
 # ==============================================================================
 @group_router.callback_query(F.data.startswith("repeat_") | F.data.startswith("double_"))
 async def repeat_double_handler(callback: CallbackQuery):
@@ -1766,7 +1688,6 @@ async def repeat_double_handler(callback: CallbackQuery):
     except Exception:
         return
     amount = bet if action == "repeat" else bet * 2
-    # проверка баланса
     user = await asyncio.to_thread(get_user, callback.from_user.id)
     if user[3] < amount:
         try:
@@ -1775,17 +1696,14 @@ async def repeat_double_handler(callback: CallbackQuery):
             pass
         return
 
-    # клонируем message-подобный объект: используем callback.message, но от лица игрока
-    fake_msg = callback.message
     if game in DICE_EMOJI:
-        await _run_dice_from_cb(fake_msg, game, amount, callback.from_user)
+        await _run_dice_from_cb(callback.message, game, amount, callback.from_user)
     elif game == "рулетка":
-        # ставим на тот же цвет по умолчанию — красное, для простоты
-        await _place_roulette_bet_from_cb(fake_msg, "color", "к", "к", amount, callback.from_user)
+        await _place_roulette_bet_from_cb(callback.message, "color", "к", "к", amount, callback.from_user)
     elif game == "мины":
-        await _start_mines_from_cb(fake_msg, amount, callback.from_user)
+        await _start_mines_from_cb(callback.message, amount, callback.from_user)
     elif game == "блэкджек":
-        await _start_bj_from_cb(fake_msg, amount, callback.from_user)
+        await _start_bj_from_cb(callback.message, amount, callback.from_user)
 
 
 async def _run_dice_from_cb(message: Message, game: str, amount: int, from_user):
@@ -1933,7 +1851,7 @@ async def _run_dice(message: Message, game: str, amount: int):
 
 
 # ==============================================================================
-# 28. ROULETTE PARSER (умный)
+# 28. ROULETTE PARSER (исправленный, оба порядка)
 # ==============================================================================
 def _parse_roulette_value(raw: str):
     raw = raw.lower().strip()
@@ -1963,19 +1881,27 @@ def _parse_roulette_value(raw: str):
 
 
 def _parse_roulette_bet(text: str):
-    """к 1000 / 1000 к / 10-23 500 / 500 10-23 / 583350 к"""
-    parts = text.lower().replace(" ", "").split()
+    """
+    Поддерживает: 'к 1000', '1000 к', '10-23 500', '500 10-23', '583350 к'.
+    Порядок частей не важен.
+    """
+    parts = (text or "").lower().split()
     if len(parts) != 2:
         return None
-    a, b = parts[0], parts[1]
-    v = _parse_roulette_value(a)
-    amt = parse_amt(b)
+    p1, p2 = parts[0].replace(" ", ""), parts[1].replace(" ", "")
+
+    # вариант 1: p1 = тип, p2 = сумма
+    v = _parse_roulette_value(p1)
+    amt = parse_amt(p2)
     if v and amt:
-        return v[0], v[1], a, amt
-    amt = parse_amt(a)
-    v = _parse_roulette_value(b)
+        return v[0], v[1], p1, amt
+
+    # вариант 2: p1 = сумма, p2 = тип
+    amt = parse_amt(p1)
+    v = _parse_roulette_value(p2)
     if v and amt:
-        return v[0], v[1], b, amt
+        return v[0], v[1], p2, amt
+
     return None
 
 
@@ -2004,6 +1930,9 @@ async def _place_roulette_bet(message: Message, kind, value, bet_raw: str, amoun
     asyncio.create_task(auto_delete(res, 60))
 
 
+# ==============================================================================
+# 29. START ROULETTE (с INSERT INTO roulette_logs)
+# ==============================================================================
 @group_router.message(F.text.lower() == "го")
 async def start_roulette(message: Message):
     chat_id = message.chat.id
@@ -2027,7 +1956,7 @@ async def start_roulette(message: Message):
     color_emoji = {"к": "🔴", "ч": "⚫", "з": "🟢"}[color]
     color_name = {"к": "Красное", "ч": "Черное", "з": "Зеро"}[color]
 
-    # ЛОГ РУЛЕТКИ
+    # СОХРАНЯЕМ ЛОГ
     await asyncio.to_thread(
         db_execute,
         "INSERT INTO roulette_logs (chat_id, result_num, color, date) VALUES (?, ?, ?, ?)",
@@ -2083,7 +2012,7 @@ async def start_roulette(message: Message):
 
 
 # ==============================================================================
-# 29. MINES
+# 30. MINES
 # ==============================================================================
 def _mines_keyboard(game_key: str, opened: list, cash: Optional[int] = None, reveal_all=None):
     kb = InlineKeyboardBuilder()
@@ -2186,7 +2115,6 @@ async def mines_callback(callback: CallbackQuery):
         except Exception:
             pass
         await asyncio.to_thread(log_game, game["uid"], "мины", game["bet"], 0)
-        # после BOOM даем кнопки повтор/удвоить
         try:
             await callback.message.answer(
                 "Хочешь ещё?",
@@ -2206,7 +2134,7 @@ async def mines_callback(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 30. BLACKJACK
+# 31. BLACKJACK
 # ==============================================================================
 BJ_SUITS = ["♠", "♥", "♦", "♣"]
 BJ_RANKS = [("2",2),("3",3),("4",4),("5",5),("6",6),("7",7),("8",8),("9",9),("10",10),("J",10),("Q",10),("K",10),("A",11)]
@@ -2349,8 +2277,11 @@ async def _bj_finish(message: Message, game_key: str, chat_id: int, bust: bool =
 
 
 # ==============================================================================
-# 31. CLANS + CLAN BOSS
+# 32. CLANS + CLAN BOSS
 # ==============================================================================
+CLAN_BOSS_HP = 1_000_000
+
+
 def get_clan_menu_kb(has_clan, is_owner, u):
     b = ReplyKeyboardBuilder()
     if not has_clan:
@@ -2614,7 +2545,9 @@ async def clan_join_start(message: Message, state: FSMContext):
 @user_router.message(ClanStates.waiting_join)
 async def clan_join_finish(message: Message, state: FSMContext):
     name = (message.text or "").strip()
-    clan = await asyncio.to_thread(db_execute, "SELECT id, join_fee FROM clans WHERE LOWER(name)=LOWER(?)", (name,), True)
+    clan = await asyncio.to_thread(
+        db_execute, "SELECT id, join_fee FROM clans WHERE LOWER(name)=LOWER(?)", (name,), True
+    )
     user = await asyncio.to_thread(get_user, message.from_user.id)
     if not clan:
         await state.clear()
@@ -2647,9 +2580,6 @@ async def clan_leave(message: Message, state: FSMContext):
 
 
 # ---- CLAN BOSS ----
-CLAN_BOSS_HP = 1_000_000
-
-
 @user_router.message(F.text == "👹 Босс")
 async def clan_boss_menu(message: Message, state: FSMContext):
     user = await asyncio.to_thread(get_user, message.from_user.id)
@@ -2684,7 +2614,7 @@ async def clan_boss_menu(message: Message, state: FSMContext):
         f"❤️ HP: <b>{hp:,} / {max_hp:,}</b>\n"
         f"[{bar}]\n\n"
         f"🏆 Топ урона:\n{top_lines}\n\n"
-        f"⚔️ Атаковать: <code>босс 10000</code> (из казны)"
+        f"⚔️ Атаковать (из казны):"
     )
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="⚔️ Атаковать 10 000", callback_data=f"boss_hit_{bid}_10000"))
@@ -2747,7 +2677,6 @@ async def boss_hit(callback: CallbackQuery):
     )
 
     if new_hp == 0:
-        # распределяем 50% казны последнему ударившему и остальное по урону
         await asyncio.to_thread(
             db_execute,
             "UPDATE clan_bosses SET status='dead', date_finished=? WHERE id=?",
@@ -2790,7 +2719,6 @@ async def boss_hit(callback: CallbackQuery):
     except Exception:
         pass
 
-
 async def clan_boss_daily_spawn():
     """Каждый день в 10:00 создаёт босса всем кланам, у которых нет активного."""
     clans = await asyncio.to_thread(db_execute, "SELECT id FROM clans", (), False, True)
@@ -2805,7 +2733,7 @@ async def clan_boss_daily_spawn():
 
 
 # ==============================================================================
-# 32. ADMIN — helpers
+# 33. ADMIN helpers
 # ==============================================================================
 def _find_user_id(token: str) -> Optional[int]:
     token = token.replace("@", "").strip()
@@ -2830,7 +2758,7 @@ def _parse_amount(raw: str) -> Optional[int]:
 
 
 # ==============================================================================
-# 33. NEURO ADMIN (30+ commands)
+# 34. NEURO ADMIN
 # ==============================================================================
 @admin_router.message(F.text.startswith("@"))
 async def neuro_admin(message: Message):
@@ -3052,7 +2980,6 @@ async def neuro_admin(message: Message):
                 f"🌧 <b>ДОЖДЬ ТОКЕНОВ!</b>\nКаждый получит {format_money(amount)}!\n<i>60 секунд. 1 раз на игрока.</i>",
                 reply_markup=kb.as_markup(),
             )
-            # регистрируем сообщение
             _rain_claimed_map[msg.message_id] = set()
             asyncio.create_task(auto_delete(msg, 60))
         except Exception as e:
@@ -3211,7 +3138,7 @@ async def neuro_admin(message: Message):
 
 
 # ==============================================================================
-# 34. DROP / RAIN callbacks
+# 35. DROP / RAIN callbacks
 # ==============================================================================
 @group_router.callback_query(F.data.startswith("drop_"))
 async def claim_drop(callback: CallbackQuery):
@@ -3253,7 +3180,7 @@ async def claim_rain(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 35. LOTTERY callback
+# 36. LOTTERY callback
 # ==============================================================================
 @group_router.callback_query(F.data == "buy_ticket")
 async def buy_ticket(callback: CallbackQuery):
@@ -3266,7 +3193,7 @@ async def buy_ticket(callback: CallbackQuery):
 
 
 # ==============================================================================
-# 36. AUTO EVENTS
+# 37. AUTO EVENTS
 # ==============================================================================
 async def auto_drop():
     amount = random.choice([10000, 25000, 50000, 100000])
@@ -3280,11 +3207,6 @@ async def auto_drop():
     except Exception as e:
         logger.warning(f"auto_drop: {e}")
 
-
-async def auto_promo_create():
-    code = f"TOKENS{random.randint(1000, 9999)}"
-    reward = 10000
-    await asyncio
 
 async def auto_promo_create():
     code = f"TOKENS{random.randint(1000, 9999)}"
@@ -3382,7 +3304,7 @@ async def vip_renewal_reminder():
 
 
 # ==============================================================================
-# 37. STARTUP
+# 38. STARTUP
 # ==============================================================================
 async def health(_):
     return web.Response(text="OK")
