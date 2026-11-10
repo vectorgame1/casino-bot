@@ -376,8 +376,8 @@ async def db_init() -> None:
             created_at    INTEGER
         );
 
-        -- 13. DROPS_TABLE (переименовали)
-        CREATE TABLE IF NOT EXISTS drops_table (
+        -- 13. BONUS_DROPS (Без слова drop)
+        CREATE TABLE IF NOT EXISTS bonus_drops (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             chat_id       INTEGER,
             amount        INTEGER,
@@ -386,8 +386,8 @@ async def db_init() -> None:
             expires_at    INTEGER
         );
 
-        -- 14. AUTOROULETTE_TABLE (переименовали)
-        CREATE TABLE IF NOT EXISTS autoroulette_table (
+        -- 14. ROULETTE_PARTICIPANTS (Без слова autoroulette)
+        CREATE TABLE IF NOT EXISTS roulette_participants (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             chat_id       INTEGER,
             user_id       INTEGER,
@@ -943,19 +943,19 @@ async def db_drop_take(drop_id: int, user_id: int) -> Optional[int]:
     """Пытается забрать дроп. Возвращает сумму или None."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM drops_table WHERE id = ?", (drop_id,)) as cur:
+        async with db.execute("SELECT * FROM bonus_drops WHERE id = ?", (drop_id,)) as cur:
             row = await cur.fetchone()
             if not row or row["claimed_by"] != 0 or row["expires_at"] < now_ts():
                 return None
             
-            await db.execute("UPDATE drops_table SET claimed_by = ? WHERE id = ?", (user_id, drop_id))
+            await db.execute("UPDATE bonus_drops SET claimed_by = ? WHERE id = ?", (user_id, drop_id))
             await db.commit()
             return row["amount"]
 
 async def db_expire_drops() -> None:
     """Удаляет просроченные дропы."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM drops_table WHERE expires_at < ? AND claimed_by = 0", (now_ts(),))
+        await db.execute("DELETE FROM bonus_drops WHERE expires_at < ? AND claimed_by = 0", (now_ts(),))
         await db.commit()
 
 # ------------------------------------------------------------
@@ -965,11 +965,11 @@ async def db_ar_join(chat_id: int, user_id: int, bet: int) -> bool:
     """Регистрирует участника авто-рулетки."""
     async with aiosqlite.connect(DB_PATH) as db:
         # Проверяем, не записан ли уже
-        async with db.execute("SELECT 1 FROM autoroulette_table WHERE chat_id = ? AND user_id = ?", (chat_id, user_id)) as cur:
+        async with db.execute("SELECT 1 FROM roulette_participants WHERE chat_id = ? AND user_id = ?", (chat_id, user_id)) as cur:
             if await cur.fetchone():
                 return False
         await db.execute(
-            "INSERT INTO autoroulette_table(chat_id, user_id, bet, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO roulette_participants(chat_id, user_id, bet, created_at) VALUES (?, ?, ?, ?)",
             (chat_id, user_id, bet, now_ts())
         )
         await db.commit()
@@ -978,12 +978,12 @@ async def db_ar_join(chat_id: int, user_id: int, bet: int) -> bool:
 async def db_ar_participants(chat_id: int) -> List[Dict[str, Any]]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM autoroulette_table WHERE chat_id = ?", (chat_id,)) as cur:
+        async with db.execute("SELECT * FROM roulette_participants WHERE chat_id = ?", (chat_id,)) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
 async def db_ar_clear(chat_id: int) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM autoroulette_table WHERE chat_id = ?", (chat_id,))
+        await db.execute("DELETE FROM roulette_participants WHERE chat_id = ?", (chat_id,))
         await db.commit()
 
 # ------------------------------------------------------------
