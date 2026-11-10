@@ -80,6 +80,9 @@ TRANSFER_COOLDOWN = 5
 
 # Пути
 DB_PATH = "casino.db"
+# ВРЕМЕННЫЙ ФИКС: Удаляем старую базу с ошибкой
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
 IMG_DIR = "images"
 IMG_START = os.path.join(IMG_DIR, "start.jpg")
 IMG_PROFILE = os.path.join(IMG_DIR, "profile.jpg")
