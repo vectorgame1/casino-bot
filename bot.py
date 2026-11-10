@@ -740,6 +740,23 @@ async def db_audit_log(actor_id: int, action: str, target_id: int = 0, amount: i
         )
         await db.commit()
 
+async def db_add_roulette_log(chat_id: int, user_id: int, bet: int, win: int, numbers: str, color: str = "") -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO roulette_logs(chat_id, user_id, bet, win, numbers, color, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (chat_id, user_id, bet, win, numbers, color, now_ts()),
+        )
+        await db.commit()
+
+async def db_roulette_logs(chat_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM roulette_logs WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+            (chat_id, limit),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
 # ============================================================
 #  ЧАСТЬ 1c: ФУНКЦИИ БД (CLANS, DUELS, MINES, DROPS, AUTOROULETTE)
 # ============================================================
@@ -2459,7 +2476,7 @@ async def admin_help(msg: Message):
 
 # --- ПАРСЕР КОМАНД ---
 @router.message(F.text.startswith("@"))
-async def admin_commands_handler(msg: Message, command: CommandObject = None):
+async def admin_commands_handler(msg: Message):
     if msg.from_user.id != ADMIN_ID: return
     
     text = msg.text
