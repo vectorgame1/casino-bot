@@ -420,7 +420,7 @@ async def db_init() -> None:
             chat_id       INTEGER PRIMARY KEY,
             games_enabled INTEGER DEFAULT 1,
             disabled_games TEXT DEFAULT '[]',
-            autoroulette_enabled INTEGER DEFAULT 1,
+            auto_roulette_enabled INTEGER DEFAULT 1, 
             drop_enabled  INTEGER DEFAULT 1,
             min_bet       INTEGER DEFAULT 100,
             updated_by    INTEGER DEFAULT 0
@@ -1001,8 +1001,8 @@ async def db_chat_get(chat_id: int) -> Dict[str, Any]:
                 "chat_id": chat_id,
                 "games_enabled": 1,
                 "disabled_games": "[]",
-                "autoroulette_enabled": 1,
-                "drop_enabled": 1,
+                "auto_roulette_enabled": 1,
+                "bonus_enabled": 1,
                 "min_bet": MIN_BET
             }
 
@@ -2628,7 +2628,7 @@ async def event_auto_drop():
     """Авто-дроп раз в 2 часа."""
     chats = await db_event_chats_all()
     for chat in chats:
-        if not chat["drop"]: continue
+        if not chat["bonus_drop"]: continue
         amount = random.randint(5000, 20000)
         drop_id = await db_drop_create(chat["chat_id"], amount, ttl=600)
         
@@ -2711,6 +2711,9 @@ async def self_test():
 async def main():
     logger.info("🚀 Запуск бота...")
     await db_init()
+
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
     
     if not await self_test():
         return
