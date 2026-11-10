@@ -1331,3 +1331,233 @@ async def fallback(msg: Message):
     if msg.chat.type == ChatType.PRIVATE and msg.text and not msg.text.startswith("/"):
         u = await db_get_user(msg.from_user.id)
         if u: await msg.answer(get_text("not_understood", u.get("lang", "ru")))
+
+# ============================================================
+#  ЧАСТЬ 6: ПОЛНАЯ АДМИНКА, АВТО-ИВЕНТЫ И ЗАПУСК
+# ============================================================
+
+# ------------------------------------------------------------
+#  АДМИНКА: ИИ-ПОМОЩНИК
+# ------------------------------------------------------------
+@router.message(F.text.regexp(r"^@помощь$"))
+async def admin_help(msg: Message):
+    if msg.from_user.id != ADMIN_ID: return
+    text = (
+        "🤖 <b>ИИ-Помощник активирован.</b>\n\n"
+        "👤 <b>Юзеры:</b>\n"
+        "<code>@выдать @user 1000 [причина]</code>\n"
+        "<code>@бан @user [причина]</code>\n"
+        "<code>@разбан @user</code>\n"
+        "<code>@банкрот @user</code>\n"
+        "<code>@юзер @user</code>\n"
+        "<code>@стата</code>\n\n"
+        "💰 <b>Экономика:</b>\n"
+        "<code>@дроп 1000</code>\n"
+        "<code>@дроп_всем 1000</code>\n"
+        "<code>@забрать_всем 1000</code>\n"
+        "<code>@топ_баланс</code>\n\n"
+        "🎮 <b>Управление играми (в текущем чате):</b>\n"
+        "<code>@игры_выкл</code> / <code>@игры_вкл</code>\n"
+        "<code>@игра_выкл рулетка</code>\n\n"
+        "💱 <b>Курсы и Ивенты:</b>\n"
+        "<code>@курс_добавить GRAM 7500</code>\n"
+        "<code>@ивент_чат_добавить</code>\n\n"
+        "📢 <b>Контент:</b>\n"
+        "<code>@рассылка текст</code>\n"
+        "<code>@апдейт текст</code>\n"
+        "<code>@промо КОД 5000 10</code>\n"
+        "<code>@очистить_чат 50</code>\n\n"
+        "⚙️ <b>Система:</b>\n"
+        "<code>@лог 20</code> | <code>@аудит</code> | <code>@бекап</code> | <code>@рестарт</code>"
+    )
+    await msg.answer(text)
+
+@router.message(F.text.startswith("@"))
+async def admin_commands_handler(msg: Message):
+    if msg.from_user.id != ADMIN_ID: return
+    
+    text = msg.text
+    args = text.split()
+    cmd = args[0].lower()
+    
+    # --- ЮЗЕРЫ ---
+    if cmd == "@выдать":
+        if len(args) < 3: return await msg.answer("🤖 Формат: <code>@выдать @user 1000</code>")
+        target = await db_find_user(args[1])
+        if not target: return await msg.answer("❌ Юзер не найден.")
+        amount = int(args[2])
+        reason = " ".join(args[3:]) if len(args) > 3 else "Админ-выдача"
+        await db_add_balance(target["user_id"], amount, "admin_give")
+        await db_admin_log(ADMIN_ID, "give", target["user_id"], f"+{amount} ({reason})")
+        await msg.answer(f"✅ Выдано {fmt_money(amount)} TOKENS юзеру {target['first_name']}.")
+
+    elif cmd == "@бан":
+        if len(args) < 2: return
+        target = await db_find_user(args[1])
+        if not target: return await msg.answer("❌ Не найден.")
+        reason = " ".join(args[2:]) if len(args) > 2 else "Без причины"
+        await db_ban_user(target["user_id"], True, reason)
+        await msg.answer(f"🚫 Юзер {target['first_name']} забанен. Причина: {reason}")
+
+    elif cmd == "@разбан":
+        if len(args) < 2: return
+        target = await db_find_user(args[1])
+        if not target: return await msg.answer("❌ Не найден.")
+        await db_ban_user(target["user_id"], False)
+        await msg.answer(f"✅ Юзер {target['first_name']} разбанен.")
+
+    elif cmd == "@банкрот":
+        if len(args) < 2: return
+        target = await db_find_user(args[1])
+        if not target: return await msg.answer("❌ Не найден.")
+        await db_save_user(target["user_id"], balance=0)
+        await msg.answer(f"💀 Баланс {target['first_name']} обнулен.")
+
+    elif cmd == "@юзер":
+        if len(args) < 2: return
+        target = await db_find_user(args[1])
+        if not target: return await msg.answer("❌ Не найден.")
+        hist = await db_get_history(target["user_id"], 5)
+        text = f"👤 <b>{target['first_name']}</b> (ID: <code>{target['user_id']}</code>)\n💰 Баланс: {fmt_money(target['balance'])}\n🎮 Игр: {target['games_played']}\n🚫 Бан: {'Да' if target['banned'] else 'Нет'}\n\n<b>Последние игры:</b>\n"
+        for h in hist: text += f"• {h['game']} | {fmt_money(h['bet'])} -> {fmt_money(h['win'])}\n"
+        await msg.answer(text)
+
+    elif cmd == "@стата":
+        users = await db_count_users()
+        total_bal = await db_total_balance()
+        await msg.answer(f"📊 <b>Статистика:</b>\n👥 Юзеров: {users}\n💰 Всего TOKENS: {fmt_money(total_bal)}")
+
+    # --- ЭКОНОМИКА ---
+    elif cmd == "@дроп":
+        if len(args) < 2: return
+        amount = int(args[1])
+        item_id = await db_bonus_item_create(msg.chat.id, amount, ttl=600)
+        await msg.answer(f"🎁 <b>Дроп {fmt_money(amount)} TOKENS!</b>\nКто первый нажмет — заберет!", 
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"Забрать {amount}", callback_data=f"bonus_item_take_{item_id}")]]))
+
+    elif cmd == "@дроп_всем":
+        if len(args) < 2: return
+        amount = int(args[1])
+        users = await db_all_user_ids()
+        for uid in users: await db_add_balance(uid, amount, "admin_drop_all")
+        await msg.answer(f"✅ Выдано по {fmt_money(amount)} TOKENS всем ({len(users)} чел.).")
+
+    elif cmd == "@забрать_всем":
+        if len(args) < 2: return
+        amount = int(args[1])
+        users = await db_all_user_ids()
+        for uid in users: await db_add_balance(uid, -amount, "admin_take_all")
+        await msg.answer(f"✅ Забрано по {fmt_money(amount)} TOKENS у всех ({len(users)} чел.).")
+
+    elif cmd == "@топ_баланс":
+        top = await db_top_users(10, "balance")
+        lines = ["🏆 <b>Топ-10 по балансу:</b>\n"]
+        for i, u in enumerate(top): lines.append(f"{i+1}. {u['first_name']} — {fmt_money(u['balance'])}")
+        await msg.answer("\n".join(lines))
+
+    # --- УПРАВЛЕНИЕ ЧАТАМИ ---
+    elif cmd == "@игры_выкл":
+        await db_chat_toggle_games(msg.chat.id, False, ADMIN_ID)
+        await msg.answer("⚠️ Игры в этом чате <b>ОТКЛЮЧЕНЫ</b>.")
+    
+    elif cmd == "@игры_вкл":
+        await db_chat_toggle_games(msg.chat.id, True, ADMIN_ID)
+        await msg.answer("✅ Игры в этом чате <b>ВКЛЮЧЕНЫ</b>.")
+
+    elif cmd == "@ивент_чат_добавить":
+        await db_event_chat_add(msg.chat.id, msg.chat.title or "Event Chat")
+        await msg.answer("✅ Этот чат добавлен в список Ивент-чатов!")
+
+    # --- КОНТЕНТ ---
+    elif cmd == "@рассылка":
+        text_to_send = text.replace("@рассылка ", "")
+        users = await db_all_user_ids()
+        count = 0
+        await msg.answer("⏳ Рассылка началась...")
+        for uid in users:
+            try:
+                await bot.send_message(uid, f"📢 <b>Сообщение от админа:</b>\n\n{text_to_send}")
+                count += 1
+                await asyncio.sleep(0.05)
+            except: pass
+        await msg.answer(f"✅ Отправлено {count} юзерам.")
+
+    elif cmd == "@промо":
+        if len(args) < 4: return await msg.answer("🤖 Формат: <code>@промо КОД 5000 10</code>")
+        code, amt, uses = args[1].upper(), int(args[2]), int(args[3])
+        if await db_create_promo(code, amt, uses, ADMIN_ID):
+            await msg.answer(f"✅ Промокод <code>{code}</code> создан на {fmt_money(amt)} ({uses} акт.)")
+        else:
+            await msg.answer("❌ Ошибка (возможно, код уже есть).")
+
+    elif cmd == "@бекап":
+        with open(DB_PATH, "rb") as f:
+            await msg.answer_document(FSInputFile(DB_PATH), caption="💾 Бекап БД")
+
+# ------------------------------------------------------------
+#  ЗАБОР ДРОПА ИЗ ИВЕНТОВ
+# ------------------------------------------------------------
+@router.callback_query(F.data.startswith("bonus_item_take_"))
+async def cb_bonus_item_take(cb: CallbackQuery):
+    amt = await db_bonus_item_take(int(cb.data.split("_")[-1]), cb.from_user.id)
+    if not amt: return await cb.answer("❌ Уже забрали или истек.", show_alert=True)
+    await db_add_balance(cb.from_user.id, amt, "bonus_item")
+    await cb.message.edit_text(f"🎉 {cb.from_user.first_name} забрал дроп <b>{fmt_money(amt)} TOKENS</b>!")
+
+# ------------------------------------------------------------
+#  АВТО-ИВЕНТЫ
+# ------------------------------------------------------------
+async def event_auto_drop():
+    chats = await db_event_chats_all()
+    for chat in chats:
+        if not chat.get("bonus_item"): continue
+        amount = random.randint(5000, 20000)
+        iid = await db_bonus_item_create(chat["chat_id"], amount, ttl=600)
+        text = f"🎁 <b>АВТО-ДРОП!</b>\n\nКто первый нажмет, тот забирает <b>{fmt_money(amount)} TOKENS</b>!"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 Забрать", callback_data=f"bonus_item_take_{iid}")]])
+        try:
+            if os.path.exists(IMG_BONUS): await bot.send_photo(chat["chat_id"], FSInputFile(IMG_BONUS), caption=text, reply_markup=kb)
+            else: await bot.send_message(chat["chat_id"], text, reply_markup=kb)
+        except: pass
+
+def setup_scheduler():
+    scheduler.add_job(event_auto_drop, 'interval', hours=2)
+    scheduler.add_job(db_expire_bonus_items, 'interval', minutes=10)
+    scheduler.add_job(db_expire_duels, 'interval', minutes=5)
+    scheduler.start()
+
+# ------------------------------------------------------------
+#  ВЕБ-СЕРВЕР И ЗАПУСК
+# ------------------------------------------------------------
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="Bot is running!"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"✅ Веб-сервер на порту {PORT}")
+
+async def main():
+    logger.info("🚀 Запуск бота...")
+    
+    # СРАЗУ ЗАПУСКАЕМ ВЕБ-СЕРВЕР ДЛЯ RENDER
+    asyncio.create_task(web_server())
+    
+    await db_init()
+    
+    try: 
+        me = await bot.get_me()
+        logger.info(f"✅ Бот: @{me.username}")
+    except: 
+        logger.error("❌ ОШИБКА ТОКЕНА!"); 
+        return
+        
+    setup_scheduler()
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try: 
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit): 
+        logger.info("Остановлен")
