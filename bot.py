@@ -2710,18 +2710,21 @@ async def self_test():
 
 async def main():
     logger.info("🚀 Запуск бота...")
-    await db_init()
-
+    
+    # 1. СРАЗУ ЗАПУСКАЕМ ВЕБ-СЕРВЕР (чтобы Render видел порт)
+    asyncio.create_task(web_server())
+    
+    # 2. Потом чистим и инициализируем БД
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
+    await db_init()
     
     if not await self_test():
         return
         
     setup_scheduler()
-    asyncio.create_task(web_server()) # Запуск веб-сервера
     
-    # Запуск бота
+    # 3. Запуск бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
