@@ -1,6 +1,5 @@
-# bot.py
-# TOKENS Casino Bot — aiogram 3.x / aiosqlite / aiohttp / apscheduler
-# Python 3.13 ready, Render ready
+# bot.py — ЧАСТЬ 1
+# TOKENS Casino Bot — aiogram 3.x
 
 import os
 import re
@@ -18,8 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
-    ReplyKeyboardMarkup, KeyboardButton,
-    FSInputFile,
+    ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 )
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -60,16 +58,14 @@ IMG_CHATS = os.path.join(IMG_DIR, "chats.jpg")
 IMG_COMMANDS = os.path.join(IMG_DIR, "commands.jpg")
 IMG_ROULETTE_GIF = os.path.join(IMG_DIR, "roulette.gif")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("tokens")
 
-# Удаляем старую БД при старте (требование Render)
 if os.path.exists(DB_PATH):
     try:
         os.remove(DB_PATH)
-        log.info("Old DB removed: %s", DB_PATH)
     except Exception as e:
-        log.warning("Cannot remove old DB: %s", e)
+        log.warning("DB remove fail: %s", e)
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
@@ -77,7 +73,6 @@ router = Router()
 dp.include_router(router)
 scheduler = AsyncIOScheduler()
 
-# Состояния
 roulette_sessions: Dict[int, dict] = {}
 mines_sessions: Dict[int, dict] = {}
 duel_sessions: Dict[str, dict] = {}
@@ -90,66 +85,45 @@ async def db_init():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            balance INTEGER DEFAULT 0,
-            vip INTEGER DEFAULT 0,
-            games INTEGER DEFAULT 0,
-            wins INTEGER DEFAULT 0,
-            notifications INTEGER DEFAULT 1,
-            lang TEXT DEFAULT 'RU',
-            banned INTEGER DEFAULT 0,
+            user_id INTEGER PRIMARY KEY, username TEXT, balance INTEGER DEFAULT 0,
+            vip INTEGER DEFAULT 0, games INTEGER DEFAULT 0, wins INTEGER DEFAULT 0,
+            notifications INTEGER DEFAULT 1, lang TEXT DEFAULT 'RU', banned INTEGER DEFAULT 0,
             created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS chat_settings (
-            chat_id INTEGER PRIMARY KEY,
-            games_enabled INTEGER DEFAULT 1
+            chat_id INTEGER PRIMARY KEY, games_enabled INTEGER DEFAULT 1
         );
         CREATE TABLE IF NOT EXISTS event_chats (
-            chat_id INTEGER PRIMARY KEY,
-            title TEXT,
-            added_at TEXT
+            chat_id INTEGER PRIMARY KEY, title TEXT, added_at TEXT
         );
         CREATE TABLE IF NOT EXISTS roulette_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER,
-            user_id INTEGER,
-            bet INTEGER,
-            win INTEGER,
-            numbers TEXT,
-            color TEXT,
-            created_at TEXT
+            id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, user_id INTEGER,
+            bet INTEGER, win INTEGER, numbers TEXT, color TEXT, created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS games_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            game TEXT,
-            bet INTEGER,
-            win INTEGER,
-            result TEXT,
-            created_at TEXT
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, game TEXT,
+            bet INTEGER, win INTEGER, result TEXT, created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS bonus_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER,
-            message_id INTEGER,
-            amount INTEGER,
-            claimed_by INTEGER,
-            created_at TEXT
+            id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, message_id INTEGER,
+            amount INTEGER, claimed_by INTEGER, created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS roulette_participants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER,
-            user_id INTEGER,
-            bet_type TEXT,
-            bet_value TEXT,
-            amount INTEGER,
-            payout INTEGER DEFAULT 0,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, user_id INTEGER,
+            bet_type TEXT, bet_value TEXT, amount INTEGER, payout INTEGER DEFAULT 0,
             created_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY, amount INTEGER, max_uses INTEGER, used_count INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS promo_used (
+            user_id INTEGER, code TEXT, used_at TEXT, PRIMARY KEY (user_id, code)
+        );
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER, action TEXT, details TEXT, created_at TEXT
         );
         """)
         await db.commit()
-    log.info("DB initialized")
 
 
 async def get_user(user_id: int) -> Optional[dict]:
@@ -189,8 +163,7 @@ async def try_withdraw(user_id: int, amount: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
         row = await cur.fetchone()
-        bal = row[0] if row else 0
-        if bal < amount:
+        if not row or row[0] < amount:
             return False
         await db.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (amount, user_id))
         await db.commit()
@@ -251,23 +224,6 @@ async def get_event_chats() -> List[int]:
         return [r[0] for r in await cur.fetchall()]
 
 
-async def cleanup_old_records():
-    """Удаляем игровые логи старше 30 дней и бонусы старше 7 дней."""
-    limit_games = (datetime.utcnow().timestamp() - 30 * 86400)
-    limit_bonus = (datetime.utcnow().timestamp() - 7 * 86400)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "DELETE FROM games_log WHERE created_at < ?",
-            (datetime.utcfromtimestamp(limit_games).isoformat(),),
-        )
-        await db.execute(
-            "DELETE FROM bonus_items WHERE created_at < ?",
-            (datetime.utcfromtimestamp(limit_bonus).isoformat(),),
-        )
-        await db.commit()
-    log.info("Old records cleaned")
-
-
 # ---------------------------------------------------------------------------
 # UI HELPERS
 # ---------------------------------------------------------------------------
@@ -290,23 +246,13 @@ def fmt(v: int) -> str:
     return f"{v:,}".replace(",", " ")
 
 
-async def send_with_photo(
-    event, photo_path: str, caption: str, reply_markup=None, is_callback: bool = False
-):
-    """Универсальный хелпер: фото если есть, иначе текст. Возвращает сообщение."""
-    target_msg = event.message if is_callback else event
-    chat_id = target_msg.chat.id
-    if os.path.exists(photo_path):
+async def send_pic_or_text(msg: Message, path: str, caption: str, markup=None):
+    if os.path.exists(path):
         try:
-            return await bot.send_photo(
-                chat_id=chat_id,
-                photo=FSInputFile(photo_path),
-                caption=caption,
-                reply_markup=reply_markup,
-            )
+            return await msg.answer_photo(FSInputFile(path), caption=caption, reply_markup=markup)
         except Exception as e:
-            log.warning("send_photo failed (%s): %s", photo_path, e)
-    return await bot.send_message(chat_id=chat_id, text=caption, reply_markup=reply_markup)
+            log.warning("send_photo fail %s: %s", path, e)
+    return await msg.answer(caption, reply_markup=markup)
 
 
 # ---------------------------------------------------------------------------
@@ -317,303 +263,166 @@ class BuyStars(StatesGroup):
 
 
 # ---------------------------------------------------------------------------
-# ROULETTE PARSER (компактный, точный)
+# ТЕКСТЫ: «КАК ИГРАТЬ» — 11 ИГР ПОДРОБНО
 # ---------------------------------------------------------------------------
-RED_NUMBERS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+HOW_TO_PLAY_TEXT = (
+    "🎮 <b>ПОЛНЫЙ ГАЙД ПО ИГРАМ TOKENS</b>\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
+    "<b>1️⃣ КУБИКИ (кости 🎲)</b>\n"
+    "Команда: <code>кости 1000</code>\n"
+    "Бот бросает кубик. Если выпало <b>4, 5 или 6</b> — ты выиграл <b>x2</b>. "
+    "Если 1, 2 или 3 — ставка сгорает.\n"
+    "Пример: поставил 1000 → выпало 5 → получил 2000.\n\n"
 
-def parse_roulette_bet(text: str) -> Optional[dict]:
-    """
-    Возвращает:
-      {"type":"color","value":"red|black|zero","amount":int}
-      {"type":"parity","value":"even|odd","amount":int}
-      {"type":"numbers","value":[int...],"amount":int}
-      {"type":"range","value":(a,b),"amount":int}
-    """
-    t = (text or "").strip().lower()
-    t = re.sub(r"\s+", " ", t)
+    "<b>2️⃣ ДАРТС (🎯)</b>\n"
+    "Команда: <code>дартс 500</code>\n"
+    "Бот бросает дротик в мишень. Результат больше 3 → <b>x2</b>.\n\n"
 
-    # Цвет: "к 1000" / "ч 500"
-    m = re.match(r"^(к|красное|красн)\s+(\d+)$", t)
-    if m:
-        return {"type": "color", "value": "red", "amount": int(m.group(2))}
-    m = re.match(r"^(ч|черное|черн)\s+(\d+)$", t)
-    if m:
-        return {"type": "color", "value": "black", "amount": int(m.group(2))}
+    "<b>3️⃣ БАСКЕТБОЛ (🏀)</b>\n"
+    "Команда: <code>баскет 1000</code>\n"
+    "Бот бросает мяч. Попал больше 3 → <b>x2</b>.\n\n"
 
-    # Зеро: "0 100"
-    m = re.match(r"^(0|зеро|zero)\s+(\d+)$", t)
-    if m:
-        return {"type": "color", "value": "zero", "amount": int(m.group(2))}
+    "<b>4️⃣ ФУТБОЛ (⚽)</b>\n"
+    "Команда: <code>футбол 2000</code>\n"
+    "Удар по воротам. Значение > 3 → <b>x2</b>.\n\n"
 
-    # Чет/нечет: "1000 чет"
-    m = re.match(r"^(\d+)\s+(чет|чёт|even)$", t)
-    if m:
-        return {"type": "parity", "value": "even", "amount": int(m.group(1))}
-    m = re.match(r"^(\d+)\s+(нечет|нечёт|odd)$", t)
-    if m:
-        return {"type": "parity", "value": "odd", "amount": int(m.group(1))}
+    "<b>5️⃣ БОУЛИНГ (🎳)</b>\n"
+    "Команда: <code>боулинг 1000</code>\n"
+    "Бросок шара. Сбил больше 3 кеглей → <b>x2</b>.\n\n"
 
-    # Диапазон: "500 10-20" — ВАЖНО: проверяем до списка чисел!
-    m = re.match(r"^(\d+)\s+(\d+)\s*-\s*(\d+)$", t)
-    if m:
-        amount, a, b = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if a > b:
-            a, b = b, a
-        if 0 <= a <= 36 and 0 <= b <= 36:
-            return {"type": "range", "value": (a, b), "amount": amount}
-        return None
+    "<b>6️⃣ БЛЭКДЖЕК / БЖ (🎰)</b>\n"
+    "Команда: <code>бж 1000</code>\n"
+    "Крутится слот. Значение > 3 → <b>x2</b>.\n\n"
 
-    # Список чисел: "1000 1 2 3"
-    m = re.match(r"^(\d+)\s+(.+)$", t)
-    if m:
-        amount = int(m.group(1))
-        parts = re.split(r"[,\s]+", m.group(2).strip())
-        try:
-            nums = [int(p) for p in parts if p]
-        except ValueError:
-            return None
-        if nums and all(0 <= n <= 36 for n in nums):
-            return {"type": "numbers", "value": nums, "amount": amount}
+    "<b>7️⃣ СЛОТЫ (🎰)</b>\n"
+    "Команда: <code>слоты 1500</code>\n"
+    "Классические слоты. Выигрыш <b>x2</b> при значении > 3.\n\n"
 
-    return None
+    "<b>8️⃣ МИНЫ (💣)</b>\n"
+    "Команда: <code>мины 1000</code>\n"
+    "Поле 5×5. Спрятаны <b>3 мины</b>. Открываешь клетки — растёт множитель.\n"
+    "Формула: <b>1.0 + (открытых × 0.15)</b>\n"
+    "Кнопка «💰 Забрать» фиксирует выигрыш в любой момент.\n"
+    "Попал на мину — ставка сгорает.\n"
+    "Пример: открыл 4 клетки → x1.6 → забрал 1600 с 1000.\n\n"
 
+    "<b>9️⃣ ДУЭЛИ (⚔️)</b>\n"
+    "Команда: <code>дуэль @user 1000</code>\n"
+    "Вызов игроку. Он жмёт «✅ Принять» или «❌ Отклонить».\n"
+    "Оба бросают кубик — у кого больше, тот забирает банк.\n"
+    "Комиссия бота: <b>5%</b> от банка.\n"
+    "Пример: ставка 1000 у каждого → банк 2000 → победитель получает 1900.\n\n"
 
-# ---------------------------------------------------------------------------
-# ROULETTE
-# ---------------------------------------------------------------------------
-@router.message(F.text.lower() == "старт")
-async def roulette_start(msg: Message):
-    if msg.chat.type == ChatType.PRIVATE:
-        await msg.reply("🎡 Рулетка запускается только в игровом чате: " + CHAT_GAME)
-        return
-    if not await chat_games_enabled(msg.chat.id):
-        await msg.reply("⛔ Игры в этом чате отключены.")
-        return
-    if msg.chat.id in roulette_sessions and not roulette_sessions[msg.chat.id]["resolved"]:
-        await msg.reply("❗ Рулетка уже идёт в этом чате.")
-        return
+    "<b>🔟 РУЛЕТКА (🎡) — ГЛАВНАЯ ИГРА</b>\n"
+    "Запуск: напиши <code>старт</code> в чате.\n"
+    "Бот пишет: «🎰 Рулетка запущена! Принимаю ставки 30 секунд».\n\n"
+    "📌 <b>Форматы ставок:</b>\n"
+    "• <code>к 1000</code> — красное (x2)\n"
+    "• <code>ч 500</code> — чёрное (x2)\n"
+    "• <code>1000 чет</code> — чётное (x2)\n"
+    "• <code>1000 нечет</code> — нечётное (x2)\n"
+    "• <code>0 100</code> — зеро (x36)\n"
+    "• <code>1000 1 2 3</code> — числа через пробел (x36)\n"
+    "• <code>500 10-20</code> — диапазон (x3)\n\n"
+    "Через 30 сек бот выводит <b>список всех ставок</b>, шлёт гифку 🎡, "
+    "ждёт 3 сек и объявляет результат.\n"
+    "После — кнопки <b>«🔄 Повторить»</b> и <b>«⏫ Удвоить»</b>.\n\n"
 
-    roulette_sessions[msg.chat.id] = {
-        "bets": {},        # uid -> [bet, bet, ...]
-        "started_by": msg.from_user.id,
-        "started_at": time.time(),
-        "resolved": False,
-    }
-    await msg.reply(
-        "🎰 <b>Рулетка запущена!</b>\n"
-        f"Принимаю ставки <b>{ROULETTE_BET_SECONDS} секунд</b>.\n\n"
-        "📌 Форматы:\n"
-        "🔴 <code>к 1000</code> — красное (x2)\n"
-        "⚫ <code>ч 500</code> — чёрное (x2)\n"
-        "🎯 <code>1000 чет</code> / <code>1000 нечет</code> (x2)\n"
-        "0️⃣ <code>0 100</code> — зеро (x36)\n"
-        "🔢 <code>1000 1 2 3</code> — числа (x36)\n"
-        "📏 <code>500 10-20</code> — диапазон (x3)"
-    )
-    asyncio.create_task(roulette_spin(msg.chat.id))
+    "<b>1️⃣1️⃣ БОНУС-ДРОП (🎁)</b>\n"
+    "Не игра, но часть экономики. Раз в 2 часа бот кидает бонус в чаты "
+    "из списка event. Первый, кто нажмёт «🎁 Забрать» — получает сумму.\n"
+    "Также админ может вручную запустить <code>@дроп 1000</code>.\n\n"
 
-
-async def roulette_spin(chat_id: int):
-    await asyncio.sleep(ROULETTE_BET_SECONDS)
-    s = roulette_sessions.get(chat_id)
-    if not s or s["resolved"]:
-        return
-    s["resolved"] = True
-
-    # Красиво выводим итоговый список ставок
-    if s["bets"]:
-        lines = ["📋 <b>Ставки приняты:</b>"]
-        for uid, bets in s["bets"].items():
-            for b in bets:
-                label = format_bet_label(b)
-                lines.append(f"• <code>{uid}</code>: {label} — <b>{fmt(b['amount'])}</b>")
-        await bot.send_message(chat_id, "\n".join(lines))
-    else:
-        await bot.send_message(chat_id, "😔 Ставок не было.")
-        roulette_sessions.pop(chat_id, None)
-        return
-
-    # Гифка или кубик
-    if os.path.exists(IMG_ROULETTE_GIF):
-        try:
-            await bot.send_animation(chat_id, FSInputFile(IMG_ROULETTE_GIF))
-        except Exception as e:
-            log.warning("roulette gif send failed: %s", e)
-            await bot.send_dice(chat_id, emoji="🎰")
-    else:
-        await bot.send_dice(chat_id, emoji="🎰")
-
-    await asyncio.sleep(3)
-
-    number = random.randint(0, 36)
-    if number == 0:
-        color = "zero"
-    elif number in RED_NUMBERS:
-        color = "red"
-    else:
-        color = "black"
-
-    payout_total = 0
-    winners_lines = []
-    for uid, bets in s["bets"].items():
-        user_total = 0
-        for b in bets:
-            win = calc_roulette_win(b, number, color)
-            user_total += win
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "INSERT INTO roulette_logs(chat_id, user_id, bet, win, numbers, color, created_at) "
-                    "VALUES(?,?,?,?,?,?,?)",
-                    (chat_id, uid, b["amount"], win, str(number), color,
-                     datetime.utcnow().isoformat()),
-                )
-                await db.commit()
-        if user_total > 0:
-            await add_balance(uid, user_total)
-            payout_total += user_total
-            winners_lines.append(f"🆔 <code>{uid}</code> +{fmt(user_total)}")
-
-    color_emoji = {"red": "🔴", "black": "⚫", "zero": "🟢"}[color]
-    color_text = {"red": "красное", "black": "чёрное", "zero": "зеро"}[color]
-    text = (
-        f"🎡 <b>Результат рулетки!</b>\n\n"
-        f"Выпало: {color_emoji} <b>{number}</b> ({color_text})\n\n"
-    )
-    if winners_lines:
-        text += "🏆 <b>Победители:</b>\n" + "\n".join(winners_lines[:15])
-        if len(winners_lines) > 15:
-            text += f"\n... и ещё {len(winners_lines) - 15}"
-        text += f"\n\n💰 Всего выплачено: <b>{fmt(payout_total)}</b> TOKENS"
-    else:
-        text += "😔 Победителей нет."
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Повторить", callback_data="roul_repeat"),
-         InlineKeyboardButton(text="⏫ Удвоить", callback_data="roul_double")],
-    ])
-    await bot.send_message(chat_id, text, reply_markup=kb)
-
-    # Храним 120 сек для повтора/удвоения
-    s["result"] = {"number": number, "color": color}
-
-    async def cleanup():
-        await asyncio.sleep(120)
-        roulette_sessions.pop(chat_id, None)
-    asyncio.create_task(cleanup())
-
-
-def format_bet_label(b: dict) -> str:
-    t, v = b["type"], b["value"]
-    if t == "color":
-        return {"red": "🔴 красное", "black": "⚫ чёрное", "zero": "0️⃣ зеро"}[v]
-    if t == "parity":
-        return "🎯 чёт" if v == "even" else "🎯 нечет"
-    if t == "numbers":
-        return "🔢 " + ",".join(map(str, v))
-    if t == "range":
-        return f"📏 {v[0]}-{v[1]}"
-    return "❔"
-
-
-def calc_roulette_win(b: dict, number: int, color: str) -> int:
-    t, v, amt = b["type"], b["value"], b["amount"]
-    if t == "color":
-        if v == color:
-            return amt * 36 if color == "zero" else amt * 2
-    elif t == "parity":
-        if number != 0:
-            is_even = number % 2 == 0
-            if (v == "even" and is_even) or (v == "odd" and not is_even):
-                return amt * 2
-    elif t == "numbers":
-        if number in v:
-            return amt * 36
-    elif t == "range":
-        a, bnd = v
-        if a <= number <= bnd:
-            return amt * 3
-    return 0
-
-
-@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-async def roulette_bet_handler(msg: Message):
-    if not msg.text:
-        return
-    chat_id = msg.chat.id
-    s = roulette_sessions.get(chat_id)
-    if not s or s["resolved"]:
-        return
-    parsed = parse_roulette_bet(msg.text)
-    if not parsed:
-        return
-    amount = parsed["amount"]
-    if amount < 10:
-        await msg.reply("❌ Минимальная ставка — 10 TOKENS")
-        return
-    await ensure_user(msg.from_user.id, msg.from_user.username)
-    if not await try_withdraw(msg.from_user.id, amount):
-        await msg.reply("❌ Недостаточно средств.")
-        return
-    uid = msg.from_user.id
-    s["bets"].setdefault(uid, []).append(parsed)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO roulette_participants(chat_id, user_id, bet_type, bet_value, amount, created_at) "
-            "VALUES(?,?,?,?,?,?)",
-            (chat_id, uid, parsed["type"], str(parsed["value"]), amount,
-             datetime.utcnow().isoformat()),
-        )
-        await db.commit()
-    await msg.reply(f"✅ Ставка принята: {format_bet_label(parsed)} — <b>{fmt(amount)}</b>")
-
-
-@router.callback_query(F.data == "roul_repeat")
-async def roulette_repeat(cb: CallbackQuery):
-    chat_id = cb.message.chat.id
-    s = roulette_sessions.get(chat_id)
-    if not s or "result" not in s:
-        await cb.answer("Сессия истекла", show_alert=True)
-        return
-    old_bets = s.get("bets", {})
-    roulette_sessions[chat_id] = {
-        "bets": {}, "started_by": cb.from_user.id,
-        "started_at": time.time(), "resolved": False,
-    }
-    for uid, bets in old_bets.items():
-        for b in bets:
-            if await try_withdraw(uid, b["amount"]):
-                roulette_sessions[chat_id]["bets"].setdefault(uid, []).append(b)
-    await cb.answer("🔄 Повтор!")
-    await bot.send_message(chat_id, "🎰 Рулетка снова запущена! Принимаю ставки 30 секунд...")
-    asyncio.create_task(roulette_spin(chat_id))
-
-
-@router.callback_query(F.data == "roul_double")
-async def roulette_double(cb: CallbackQuery):
-    chat_id = cb.message.chat.id
-    s = roulette_sessions.get(chat_id)
-    if not s or "result" not in s:
-        await cb.answer("Сессия истекла", show_alert=True)
-        return
-    old_bets = s.get("bets", {})
-    roulette_sessions[chat_id] = {
-        "bets": {}, "started_by": cb.from_user.id,
-        "started_at": time.time(), "resolved": False,
-    }
-    for uid, bets in old_bets.items():
-        for b in bets:
-            nb = dict(b)
-            nb["amount"] = b["amount"] * 2
-            if await try_withdraw(uid, nb["amount"]):
-                roulette_sessions[chat_id]["bets"].setdefault(uid, []).append(nb)
-    await cb.answer("⏫ Удвоено!")
-    await bot.send_message(chat_id, "🎰 Рулетка снова запущена! Ставки удвоены. 30 секунд...")
-    asyncio.create_task(roulette_spin(chat_id))
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "💡 <b>Общие правила:</b>\n"
+    "• Минимальная ставка: <b>10 TOKENS</b>\n"
+    "• Все игры работают в ЛС и в чатах (если админ не отключил игры)\n"
+    "• Игры в чате отключаются командой <code>@игры_выкл</code> (только админ)\n"
+    "• Автоудаление результатов кубиков через 60 секунд\n\n"
+    "Удачи и больших выигрышей! 🍀"
+)
 
 
 # ---------------------------------------------------------------------------
-# START / MENU
+# ТЕКСТЫ: «КОМАНДЫ» — ЮЗЕРСКИЕ (БЕЗ ИГР И БЕЗ АДМИНКИ)
+# ---------------------------------------------------------------------------
+COMMANDS_TEXT = (
+    "📖 <b>КОМАНДЫ БОТА TOKENS</b>\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    "<b>💰 БАЛАНС</b>\n"
+    "<code>б</code> — быстро узнать свой баланс.\n"
+    "Показывает: сколько TOKENS на счету, VIP-статус, число игр и побед.\n\n"
+
+    "<b>🏆 ТОП</b>\n"
+    "<code>топ</code> — Топ-10 игроков по балансу в реальном времени.\n"
+    "Медали: 🥇 🥈 🥉 — первые три места.\n\n"
+
+    "<b>🆕 ЧТО НОВОГО</b>\n"
+    "<code>что нового</code> — последние обновления бота.\n"
+    "Показывает свежие фичи и нововведения.\n\n"
+
+    "<b>💸 ПЕРЕВОД</b>\n"
+    "<code>перевод @user 1000</code> — перевести TOKENS другому игроку.\n"
+    "Условия:\n"
+    "• Минимум 10 TOKENS\n"
+    "• Получатель должен быть зарегистрирован (запускал /start)\n"
+    "• Баланс должен хватать\n"
+    "Зачисление мгновенное.\n\n"
+
+    "<b>🎟 ПРОМО-КОД</b>\n"
+    "<code>промо КОД</code> — активировать промо-код.\n"
+    "Коды выдают админы и бот в рассылках.\n"
+    "Каждый код можно активировать <b>1 раз на аккаунт</b>.\n"
+    "Если код истёк или закончились использования — бот сообщит.\n\n"
+
+    "<b>📜 ЛОГ ИГР</b>\n"
+    "<code>лог</code> — последние 10 игр лично твоих.\n"
+    "Показывает: игру, ставку, выигрыш, время.\n"
+    "🟢 — победа, 🔴 — проигрыш.\n\n"
+
+    "<b>👤 ПРОФИЛЬ</b>\n"
+    "Кнопка <b>«👤 Профиль»</b> в меню:\n"
+    "• ID, баланс, VIP-статус\n"
+    "• Всего игр и побед\n"
+    "• Настройки: вкл/выкл уведомления\n"
+    "• История последних 10 игр\n"
+    "• Переключение языка RU / EN\n\n"
+
+    "<b>💎 ДОНАТ</b>\n"
+    "Кнопка <b>«💎 Донат»</b> в меню:\n"
+    "Покупка TOKENS за Telegram Stars.\n"
+    f"Курс: <b>1⭐ = {fmt(STAR_RATE)} TOKENS</b>\n"
+    "Быстрые суммы: 50⭐, 100⭐, 250⭐, 500⭐\n"
+    "Кнопка <b>«✍️ Своя сумма»</b> — вводишь любое количество звёзд (1–10000).\n\n"
+
+    "<b>🎁 БОНУС</b>\n"
+    "Кнопка <b>«🎁 Бонус»</b> в меню:\n"
+    "• Авто-дроп раз в 2 часа в игровых чатах\n"
+    "• Первый нажавший «Забрать» — получает сумму\n"
+    "• Следи за новостями в канале\n\n"
+
+    "<b>💬 ЧАТЫ</b>\n"
+    "Кнопка <b>«💬 Чаты»</b> в меню:\n"
+    "• 🎰 Игровой чат — <code>@tokenplays</code>\n"
+    "• 💱 Чат обмена — <code>@Tokenschange</code>\n"
+    "• 📢 Новости — <code>@TokenCasinoTournaments</code>\n\n"
+
+    "<b>🆘 ПОДДЕРЖКА</b>\n"
+    "Кнопка <b>«🆘 Поддержка»</b> в меню:\n"
+    "Связь с администрацией по любым вопросам.\n\n"
+
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "🎮 <b>Все игровые команды</b> (кости, мины, дуэли, рулетка и т.д.) "
+    "описаны в разделе <b>«🎮 Как играть»</b>.\n\n"
+    "🔒 Команды для админа — только у администрации.\n\n"
+    "💡 Совет: добавь бота в игровой чат — там проходит всё веселье!"
+)
+
+
+# ---------------------------------------------------------------------------
+# START + МЕНЮ
 # ---------------------------------------------------------------------------
 @router.message(CommandStart())
 async def cmd_start(msg: Message):
@@ -623,31 +432,47 @@ async def cmd_start(msg: Message):
     u = await get_user(msg.from_user.id)
     caption = (
         f"👋 <b>Добро пожаловать в TOKENS Casino!</b>\n\n"
-        f"💎 Баланс: <b>{fmt(u['balance'])} TOKENS</b>\n\n"
-        f"Курс: <b>{fmt(STAR_RATE)} TOKENS</b> = 1⭐\n\n"
-        f"Используй меню ниже, чтобы начать."
+        f"💎 Твой баланс: <b>{fmt(u['balance'])} TOKENS</b>\n"
+        f"⭐ Курс: <b>{fmt(STAR_RATE)}</b> TOKENS = 1⭐\n\n"
+        f"Жми «🎮 Как играть» чтобы узнать про все 11 игр.\n"
+        f"Жми «📖 Команды» чтобы увидеть все команды бота."
     )
-    if os.path.exists(IMG_START):
-        await msg.answer_photo(FSInputFile(IMG_START), caption=caption, reply_markup=main_kb())
-    else:
-        await msg.answer(caption, reply_markup=main_kb())
+    await send_pic_or_text(msg, IMG_START, caption, main_kb())
 
 
 @router.message(F.text == "🎮 Как играть")
 async def how_to_play(msg: Message):
+    await send_pic_or_text(msg, IMG_HOW, HOW_TO_PLAY_TEXT, back_kb())
+    await msg.answer("Главное меню 👇", reply_markup=main_kb())
+
+
+@router.message(F.text == "📖 Команды")
+async def commands_list(msg: Message):
+    await send_pic_or_text(msg, IMG_COMMANDS, COMMANDS_TEXT, back_kb())
+    await msg.answer("Главное меню 👇", reply_markup=main_kb())
+
+
+@router.message(F.text == "💬 Чаты")
+async def chats_menu(msg: Message):
+    caption = "💬 <b>Наши чаты</b>\n\nВыбирай, где тебе интересно:"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎰 Игровой чат", url=CHAT_GAME)],
+        [InlineKeyboardButton(text="💱 Чат обмена", url=CHAT_EXCHANGE)],
+        [InlineKeyboardButton(text="📢 Новости", url=CHAT_NEWS)],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
+    ])
+    await send_pic_or_text(msg, IMG_CHATS, caption, kb)
+    await msg.answer("Главное меню 👇", reply_markup=main_kb())
+
+
+@router.message(F.text == "🆘 Поддержка")
+async def support(msg: Message):
     caption = (
-        "🎮 <b>Как играть</b>\n\n"
-        "1️⃣ Пополни баланс через 💎 <b>Донат</b> (звёздами).\n"
-        "2️⃣ Зайди в 🎰 <b>Игровой чат</b> и играй.\n\n"
-        "🎲 <b>Кубики</b>: ставка + бросок. Больше 3 — x2.\n"
-        "💣 <b>Мины</b>: 5×5, 3 мины, множитель +0.15 за клетку.\n"
-        "⚔️ <b>Дуэли</b>: вызов + кубики, комиссия 5%.\n"
-        "🎡 <b>Рулетка</b>: напиши <code>старт</code> в чате.\n\n"
-        "📌 Ставки: <code>к 1000</code>, <code>ч 500</code>, "
-        "<code>1000 чет</code>, <code>1000 нечет</code>, <code>0 100</code>, "
-        "<code>1000 1 2 3</code>, <code>500 10-20</code>."
+        "🆘 <b>Поддержка</b>\n\n"
+        "По всем вопросам пиши: @ТВОЙ_ЮЗЕРНЕЙМ"
     )
-    await send_with_photo(msg, IMG_HOW, caption, reply_markup=main_kb())
+    await send_pic_or_text(msg, IMG_SUPPORT, caption, back_kb())
+    await msg.answer("Главное меню 👇", reply_markup=main_kb())
 
 
 @router.message(F.text == "🎁 Бонус")
@@ -655,15 +480,15 @@ async def bonus_menu(msg: Message):
     u = await ensure_user(msg.from_user.id, msg.from_user.username)
     caption = (
         f"🎁 <b>Бонусы</b>\n\n"
-        f"Твой баланс: <b>{fmt(u['balance'])} TOKENS</b>\n\n"
-        "Следи за авто-дропами раз в 2 часа в наших чатах!"
+        f"💎 Баланс: <b>{fmt(u['balance'])}</b>\n\n"
+        f"Авто-дроп раз в 2 часа в игровых чатах!\n"
+        f"Заходи в 🎰 Игровой чат и лови бонусы."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Игровой чат", url=CHAT_GAME)],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
     ])
-    await send_with_photo(msg, IMG_BONUS, caption, reply_markup=kb)
-    # Вернуть Reply-меню
+    await send_pic_or_text(msg, IMG_BONUS, caption, kb)
     await msg.answer("Главное меню 👇", reply_markup=main_kb())
 
 
@@ -672,9 +497,10 @@ async def donate_menu(msg: Message):
     u = await ensure_user(msg.from_user.id, msg.from_user.username)
     caption = (
         f"💎 <b>Пополнение баланса</b>\n\n"
-        f"Курс: <b>{fmt(STAR_RATE)} TOKENS</b> за 1⭐\n"
-        f"Пример: 100⭐ = <b>{fmt(100 * STAR_RATE)} TOKENS</b>\n\n"
-        f"Твой баланс: <b>{fmt(u['balance'])} TOKENS</b>"
+        f"⭐ Курс: <b>{fmt(STAR_RATE)}</b> TOKENS за 1⭐\n"
+        f"💡 100⭐ = <b>{fmt(100 * STAR_RATE)}</b> TOKENS\n\n"
+        f"💎 Твой баланс: <b>{fmt(u['balance'])}</b>\n\n"
+        f"Выбери сумму:"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="50⭐", callback_data="buy_50"),
@@ -684,7 +510,7 @@ async def donate_menu(msg: Message):
         [InlineKeyboardButton(text="✍️ Своя сумма", callback_data="buy_custom")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
     ])
-    await send_with_photo(msg, IMG_DONATE, caption, reply_markup=kb)
+    await send_pic_or_text(msg, IMG_DONATE, caption, kb)
     await msg.answer("Главное меню 👇", reply_markup=main_kb())
 
 
@@ -707,42 +533,7 @@ async def profile(msg: Message):
         [InlineKeyboardButton(text="🌐 Язык", callback_data="prof_lang")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
     ])
-    await send_with_photo(msg, IMG_PROFILE, caption, reply_markup=kb)
-    await msg.answer("Главное меню 👇", reply_markup=main_kb())
-
-
-@router.message(F.text == "💬 Чаты")
-async def chats_menu(msg: Message):
-    caption = "💬 <b>Наши чаты</b>\n\nВыбирай, где тебе интересно:"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎰 Игровой чат", url=CHAT_GAME)],
-        [InlineKeyboardButton(text="💱 Чат обмена", url=CHAT_EXCHANGE)],
-        [InlineKeyboardButton(text="📢 Новости", url=CHAT_NEWS)],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
-    ])
-    await send_with_photo(msg, IMG_CHATS, caption, reply_markup=kb)
-    await msg.answer("Главное меню 👇", reply_markup=main_kb())
-
-
-@router.message(F.text == "🆘 Поддержка")
-async def support(msg: Message):
-    caption = "🆘 <b>Поддержка</b>\n\nНапиши нам: 👤 @TokenSupport"
-    await send_with_photo(msg, IMG_SUPPORT, caption, reply_markup=back_kb())
-    await msg.answer("Главное меню 👇", reply_markup=main_kb())
-
-
-@router.message(F.text == "📖 Команды")
-async def commands_list(msg: Message):
-    caption = (
-        "📖 <b>Команды</b>\n\n"
-        "🎲 <code>кубик 1000</code> | 💣 <code>мины 1000</code>\n"
-        "⚔️ <code>дуэль @user 1000</code>\n"
-        "🎡 <code>старт</code> — рулетка\n\n"
-        "🔴 <code>к 1000</code> | ⚫ <code>ч 500</code>\n"
-        "🎯 <code>1000 чет</code> | <code>1000 нечет</code>\n"
-        "0️⃣ <code>0 100</code> | 🔢 <code>1000 1 2 3</code> | 📏 <code>500 10-20</code>"
-    )
-    await send_with_photo(msg, IMG_COMMANDS, caption, reply_markup=back_kb())
+    await send_pic_or_text(msg, IMG_PROFILE, caption, kb)
     await msg.answer("Главное меню 👇", reply_markup=main_kb())
 
 
@@ -758,7 +549,7 @@ async def top_menu(msg: Message):
         lines.append(f"{medals[i]} {name} — <b>{fmt(bal)}</b> TOKENS")
     if not rows:
         lines.append("Пока пусто.")
-    await send_with_photo(msg, IMG_TOP, "\n".join(lines), reply_markup=back_kb())
+    await send_pic_or_text(msg, IMG_TOP, "\n".join(lines), back_kb())
     await msg.answer("Главное меню 👇", reply_markup=main_kb())
 
 
@@ -770,50 +561,118 @@ async def nav_menu(cb: CallbackQuery, state: FSMContext):
 
 
 # ---------------------------------------------------------------------------
-# DONATE
+# ЮЗЕРСКИЕ КОМАНДЫ: б, топ, что нового, перевод, промо, лог
 # ---------------------------------------------------------------------------
-@router.callback_query(F.data == "buy_custom")
-async def buy_custom_prompt(cb: CallbackQuery, state: FSMContext):
-    await state.set_state(BuyStars.custom)
-    await cb.message.edit_text("✍️ Введи количество звёзд (1-10000):", reply_markup=back_kb())
-    await cb.answer()
-
-
-@router.message(BuyStars.custom)
-async def buy_custom_stars(msg: Message, state: FSMContext):
-    try:
-        stars = int(msg.text.strip())
-        if not (1 <= stars <= 10000):
-            raise ValueError
-    except Exception:
-        await msg.answer("❌ Введи целое число от 1 до 10000.")
-        return
-    await state.clear()
-    tokens = stars * STAR_RATE
-    await add_balance(msg.from_user.id, tokens)
-    await msg.answer(
-        f"✅ Начислено <b>{fmt(tokens)} TOKENS</b> за {stars}⭐",
-        reply_markup=main_kb(),
+@router.message(F.text.lower() == "б")
+async def cmd_balance(msg: Message):
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    u = await get_user(msg.from_user.id)
+    await msg.reply(
+        f"💰 <b>Баланс:</b> <b>{fmt(u['balance'])}</b> TOKENS\n"
+        f"🎮 Игр: {u['games']} | 🏆 Побед: {u['wins']}"
     )
 
 
-@router.callback_query(F.data.startswith("buy_") & ~F.data.in_({"buy_custom"}))
-async def buy_stars(cb: CallbackQuery):
+@router.message(F.text.lower() == "топ")
+async def cmd_top(msg: Message):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10")
+        rows = await cur.fetchall()
+    lines = ["🏆 <b>ТОП-10:</b>\n"]
+    medals = ["🥇", "🥈", "🥉"] + ["▫️"] * 7
+    for i, (uname, bal) in enumerate(rows):
+        name = f"@{uname}" if uname else "Игрок"
+        lines.append(f"{medals[i]} {name} — {fmt(bal)}")
+    await msg.reply("\n".join(lines))
+
+
+@router.message(F.text.lower() == "что нового")
+async def cmd_whats_new(msg: Message):
+    await msg.reply(
+        "🆕 <b>Что нового в TOKENS</b>\n\n"
+        "✅ 11 игр: кубики, дартс, баскет, футбол, боулинг, бж, слоты, мины, дуэли, рулетка, бонус-дроп\n"
+        "✅ Рулетка с гифкой и кнопками Повторить/Удвоить\n"
+        "✅ Промо-коды\n"
+        "✅ Переводы между игроками\n"
+        "✅ Мега-админка (30+ команд)\n"
+        "✅ Авто-дроп раз в 2 часа\n"
+        "✅ Профиль с историей игр и сменой языка\n\n"
+        "Следи за обновлениями в @TokenCasinoTournaments"
+    )
+
+
+@router.message(F.text.regexp(r"^перевод\s+@\w+\s+\d+$"))
+async def cmd_transfer(msg: Message):
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    parts = msg.text.split()
+    target_username = parts[1].lstrip("@")
     try:
-        stars = int(cb.data.split("_")[1])
+        amount = int(parts[2])
     except ValueError:
-        await cb.answer("Ошибка", show_alert=True)
         return
-    tokens = stars * STAR_RATE
-    await add_balance(cb.from_user.id, tokens)
-    await cb.message.edit_text(
-        f"✅ Начислено <b>{fmt(tokens)} TOKENS</b> за {stars}⭐",
-    )
-    await cb.answer("Готово")
+    if amount < 10:
+        await msg.reply("❌ Минимум 10 TOKENS")
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT user_id FROM users WHERE LOWER(username)=LOWER(?)", (target_username,))
+        row = await cur.fetchone()
+    if not row:
+        await msg.reply("❌ Получатель не найден. Пусть запустит /start в ЛС.")
+        return
+    target_id = row[0]
+    if target_id == msg.from_user.id:
+        await msg.reply("❌ Нельзя перевести самому себе.")
+        return
+    if not await try_withdraw(msg.from_user.id, amount):
+        await msg.reply("❌ Недостаточно средств.")
+        return
+    await add_balance(target_id, amount)
+    await msg.reply(f"✅ Переведено <b>{fmt(amount)}</b> TOKENS → @{target_username}")
+
+
+@router.message(F.text.regexp(r"^промо\s+\S+$"))
+async def cmd_promo(msg: Message):
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    code = msg.text.split(maxsplit=1)[1].strip().upper()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM promo_codes WHERE code=?", (code,))
+        row = await cur.fetchone()
+        if not row:
+            await msg.reply("❌ Промо-код не найден.")
+            return
+        if row["used_count"] >= row["max_uses"]:
+            await msg.reply("❌ Код больше не действителен (закончились активации).")
+            return
+        cur = await db.execute("SELECT 1 FROM promo_used WHERE user_id=? AND code=?",
+                               (msg.from_user.id, code))
+        if await cur.fetchone():
+            await msg.reply("❌ Ты уже активировал этот код.")
+            return
+        await db.execute("INSERT INTO promo_used(user_id, code, used_at) VALUES(?,?,?)",
+                         (msg.from_user.id, code, datetime.utcnow().isoformat()))
+        await db.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code=?", (code,))
+        await db.commit()
+    await add_balance(msg.from_user.id, row["amount"])
+    await msg.reply(f"🎟 Промо-код активирован! +<b>{fmt(row['amount'])}</b> TOKENS")
+
+
+@router.message(F.text.lower() == "лог")
+async def cmd_log(msg: Message):
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    rows = await get_history(msg.from_user.id, 10)
+    if not rows:
+        await msg.reply("📜 История пуста. Сыграй первую игру!")
+        return
+    lines = ["📜 <b>Твои последние 10 игр:</b>\n"]
+    for r in rows:
+        sign = "🟢" if r["win"] > 0 else "🔴"
+        lines.append(f"{sign} {r['game']} | ставка {fmt(r['bet'])} | выигрыш {fmt(r['win'])}")
+    await msg.reply("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
-# PROFILE CALLBACKS
+# ПРОФИЛЬ CALLBACKS
 # ---------------------------------------------------------------------------
 @router.callback_query(F.data == "prof_settings")
 async def prof_settings(cb: CallbackQuery):
@@ -829,7 +688,6 @@ async def prof_settings(cb: CallbackQuery):
 
 @router.callback_query(F.data == "toggle_notif")
 async def toggle_notif(cb: CallbackQuery):
-    await ensure_user(cb.from_user.id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE users SET notifications = 1 - notifications WHERE user_id=?",
                          (cb.from_user.id,))
@@ -858,7 +716,6 @@ async def prof_lang(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("set_lang_"))
 async def set_lang(cb: CallbackQuery):
     lang = cb.data.split("_")[2]
-    await ensure_user(cb.from_user.id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, cb.from_user.id))
         await db.commit()
@@ -908,8 +765,48 @@ async def prof_history(cb: CallbackQuery):
 
 
 # ---------------------------------------------------------------------------
-# DICE GAMES
+# ДОНАТ
 # ---------------------------------------------------------------------------
+@router.callback_query(F.data == "buy_custom")
+async def buy_custom_prompt(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(BuyStars.custom)
+    await cb.message.edit_text("✍️ Введи количество звёзд (1-10000):", reply_markup=back_kb())
+    await cb.answer()
+
+
+@router.message(BuyStars.custom)
+async def buy_custom_stars(msg: Message, state: FSMContext):
+    try:
+        stars = int(msg.text.strip())
+        if not (1 <= stars <= 10000):
+            raise ValueError
+    except Exception:
+        await msg.answer("❌ Введи целое число от 1 до 10000.")
+        return
+    await state.clear()
+    tokens = stars * STAR_RATE
+    await add_balance(msg.from_user.id, tokens)
+    await msg.answer(f"✅ Начислено <b>{fmt(tokens)} TOKENS</b> за {stars}⭐",
+                     reply_markup=main_kb())
+
+
+@router.callback_query(F.data.startswith("buy_") & ~F.data.in_({"buy_custom"}))
+async def buy_stars(cb: CallbackQuery):
+    try:
+        stars = int(cb.data.split("_")[1])
+    except ValueError:
+        await cb.answer("Ошибка", show_alert=True)
+        return
+    tokens = stars * STAR_RATE
+    await add_balance(cb.from_user.id, tokens)
+    await cb.message.edit_text(f"✅ Начислено <b>{fmt(tokens)} TOKENS</b> за {stars}⭐")
+    await cb.answer("Готово")
+
+# bot.py — ЧАСТЬ 2 (Игры, Рулетка с автостартом, Мега-админка 30+, планировщик, main)
+
+# ============================================================
+# ИГРЫ: КУБИКИ (7 видов)
+# ============================================================
 DICE_EMOJI = {
     "кубик": "🎲", "кубики": "🎲", "кости": "🎲",
     "дартс": "🎯", "баскет": "🏀", "баскетбол": "🏀",
@@ -958,9 +855,9 @@ async def dice_game(msg: Message):
     asyncio.create_task(auto_delete())
 
 
-# ---------------------------------------------------------------------------
-# MINES
-# ---------------------------------------------------------------------------
+# ============================================================
+# ИГРЫ: МИНЫ (5x5, 3 мины)
+# ============================================================
 def build_mines_kb(session: dict) -> InlineKeyboardMarkup:
     opened = session["opened"]
     buttons = []
@@ -1082,9 +979,9 @@ async def mines_noop(cb: CallbackQuery):
     await cb.answer()
 
 
-# ---------------------------------------------------------------------------
-# DUELS
-# ---------------------------------------------------------------------------
+# ============================================================
+# ИГРЫ: ДУЭЛИ
+# ============================================================
 @router.message(F.text.regexp(r"^дуэль\s+@\w+\s+\d+$"))
 async def duel_start(msg: Message):
     global _duel_seq
@@ -1201,17 +1098,362 @@ async def duel_accept(cb: CallbackQuery):
         await cb.message.edit_text(text)
     except TelegramBadRequest:
         await cb.message.answer(text)
-    await log_game(s["challenger"], "duel", bet,
-                   prize if winner == s["challenger"] else 0, f"{dice1}-{dice2}")
-    await log_game(s["target"], "duel", bet,
-                   prize if winner == s["target"] else 0, f"{dice2}-{dice1}")
+    await log_game(s["challenger"], "duel", bet, prize if winner == s["challenger"] else 0, f"{dice1}-{dice2}")
+    await log_game(s["target"], "duel", bet, prize if winner == s["target"] else 0, f"{dice2}-{dice1}")
     duel_sessions.pop(did, None)
     await cb.answer("🏆")
 
 
-# ---------------------------------------------------------------------------
-# ADMIN @ COMMANDS
-# ---------------------------------------------------------------------------
+# ============================================================
+# РУЛЕТКА — ПАРСЕР, АВТОСТАРТ, ВЫПЛАТЫ
+# ============================================================
+RED_NUMBERS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+
+ROULETTE_START_DELAY = 10  # секунд после первой ставки
+
+
+def parse_roulette_bet(text: str) -> Optional[list]:
+    """
+    Возвращает СПИСОК ставок (может быть несколько диапазонов/чисел).
+    Форматы:
+      "к 1000"                             -> color red
+      "ч 500"                              -> color black
+      "0 100"                              -> zero
+      "1000 чет" / "1000 нечет"            -> parity
+      "1000 1 2 3"                         -> numbers
+      "500 10-20"                          -> один range
+      "2000 2-5 7-11 15-19 22-25 26-29"    -> МНОГО range (по 2000 на каждый)
+      "1000 1-5 12 20-25"                  -> смесь ranges + numbers
+    """
+    t = (text or "").strip().lower()
+    t = re.sub(r"\s+", " ", t)
+
+    # Цвет
+    m = re.match(r"^(к|красное|красн)\s+(\d+)$", t)
+    if m:
+        return [{"type": "color", "value": "red", "amount": int(m.group(2))}]
+    m = re.match(r"^(ч|черное|черн)\s+(\d+)$", t)
+    if m:
+        return [{"type": "color", "value": "black", "amount": int(m.group(2))}]
+
+    # Зеро
+    m = re.match(r"^(0|зеро|zero)\s+(\d+)$", t)
+    if m:
+        return [{"type": "color", "value": "zero", "amount": int(m.group(2))}]
+
+    # Чет/нечет (сумма ПЕРЕД)
+    m = re.match(r"^(\d+)\s+(чет|чёт|even)$", t)
+    if m:
+        return [{"type": "parity", "value": "even", "amount": int(m.group(1))}]
+    m = re.match(r"^(\d+)\s+(нечет|нечёт|odd)$", t)
+    if m:
+        return [{"type": "parity", "value": "odd", "amount": int(m.group(1))}]
+
+    # Пакетная ставка: сумма + несколько токенов (ranges и/или числа)
+    # "2000 2-5 7-11 15-19 22-25 26-29"  или  "1000 1 2 3"
+    m = re.match(r"^(\d+)\s+(.+)$", t)
+    if m:
+        amount = int(m.group(1))
+        rest = m.group(2).strip()
+        tokens = re.split(r"[,\s]+", rest)
+        bets = []
+        nums_plain = []
+        for tok in tokens:
+            if not tok:
+                continue
+            rng = re.match(r"^(\d+)-(\d+)$", tok)
+            if rng:
+                a, b = int(rng.group(1)), int(rng.group(2))
+                if a > b:
+                    a, b = b, a
+                if 0 <= a <= 36 and 0 <= b <= 36:
+                    bets.append({"type": "range", "value": (a, b), "amount": amount})
+                else:
+                    return None
+            else:
+                try:
+                    n = int(tok)
+                except ValueError:
+                    return None
+                if not (0 <= n <= 36):
+                    return None
+                nums_plain.append(n)
+        # Каждое отдельное число — ставка на число (x36)
+        for n in nums_plain:
+            bets.append({"type": "numbers", "value": [n], "amount": amount})
+        return bets if bets else None
+
+    return None
+
+
+def format_bet_label(b: dict) -> str:
+    t, v = b["type"], b["value"]
+    if t == "color":
+        return {"red": "🔴 красное", "black": "⚫ чёрное", "zero": "0️⃣ зеро"}[v]
+    if t == "parity":
+        return "🎯 чёт" if v == "even" else "🎯 нечет"
+    if t == "numbers":
+        return "🔢 " + ",".join(map(str, v))
+    if t == "range":
+        return f"📏 {v[0]}-{v[1]}"
+    return "❔"
+
+
+def calc_roulette_win(b: dict, number: int, color: str) -> int:
+    t, v, amt = b["type"], b["value"], b["amount"]
+    if t == "color":
+        if v == color:
+            return amt * 36 if color == "zero" else amt * 2
+    elif t == "parity":
+        if number != 0:
+            is_even = number % 2 == 0
+            if (v == "even" and is_even) or (v == "odd" and not is_even):
+                return amt * 2
+    elif t == "numbers":
+        if number in v:
+            return amt * 36
+    elif t == "range":
+        a, bnd = v
+        if a <= number <= bnd:
+            return amt * 3
+    return 0
+
+
+async def ensure_roulette_session(chat_id: int, starter_id: int) -> dict:
+    """Создаёт или возвращает сессию. Запускает таймер на ROULETTE_START_DELAY."""
+    s = roulette_sessions.get(chat_id)
+    if s and not s["resolved"]:
+        return s
+    s = {
+        "bets": {},
+        "started_by": starter_id,
+        "started_at": time.time(),
+        "resolved": False,
+        "timer_started": False,
+    }
+    roulette_sessions[chat_id] = s
+    return s
+
+
+async def roulette_spin(chat_id: int):
+    await asyncio.sleep(ROULETTE_START_DELAY)
+    s = roulette_sessions.get(chat_id)
+    if not s or s["resolved"]:
+        return
+    s["resolved"] = True
+
+    if not s["bets"]:
+        roulette_sessions.pop(chat_id, None)
+        return
+
+    # Список всех ставок
+    lines = ["📋 <b>Ставки приняты:</b>"]
+    for uid, bets in s["bets"].items():
+        for b in bets:
+            lines.append(
+                f"• <code>{uid}</code>: {format_bet_label(b)} — <b>{fmt(b['amount'])}</b>"
+            )
+    await bot.send_message(chat_id, "\n".join(lines))
+
+    # Гифка или кубик
+    if os.path.exists(IMG_ROULETTE_GIF):
+        try:
+            await bot.send_animation(chat_id, FSInputFile(IMG_ROULETTE_GIF))
+        except Exception as e:
+            log.warning("roulette gif: %s", e)
+            await bot.send_dice(chat_id, emoji="🎰")
+    else:
+        await bot.send_dice(chat_id, emoji="🎰")
+
+    await asyncio.sleep(3)
+
+    number = random.randint(0, 36)
+    if number == 0:
+        color = "zero"
+    elif number in RED_NUMBERS:
+        color = "red"
+    else:
+        color = "black"
+
+    payout_total = 0
+    winners_lines = []
+    for uid, bets in s["bets"].items():
+        user_total = 0
+        for b in bets:
+            win = calc_roulette_win(b, number, color)
+            user_total += win
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "INSERT INTO roulette_logs(chat_id, user_id, bet, win, numbers, color, created_at) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (chat_id, uid, b["amount"], win, str(number), color,
+                     datetime.utcnow().isoformat()),
+                )
+                await db.commit()
+        if user_total > 0:
+            await add_balance(uid, user_total)
+            payout_total += user_total
+            winners_lines.append(f"🆔 <code>{uid}</code> +{fmt(user_total)}")
+
+    color_emoji = {"red": "🔴", "black": "⚫", "zero": "🟢"}[color]
+    color_text = {"red": "красное", "black": "чёрное", "zero": "зеро"}[color]
+    text = (
+        f"🎡 <b>Результат рулетки!</b>\n\n"
+        f"Выпало: {color_emoji} <b>{number}</b> ({color_text})\n\n"
+    )
+    if winners_lines:
+        text += "🏆 <b>Победители:</b>\n" + "\n".join(winners_lines[:15])
+        if len(winners_lines) > 15:
+            text += f"\n... и ещё {len(winners_lines) - 15}"
+        text += f"\n\n💰 Всего выплачено: <b>{fmt(payout_total)}</b> TOKENS"
+    else:
+        text += "😔 Победителей нет."
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Повторить", callback_data="roul_repeat"),
+         InlineKeyboardButton(text="⏫ Удвоить", callback_data="roul_double")],
+    ])
+    await bot.send_message(chat_id, text, reply_markup=kb)
+
+    s["result"] = {"number": number, "color": color}
+
+    async def cleanup():
+        await asyncio.sleep(120)
+        roulette_sessions.pop(chat_id, None)
+    asyncio.create_task(cleanup())
+
+
+@router.message(F.text.lower() == "старт")
+async def roulette_start_cmd(msg: Message):
+    if msg.chat.type == ChatType.PRIVATE:
+        await msg.reply("🎡 Рулетка запускается только в игровом чате: " + CHAT_GAME)
+        return
+    if not await chat_games_enabled(msg.chat.id):
+        return
+    s = roulette_sessions.get(msg.chat.id)
+    if s and not s["resolved"]:
+        await msg.reply("❗ Рулетка уже идёт.")
+        return
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    s = await ensure_roulette_session(msg.chat.id, msg.from_user.id)
+    await msg.reply(
+        f"🎰 <b>Рулетка запущена!</b>\n"
+        f"Принимаю ставки <b>{ROULETTE_START_DELAY} секунд</b>.\n\n"
+        f"📌 Форматы:\n"
+        f"🔴 <code>к 1000</code> | ⚫ <code>ч 500</code>\n"
+        f"🎯 <code>1000 чет</code> | <code>1000 нечет</code>\n"
+        f"0️⃣ <code>0 100</code>\n"
+        f"🔢 <code>1000 1 2 3</code>\n"
+        f"📏 <code>500 10-20</code>\n"
+        f"📦 <code>2000 2-5 7-11 15-19</code> — пакет диапазонов"
+    )
+    if not s["timer_started"]:
+        s["timer_started"] = True
+        asyncio.create_task(roulette_spin(msg.chat.id))
+
+
+@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def roulette_bet_handler(msg: Message):
+    """Любое сообщение в чате, похожее на ставку, принимается.
+    Если сессии нет — создаётся АВТОМАТИЧЕСКИ и запускается таймер."""
+    if not msg.text or msg.from_user.is_bot:
+        return
+    if not await chat_games_enabled(msg.chat.id):
+        return
+
+    parsed = parse_roulette_bet(msg.text)
+    if not parsed:
+        return
+
+    total_bet = sum(b["amount"] for b in parsed)
+    if total_bet < 10:
+        await msg.reply("❌ Минимальная ставка — 10 TOKENS")
+        return
+
+    await ensure_user(msg.from_user.id, msg.from_user.username)
+    if not await try_withdraw(msg.from_user.id, total_bet):
+        await msg.reply("❌ Недостаточно средств.")
+        return
+
+    s = await ensure_roulette_session(msg.chat.id, msg.from_user.id)
+    uid = msg.from_user.id
+    s["bets"].setdefault(uid, []).extend(parsed)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        for b in parsed:
+            await db.execute(
+                "INSERT INTO roulette_participants(chat_id, user_id, bet_type, bet_value, amount, created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (msg.chat.id, uid, b["type"], str(b["value"]), b["amount"],
+                 datetime.utcnow().isoformat()),
+            )
+        await db.commit()
+
+    labels = " + ".join(format_bet_label(b) for b in parsed)
+    await msg.reply(
+        f"✅ Ставка принята: {labels}\n"
+        f"💰 Всего: <b>{fmt(total_bet)}</b> TOKENS"
+    )
+
+    # Автостарт таймера, если это первая ставка
+    if not s["timer_started"]:
+        s["timer_started"] = True
+        await msg.answer(
+            f"🎰 <b>Рулетка запущена автоматически!</b>\n"
+            f"Принимаю ещё ставки <b>{ROULETTE_START_DELAY} секунд</b>."
+        )
+        asyncio.create_task(roulette_spin(msg.chat.id))
+
+
+@router.callback_query(F.data == "roul_repeat")
+async def roulette_repeat(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
+    s = roulette_sessions.get(chat_id)
+    if not s or "result" not in s:
+        await cb.answer("Сессия истекла", show_alert=True)
+        return
+    old_bets = s.get("bets", {})
+    roulette_sessions[chat_id] = {
+        "bets": {}, "started_by": cb.from_user.id,
+        "started_at": time.time(), "resolved": False, "timer_started": True,
+    }
+    for uid, bets in old_bets.items():
+        for b in bets:
+            if await try_withdraw(uid, b["amount"]):
+                roulette_sessions[chat_id]["bets"].setdefault(uid, []).append(b)
+    await cb.answer("🔄 Повтор!")
+    await bot.send_message(chat_id,
+        f"🎰 Повтор прошлых ставок! Принимаю {ROULETTE_START_DELAY} секунд...")
+    asyncio.create_task(roulette_spin(chat_id))
+
+
+@router.callback_query(F.data == "roul_double")
+async def roulette_double(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
+    s = roulette_sessions.get(chat_id)
+    if not s or "result" not in s:
+        await cb.answer("Сессия истекла", show_alert=True)
+        return
+    old_bets = s.get("bets", {})
+    roulette_sessions[chat_id] = {
+        "bets": {}, "started_by": cb.from_user.id,
+        "started_at": time.time(), "resolved": False, "timer_started": True,
+    }
+    for uid, bets in old_bets.items():
+        for b in bets:
+            nb = dict(b)
+            nb["amount"] = b["amount"] * 2
+            if await try_withdraw(uid, nb["amount"]):
+                roulette_sessions[chat_id]["bets"].setdefault(uid, []).append(nb)
+    await cb.answer("⏫ Удвоено!")
+    await bot.send_message(chat_id,
+        f"🎰 Ставки удвоены! Принимаю {ROULETTE_START_DELAY} секунд...")
+    asyncio.create_task(roulette_spin(chat_id))
+
+
+# ============================================================
+# МЕГА-АДМИНКА ЧЕРЕЗ @ (30+ команд)
+# ============================================================
 def is_admin(msg: Message) -> bool:
     return ADMIN_ID and msg.from_user and msg.from_user.id == ADMIN_ID
 
@@ -1224,41 +1466,101 @@ async def find_user_by_username(username: str) -> Optional[int]:
         return row[0] if row else None
 
 
+async def admin_log(admin_id: int, action: str, details: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO admin_logs(admin_id, action, details, created_at) VALUES(?,?,?,?)",
+            (admin_id, action, details, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+ADMIN_HELP_TEXT = (
+    "🤖 <b>МЕГА-АДМИНКА TOKENS</b>\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    "<b>👤 УПРАВЛЕНИЕ ИГРОКАМИ</b>\n"
+    "<code>@выдать @user 1000</code> — выдать TOKENS\n"
+    "<code>@забрать @user 1000</code> — забрать TOKENS\n"
+    "<code>@бан @user</code> — забанить\n"
+    "<code>@разбан @user</code> — разбанить\n"
+    "<code>@банкрот @user</code> — обнулить баланс\n"
+    "<code>@юзер @user</code> — подробная инфа об игроке\n\n"
+
+    "<b>🎁 БОНУСЫ И ДРОПЫ</b>\n"
+    "<code>@дроп 1000</code> — дроп в текущий чат с кнопкой\n"
+    "<code>@дроп_всем 1000</code> — дроп всем игрокам в ЛС\n"
+    "<code>@забрать_всем 1000</code> — забрать 1000 у всех\n\n"
+
+    "<b>📊 СТАТИСТИКА</b>\n"
+    "<code>@стата</code> — общая статистика бота\n"
+    "<code>@лог 20</code> — последние 20 действий админа\n\n"
+
+    "<b>📣 РАССЫЛКИ И ПРОМО</b>\n"
+    "<code>@рассылка текст</code> — рассылка всем игрокам\n"
+    "<code>@промо КОД 5000 10</code> — создать промокод (5000, 10 активаций)\n"
+    "<code>@апдейт текст</code> — сообщение «Что нового» всем\n\n"
+
+    "<b>💾 БЕКАП</b>\n"
+    "<code>@бекап</code> — экспорт всех данных в .json (в ЛС)\n\n"
+
+    "<b>💱 КУРСЫ</b>\n"
+    "<code>@курс_добавить Имя 7500</code> — кастомный курс\n"
+    "<code>@сброс_курса</code> — сброс кастомных курсов\n\n"
+
+    "<b>💬 УПРАВЛЕНИЕ ЧАТАМИ</b>\n"
+    "<code>@игры_выкл</code> — выключить игры в текущем чате\n"
+    "<code>@игры_вкл</code> — включить игры\n"
+    "<code>@ивент_чат_добавить</code> — добавить чат в авто-дроп\n"
+    "<code>@ивент_чат_удалить</code> — убрать из авто-дроп\n"
+    "<code>@очистить_чат 50</code> — удалить последние 50 сообщений бота\n\n"
+
+    "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "Все команды работают только для <b>ADMIN_ID</b>."
+)
+
+
 @router.message(F.text.regexp(r"^@"))
 async def admin_at_commands(msg: Message):
     if not is_admin(msg):
         return
     low = msg.text.strip().lower()
 
+    # @помощь
     if low.startswith("@помощь"):
-        await msg.reply(
-            "🤖 <b>ИИ-помощник</b>\n\n"
-            "<code>@выдать @user 1000</code>\n"
-            "<code>@дроп 1000</code>\n"
-            "<code>@бан @user</code> / <code>@разбан @user</code>\n"
-            "<code>@стата</code>\n"
-            "<code>@игры_выкл</code> / <code>@игры_вкл</code>\n"
-            "<code>@ивент_чат_добавить</code> / <code>@ивент_чат_удалить</code>\n"
-            "<code>@рассылка</code>"
-        )
+        await msg.reply(ADMIN_HELP_TEXT)
         return
 
+    # @выдать @user 1000
     m = re.match(r"^@выдать\s+@(\w+)\s+(\d+)$", low)
     if m:
-        uname, amount = m.group(1), int(m.group(2))
-        uid = await find_user_by_username(uname)
+        uid = await find_user_by_username(m.group(1))
         if not uid:
-            await msg.reply("❌ Пользователь не найден в базе.")
+            await msg.reply("❌ Игрок не найден.")
             return
+        amount = int(m.group(2))
         await add_balance(uid, amount)
-        await msg.reply(f"✅ Выдано <b>{fmt(amount)}</b> @{uname}")
+        await admin_log(msg.from_user.id, "выдать", f"@{m.group(1)} +{amount}")
+        await msg.reply(f"✅ Выдано <b>{fmt(amount)}</b> @{m.group(1)}")
         return
 
-    m = re.match(r"^@дроп\s+(\d+)$", low)
+    # @забрать @user 1000
+    m = re.match(r"^@забрать\s+@(\w+)\s+(\d+)$", low)
     if m:
-        await send_bonus_drop(msg.chat.id, int(m.group(1)))
+        uid = await find_user_by_username(m.group(1))
+        if not uid:
+            await msg.reply("❌ Игрок не найден.")
+            return
+        amount = int(m.group(2))
+        ok = await try_withdraw(uid, amount)
+        if not ok:
+            await msg.reply("❌ У игрока недостаточно средств.")
+            return
+        await admin_log(msg.from_user.id, "забрать", f"@{m.group(1)} -{amount}")
+        await msg.reply(f"✅ Забрано <b>{fmt(amount)}</b> у @{m.group(1)}")
         return
 
+    # @бан / @разбан
     m = re.match(r"^@бан\s+@(\w+)$", low)
     if m:
         uid = await find_user_by_username(m.group(1))
@@ -1268,6 +1570,7 @@ async def admin_at_commands(msg: Message):
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE users SET banned=1 WHERE user_id=?", (uid,))
             await db.commit()
+        await admin_log(msg.from_user.id, "бан", f"@{m.group(1)}")
         await msg.reply(f"⛔ @{m.group(1)} забанен.")
         return
 
@@ -1280,32 +1583,221 @@ async def admin_at_commands(msg: Message):
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("UPDATE users SET banned=0 WHERE user_id=?", (uid,))
             await db.commit()
+        await admin_log(msg.from_user.id, "разбан", f"@{m.group(1)}")
         await msg.reply(f"✅ @{m.group(1)} разбанен.")
         return
 
+    # @банкрот
+    m = re.match(r"^@банкрот\s+@(\w+)$", low)
+    if m:
+        uid = await find_user_by_username(m.group(1))
+        if not uid:
+            await msg.reply("❌ Не найден.")
+            return
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("UPDATE users SET balance=0 WHERE user_id=?", (uid,))
+            await db.commit()
+        await admin_log(msg.from_user.id, "банкрот", f"@{m.group(1)}")
+        await msg.reply(f"💀 @{m.group(1)} обнулён.")
+        return
+
+    # @юзер @user
+    m = re.match(r"^@юзер\s+@(\w+)$", low)
+    if m:
+        uid = await find_user_by_username(m.group(1))
+        if not uid:
+            await msg.reply("❌ Не найден.")
+            return
+        u = await get_user(uid)
+        await msg.reply(
+            f"👤 <b>Инфо об игроке</b>\n\n"
+            f"🆔 ID: <code>{u['user_id']}</code>\n"
+            f"📛 Username: @{u['username'] or '—'}\n"
+            f"💎 Баланс: <b>{fmt(u['balance'])}</b>\n"
+            f"🎖 VIP: {'да' if u['vip'] else 'нет'}\n"
+            f"🎮 Игр: {u['games']} | 🏆 Побед: {u['wins']}\n"
+            f"🚫 Бан: {'да' if u['banned'] else 'нет'}\n"
+            f"📅 Регистрация: {u['created_at'][:10]}"
+        )
+        return
+
+    # @дроп 1000
+    m = re.match(r"^@дроп\s+(\d+)$", low)
+    if m:
+        amount = int(m.group(1))
+        await send_bonus_drop(msg.chat.id, amount)
+        await admin_log(msg.from_user.id, "дроп", f"{amount}")
+        return
+
+    # @дроп_всем 1000
+    m = re.match(r"^@дроп_всем\s+(\d+)$", low)
+    if m:
+        amount = int(m.group(1))
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT user_id FROM users")
+            uids = [r[0] for r in await cur.fetchall()]
+        ok = 0
+        for uid in uids:
+            await add_balance(uid, amount)
+            ok += 1
+            await asyncio.sleep(0.01)
+        await admin_log(msg.from_user.id, "дроп_всем", f"{amount} x {ok}")
+        await msg.reply(f"✅ Дроп <b>{fmt(amount)}</b> выдан {ok} игрокам.")
+        return
+
+    # @забрать_всем 1000
+    m = re.match(r"^@забрать_всем\s+(\d+)$", low)
+    if m:
+        amount = int(m.group(1))
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("UPDATE users SET balance = MAX(0, balance - ?)", (amount,))
+            await db.commit()
+        await admin_log(msg.from_user.id, "забрать_всем", f"{amount}")
+        await msg.reply(f"✅ Забрано <b>{fmt(amount)}</b> у всех.")
+        return
+
+    # @стата
     if low.startswith("@стата"):
         async with aiosqlite.connect(DB_PATH) as db:
-            cur = await db.execute("SELECT COUNT(*), SUM(balance) FROM users")
-            users_count, total_bal = await cur.fetchone()
+            cur = await db.execute("SELECT COUNT(*), SUM(balance), SUM(games) FROM users")
+            users_count, total_bal, total_games = await cur.fetchone()
             cur = await db.execute("SELECT COUNT(*) FROM event_chats")
             ev = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM roulette_logs")
             rl = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT COUNT(*) FROM promo_codes")
+            pc = (await cur.fetchone())[0]
         await msg.reply(
-            f"📊 <b>Статистика</b>\n\n"
-            f"👥 Пользователей: <b>{users_count}</b>\n"
+            f"📊 <b>Статистика бота</b>\n\n"
+            f"👥 Игроков: <b>{users_count}</b>\n"
             f"💎 Всего балансов: <b>{fmt(total_bal or 0)}</b>\n"
+            f"🎮 Всего игр: <b>{fmt(total_games or 0)}</b>\n"
             f"📣 Event-чатов: <b>{ev}</b>\n"
-            f"🎡 Ставок в рулетке: <b>{rl}</b>"
+            f"🎡 Ставок в рулетке: <b>{rl}</b>\n"
+            f"🎟 Промокодов: <b>{pc}</b>"
         )
         return
 
+    # @лог 20
+    m = re.match(r"^@лог\s+(\d+)$", low)
+    if m:
+        limit = int(m.group(1))
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM admin_logs ORDER BY id DESC LIMIT ?", (limit,))
+            rows = await cur.fetchall()
+        if not rows:
+            await msg.reply("📜 Логов нет.")
+            return
+        lines = [f"📜 <b>Последние {limit} действий:</b>\n"]
+        for r in rows:
+            lines.append(f"• {r['action']}: {r['details']} ({r['created_at'][:16]})")
+        await msg.reply("\n".join(lines))
+        return
+
+    # @рассылка текст
+    m = re.match(r"^@рассылка\s+(.+)$", msg.text.strip(), re.IGNORECASE | re.DOTALL)
+    if m:
+        text = m.group(1)
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT user_id FROM users WHERE notifications=1")
+            uids = [r[0] for r in await cur.fetchall()]
+        ok = 0
+        for uid in uids:
+            try:
+                await bot.send_message(uid, f"📣 <b>Рассылка</b>\n\n{text}")
+                ok += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await msg.reply(f"✅ Отправлено: <b>{ok}</b> / {len(uids)}")
+        return
+
+    # @промо КОД 5000 10
+    m = re.match(r"^@промо\s+(\S+)\s+(\d+)\s+(\d+)$", msg.text.strip(), re.IGNORECASE)
+    if m:
+        code = m.group(1).upper()
+        amount = int(m.group(2))
+        max_uses = int(m.group(3))
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO promo_codes(code, amount, max_uses, used_count) VALUES(?,?,?,0)",
+                (code, amount, max_uses),
+            )
+            await db.commit()
+        await msg.reply(
+            f"🎟 Промокод <b>{code}</b> создан\n"
+            f"💰 Сумма: <b>{fmt(amount)}</b>\n"
+            f"🔢 Активаций: <b>{max_uses}</b>"
+        )
+        return
+
+    # @апдейт текст
+    m = re.match(r"^@апдейт\s+(.+)$", msg.text.strip(), re.IGNORECASE | re.DOTALL)
+    if m:
+        text = m.group(1)
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT user_id FROM users WHERE notifications=1")
+            uids = [r[0] for r in await cur.fetchall()]
+        ok = 0
+        for uid in uids:
+            try:
+                await bot.send_message(uid, f"🆕 <b>Обновление!</b>\n\n{text}")
+                ok += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.05)
+        await msg.reply(f"✅ Апдейт отправлен: <b>{ok}</b>")
+        return
+
+    # @бекап
+    if low.startswith("@бекап"):
+        import json
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            data = {}
+            for table in ["users", "chat_settings", "event_chats", "roulette_logs",
+                          "games_log", "bonus_items", "promo_codes"]:
+                cur = await db.execute(f"SELECT * FROM {table}")
+                data[table] = [dict(r) for r in await cur.fetchall()]
+        path = f"backup_{int(time.time())}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        await msg.reply_document(FSInputFile(path, filename="backup.json"))
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        return
+
+    # @курс_добавить Имя 7500
+    m = re.match(r"^@курс_добавить\s+(\S+)\s+(\d+)$", msg.text.strip(), re.IGNORECASE)
+    if m:
+        name, rate = m.group(1), int(m.group(2))
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO custom_rates(name, rate) VALUES(?,?)", (name, rate)
+            )
+            await db.commit()
+        await msg.reply(f"✅ Курс «{name}» = {fmt(rate)} TOKENS")
+        return
+
+    # @сброс_курса
+    if low.startswith("@сброс_курса"):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM custom_rates")
+            await db.commit()
+        await msg.reply("✅ Кастомные курсы сброшены.")
+        return
+
+    # @игры_выкл / вкл
     if low.startswith("@игры_выкл"):
         if msg.chat.type == ChatType.PRIVATE:
             await msg.reply("Только в чате.")
             return
         await set_chat_games(msg.chat.id, False)
-        await msg.reply("⛔ Игры отключены.")
+        await msg.reply("⛔ Игры в этом чате отключены.")
         return
 
     if low.startswith("@игры_вкл"):
@@ -1316,6 +1808,7 @@ async def admin_at_commands(msg: Message):
         await msg.reply("✅ Игры включены.")
         return
 
+    # @ивент_чат_добавить / удалить
     if low.startswith("@ивент_чат_добавить"):
         if msg.chat.type == ChatType.PRIVATE:
             await msg.reply("Только в чате.")
@@ -1335,21 +1828,30 @@ async def admin_at_commands(msg: Message):
         await msg.reply("✅ Чат убран из авто-дроп.")
         return
 
-    if low.startswith("@рассылка"):
-        await broadcast_event_drop()
-        await msg.reply("✅ Авто-дроп разослан.")
+    # @очистить_чат 50
+    m = re.match(r"^@очистить_чат\s+(\d+)$", low)
+    if m:
+        n = int(m.group(1))
+        deleted = 0
+        for i in range(n):
+            try:
+                await bot.delete_message(msg.chat.id, msg.message_id - i - 1)
+                deleted += 1
+            except Exception:
+                pass
+        await msg.reply(f"🧹 Удалено сообщений: {deleted}")
         return
 
-    # Неизвестная @-команда — подсказка
+    # Неизвестная @-команда
     await msg.reply(
         "🤔 Неизвестная команда.\n"
-        "Напиши <code>@помощь</code>, чтобы увидеть список."
+        "Напиши <code>@помощь</code> чтобы увидеть список."
     )
 
 
-# ---------------------------------------------------------------------------
-# BONUS / EVENT DROPS
-# ---------------------------------------------------------------------------
+# ============================================================
+# БОНУСЫ И АВТО-ДРОП
+# ============================================================
 async def send_bonus_drop(chat_id: int, amount: int):
     caption = (
         f"🎁 <b>БОНУС!</b>\n\n"
@@ -1361,9 +1863,7 @@ async def send_bonus_drop(chat_id: int, amount: int):
     ])
     try:
         if os.path.exists(IMG_BONUS):
-            sent = await bot.send_photo(
-                chat_id, FSInputFile(IMG_BONUS), caption=caption, reply_markup=kb
-            )
+            sent = await bot.send_photo(chat_id, FSInputFile(IMG_BONUS), caption=caption, reply_markup=kb)
         else:
             sent = await bot.send_message(chat_id, caption, reply_markup=kb)
     except Exception as e:
@@ -1431,9 +1931,19 @@ async def scheduled_drop():
     await broadcast_event_drop()
 
 
-# ---------------------------------------------------------------------------
-# WEB SERVER
-# ---------------------------------------------------------------------------
+async def cleanup_old_records():
+    limit_games = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    limit_bonus = (datetime.utcnow() - timedelta(days=7)).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM games_log WHERE created_at < ?", (limit_games,))
+        await db.execute("DELETE FROM bonus_items WHERE created_at < ?", (limit_bonus,))
+        await db.commit()
+    log.info("Old records cleaned")
+
+
+# ============================================================
+# ВЕБ-СЕРВЕР И MAIN
+# ============================================================
 async def health(_):
     return web.Response(text="TOKENS Casino Bot is running")
 
@@ -1449,9 +1959,6 @@ async def start_web():
     log.info("Web server on port %s", PORT)
 
 
-# ---------------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------------
 async def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set")
