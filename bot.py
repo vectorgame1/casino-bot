@@ -2613,16 +2613,20 @@ async def group_roulette_router(message: Message) -> bool:
 
 
 # ============================================================
-# РЕГИСТРАЦИЯ ЧАСТИ 4
+# РЕГИСТРАЦИЯ ЧАСТИ 4 (ИСПРАВЛЕННАЯ)
 # ============================================================
 
 def register_part4(dp: Dispatcher):
     """Хендлеры рулетки (сообщения чатов + инлайн лог)."""
-    dp.message.register(group_roulette_router, F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}),
-                        F.text.regexp(r"^(?i)(старт|лог|отмена)$") | F.text.regexp(r"\d+"))
+    # Убрали (?i) из середины, флаг re.IGNORECASE ставится в конце регулярки
+    dp.message.register(
+        group_roulette_router, 
+        F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}),
+        F.text.regexp(r"^(старт|лог|отмена)$", flags=re.IGNORECASE) | F.text.regexp(r"\d+")
+    )
     dp.message.register(cmd_roulette_help, Command("roulette"))
     dp.callback_query.register(cb_roulette_log, F.data == "roulette_log")
-
+    
 # ============================================================
 # КЛАНЫ — расширенные команды (налог, кик, передача)
 # ============================================================
