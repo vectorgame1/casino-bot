@@ -1661,7 +1661,7 @@ def register_part2(dp: Dispatcher):
 
     dp.callback_query.register(cb_nav_menu, F.data == "nav_menu")
     dp.callback_query.register(cb_back_to_games, F.data == "nav_games")
-    dp.callback_query.register(cb_donate, F.data.startswith("donate_"), state="*")
+    dp.callback_query.register(cb_donate, F.data.startswith("donate_"))
     dp.message.register(fsm_custom_donate, GameStates.waiting_custom_donate)
     dp.callback_query.register(cb_claim_bonus, F.data == "claim_bonus")
     dp.callback_query.register(cb_top_balance, F.data == "top_balance")
