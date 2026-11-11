@@ -900,6 +900,9 @@ async def init_db() -> None:
             _DB_READY = False
             raise e
 
+    except Exception as exc:
+        log_exception("init_db", exc)
+        raise
 
 async def close_db() -> None:
     """Закрывает соединение при выключении бота."""
