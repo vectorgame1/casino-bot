@@ -195,6 +195,7 @@ class GameStates(StatesGroup):
     waiting_promo = State()
     waiting_roulette_bet = State()
     waiting_admin_input = State()
+    waiting_admin_input
 
 
 async def auto_delete(message: Message, delay: int = 30):
@@ -941,10 +942,11 @@ def kb_donate() -> InlineKeyboardMarkup:
     """Клавиатура доната."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="100 ⭐ — 1000 💎", callback_data="donate_100")],
-            [InlineKeyboardButton(text="250 ⭐ — 2700 💎", callback_data="donate_250")],
-            [InlineKeyboardButton(text="500 ⭐ — 6000 💎", callback_data="donate_500")],
-            [InlineKeyboardButton(text="1000 ⭐ — 13000 💎", callback_data="donate_1000")],
+            [InlineKeyboardButton(text="100 ⭐ — 700 000 💎", callback_data="donate_100")],
+            [InlineKeyboardButton(text="250 ⭐ — 1 750 000 💎", callback_data="donate_250")],
+            [InlineKeyboardButton(text="500 ⭐ — 3 500 000 💎", callback_data="donate_500")],
+            [InlineKeyboardButton(text="1000 ⭐ — 7 000 000 💎", callback_data="donate_1000")],
+            [InlineKeyboardButton(text="✍️ Своя сумма", callback_data="donate_custom")], # <--- ДОБАВИТЬ
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="nav_menu")],
         ]
     )
@@ -1165,7 +1167,13 @@ async def menu_support(message: Message):
 
 async def menu_chats(message: Message):
     """Чаты."""
-    text = CHATS_TEXT.format(link=CHATS_LINK, game_link=CHATS_LINK, news_link=CHATS_LINK)
+    text = (
+        "<b>💬 ЧАТЫ</b>\n\n"
+        "Присоединяйся к нашим чатам:\n\n"
+        f"🎮 Игровой чат: {CHAT_GAME}\n"
+        f"💱 Обменник: {CHAT_EXCHANGE}\n"
+        f"📢 Новости: {CHAT_NEWS}"
+    )
     if os.path.exists("chats.jpg"):
         await message.answer_photo(FSInputFile("chats.jpg"), caption=text,
                                    reply_markup=kb_back(), parse_mode=ParseMode.HTML)
@@ -1218,22 +1226,39 @@ async def cb_back_to_games(call: CallbackQuery):
 # CALLBACK: ДОНАТ
 # ============================================================
 
-DONATE_PACKS = {100: 1000, 250: 2700, 500: 6000, 1000: 13000}
+DONATE_PACKS = {100: 700000, 250: 1750000, 500: 3500000, 1000: 7000000}
 
 
-async def cb_donate(call: CallbackQuery):
+async def cb_donate(call: CallbackQuery, state: FSMContext):
     """Обработка выбора донат-пакета."""
+    # Проверяем, нажали ли на "Своя сумма"
+    if call.data == "donate_custom":
+        await state.set_state(GameStates.waiting_custom_donate)
+        await call.message.answer(
+            "✍️ <b>Введи количество звезд (⭐):</b>\n\n"
+            "Минимум: 1 ⭐\n"
+            "Курс: 1 ⭐ = 7000 💎",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_back()
+        )
+        await call.answer()
+        return
+
+    # Если нажали на обычный пакет
     try:
         stars = int(call.data.split("_")[1])
     except (IndexError, ValueError):
         await call.answer("Ошибка", show_alert=True)
         return
+    
     if stars not in DONATE_PACKS:
         await call.answer("Неверный пакет", show_alert=True)
         return
+        
     if not PAYMENT_TOKEN:
         await call.answer("Оплата временно недоступна", show_alert=True)
         return
+        
     try:
         await call.bot.send_invoice(
             chat_id=call.from_user.id,
@@ -1250,37 +1275,42 @@ async def cb_donate(call: CallbackQuery):
         logger.error(f"invoice error: {e}")
         await call.answer("Ошибка создания платежа", show_alert=True)
 
-
-async def pre_checkout(query: PreCheckoutQuery):
-    """Подтверждение предоплаты."""
-    await query.answer(ok=True)
-
-
-async def successful_payment(message: Message):
-    """Успешная оплата — начисляем баланс."""
-    uid = message.from_user.id
-    payload = message.successful_payment.invoice_payload
-    try:
-        stars = int(payload.split("_")[1])
-    except (IndexError, ValueError):
+async def fsm_custom_donate(message: Message, state: FSMContext):
+    """Обработка введенной суммы звезд."""
+    if not message.text or not message.text.isdigit():
+        await message.answer("❌ Введи число (например: 50)")
         return
-    amount = DONATE_PACKS.get(stars, 0)
-    if amount:
-        await db.ensure_user(uid, message.from_user.username or "", message.from_user.first_name or "")
-        await db.add_balance(uid, amount)
-        await message.answer(
-            f"✅ Оплата прошла!\nНачислено: <b>{fmt_money(amount)}</b> 💎",
-            parse_mode=ParseMode.HTML
-        )
-        for admin in ADMIN_IDS:
-            try:
-                await message.bot.send_message(
-                    admin,
-                    f"💰 Донат: user {uid} купил {stars}⭐ → {amount}💎"
-                )
-            except Exception:
-                pass
+    
+    stars = int(message.text)
+    if stars < 1:
+        await message.answer("❌ Минимальная сумма — 1 ⭐")
+        return
+        
+    if stars > 10000:
+        await message.answer("❌ Максимум за один раз — 10 000 ⭐")
+        return
 
+    await state.clear()
+    diamonds = stars * 7000 # Наш курс
+
+    if not PAYMENT_TOKEN:
+        await message.answer("Оплата временно недоступна", show_alert=True)
+        return
+        
+    try:
+        await message.bot.send_invoice(
+            chat_id=message.from_user.id,
+            title=f"Покупка {diamonds} 💎",
+            description=f"Своя сумма: {stars} ⭐ = {diamonds} 💎",
+            payload=f"donate_{stars}",
+            provider_token=PAYMENT_TOKEN,
+            currency="XTR",
+            prices=[LabeledPrice(label=f"{stars} Stars", amount=stars)],
+            start_parameter="donate"
+        )
+    except Exception as e:
+        logger.error(f"invoice error: {e}")
+        await message.answer("Ошибка создания платежа.")
 
 # ============================================================
 # CALLBACK: БОНУС
@@ -1631,7 +1661,8 @@ def register_part2(dp: Dispatcher):
 
     dp.callback_query.register(cb_nav_menu, F.data == "nav_menu")
     dp.callback_query.register(cb_back_to_games, F.data == "nav_games")
-    dp.callback_query.register(cb_donate, F.data.startswith("donate_"))
+    dp.callback_query.register(cb_donate, F.data.startswith("donate_"), state="*")
+    dp.message.register(fsm_custom_donate, GameStates.waiting_custom_donate)
     dp.callback_query.register(cb_claim_bonus, F.data == "claim_bonus")
     dp.callback_query.register(cb_top_balance, F.data == "top_balance")
     dp.callback_query.register(cb_top_wins, F.data == "top_wins")
