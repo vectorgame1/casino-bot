@@ -195,7 +195,7 @@ class GameStates(StatesGroup):
     waiting_promo = State()
     waiting_roulette_bet = State()
     waiting_admin_input = State()
-    waiting_admin_input
+    waiting_custom_donate = State() 
 
 
 async def auto_delete(message: Message, delay: int = 30):
