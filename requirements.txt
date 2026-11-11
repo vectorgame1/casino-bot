@@ -1,5 +1,4 @@
-aiogram>=3.4.1
-aiosqlite
-aiohttp
-apscheduler
-python-dotenv
+aiogram>=3.13,<4
+aiosqlite>=0.20
+aiohttp>=3.9
+apscheduler>=3.10,<4
