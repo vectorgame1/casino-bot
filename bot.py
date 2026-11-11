@@ -890,12 +890,15 @@ async def init_db() -> None:
         await _DB.execute("PRAGMA busy_timeout=30000;")
         await _DB.commit()
 
-        await create_tables()
+        # ВАЖНО: ставим флаг ДО вызова create_tables(), 
+        # иначе _get_db() выдаст ошибку инициализации
         _DB_READY = True
-        log.info("init_db: соединение открыто, схема готова")
-    except Exception as exc:
-        log_exception("init_db", exc)
-        raise
+        
+        try:
+            await create_tables()
+        except Exception as e:
+            _DB_READY = False
+            raise e
 
 
 async def close_db() -> None:
