@@ -1642,6 +1642,37 @@ async def cb_bet(call: CallbackQuery, state: FSMContext):
 
 router = Router()
 
+async def pre_checkout(query: PreCheckoutQuery):
+    """Подтверждение предоплаты."""
+    await query.answer(ok=True)
+
+async def successful_payment(message: Message):
+    """Успешная оплата — начисляем баланс."""
+    uid = message.from_user.id
+    payload = message.successful_payment.invoice_payload
+    try:
+        stars = int(payload.split("_")[1])
+    except (IndexError, ValueError):
+        return
+        
+    # Считаем алмазы (как мы договаривались — по 7000 за звезду)
+    amount = DONATE_PACKS.get(stars, stars * 7000)
+    
+    if amount:
+        await db.ensure_user(uid, message.from_user.username or "", message.from_user.first_name or "")
+        await db.add_balance(uid, amount)
+        await message.answer(
+            f"✅ Оплата прошла!\nНачислено: <b>{fmt_money(amount)}</b> 💎",
+            parse_mode=ParseMode.HTML
+        )
+        for admin in ADMIN_IDS:
+            try:
+                await message.bot.send_message(
+                    admin,
+                    f"💰 Донат: user {uid} купил {stars}⭐ → {amount}💎"
+                )
+            except Exception:
+                pass
 
 def register_part2(dp: Dispatcher):
     """Регистрирует хендлеры части 2."""
