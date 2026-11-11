@@ -7710,7 +7710,6 @@ def _build_dispatcher() -> Dispatcher:
 
     return dp
 
-
 async def _set_bot_commands(bot: Bot) -> None:
     """
     Устанавливает список команд в меню Telegram.
@@ -7725,34 +7724,32 @@ async def _set_bot_commands(bot: Bot) -> None:
                 BotCommand(command="balance",  description="💰 Баланс"),
                 BotCommand(command="bonus",    description="🎁 Ежедневный бонус"),
                 BotCommand(command="top",      description="🏆 Топ игроков"),
-                BotCommand(command="кости",    description="🎲 Кости"),
-                BotCommand(command="дартс",    description="🎯 Дартс"),
-                BotCommand(command="баскет",   description="🏀 Баскет"),
-                BotCommand(command="футбол",   description="⚽ Футбол"),
-                BotCommand(command="боулинг",  description="🎳 Боулинг"),
-                BotCommand(command="слоты",    description="🎰 Слоты"),
-                BotCommand(command="мины",     description="💣 Мины"),
-                BotCommand(command="дуэль",    description="⚔️ Дуэль"),
-                BotCommand(command="старт",    description="🎡 Рулетка"),
-                BotCommand(command="перевод",  description="💸 Перевод"),
-                BotCommand(command="подарок",  description="🎁 Подарок"),
+                
+                # Игры (транслит, чтобы Telegram не выдавал ошибку)
+                BotCommand(command="kosti",    description="🎲 Кости"),
+                BotCommand(command="darts",    description="🎯 Дартс"),
+                BotCommand(command="basket",   description="🏀 Баскет"),
+                BotCommand(command="futbol",   description="⚽ Футбол"),
+                BotCommand(command="bouling",  description="🎳 Боулинг"),
+                BotCommand(command="slots",    description="🎰 Слоты"),
+                BotCommand(command="miny",     description="💣 Мины"),
+                BotCommand(command="duel",     description="⚔️ Дуэль"),
+                BotCommand(command="roulette", description="🎡 Рулетка"),
+                BotCommand(command="transfer", description="💸 Перевод"),
+                BotCommand(command="gift",     description="🎁 Подарок"),
             ],
             scope=BotCommandScopeAllPrivateChats(),
         )
+        
         # В группах.
         await bot.set_my_commands(
             commands=[
-                BotCommand(command="кости",    description="🎲 Кости"),
-                BotCommand(command="дартс",    description="🎯 Дартс"),
-                BotCommand(command="баскет",   description="🏀 Баскет"),
-                BotCommand(command="футбол",   description="⚽ Футбол"),
-                BotCommand(command="боулинг",  description="🎳 Боулинг"),
-                BotCommand(command="слоты",    description="🎰 Слоты"),
-                BotCommand(command="мины",     description="💣 Мины"),
-                BotCommand(command="дуэль",    description="⚔️ Дуэль"),
-                BotCommand(command="старт",    description="🎡 Рулетка"),
                 BotCommand(command="balance",  description="💰 Баланс"),
                 BotCommand(command="top",      description="🏆 Топ"),
+                BotCommand(command="kosti",    description="🎲 Кости"),
+                BotCommand(command="miny",     description="💣 Мины"),
+                BotCommand(command="duel",     description="⚔️ Дуэль"),
+                BotCommand(command="roulette", description="🎡 Рулетка"),
             ],
             scope=BotCommandScopeAllGroupChats(),
         )
