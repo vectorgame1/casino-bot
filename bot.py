@@ -4629,5 +4629,5 @@ async def main_final():
 if __name__ == "__main__":
     try:
         asyncio.run(main_final())
-    except (KeyboardInterrupt, SystemExit):
+    except (KeyboardInterrupt, SystemExit):             
         log.info("Прервано пользователем.")
