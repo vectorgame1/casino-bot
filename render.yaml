@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: tokens-private-club
+    env: python
+    plan: free
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: DB_PATH
+        value: /opt/render/project/src/tokens.db
+      - key: PYTHON_VERSION
+        value: 3.13.0
+    disk:
+      name: tokens-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
