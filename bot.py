@@ -34,7 +34,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # НАСТРОЙКИ
 # ============================================================
 
-BOT_TOKEN = "8940867005:AAEYOZuI6qBJa9NtBkc2WcDpud5mBT2qSoQ"
+BOT_TOKEN = "8940867005:AAEe0MexxwgCMc9YYk9dvUkGtmjoMj55D-E"
 ADMIN_ID = int(os.getenv("ADMIN_ID", ""))
 DB_PATH = os.getenv("DB_PATH", "tokens_club.db")
 
