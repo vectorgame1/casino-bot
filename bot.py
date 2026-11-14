@@ -34,8 +34,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # НАСТРОЙКИ
 # ============================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8940867005:AAEdUG2iRmKd_DYWPCNThdB6AENpzPuXbiw")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "@vctorw"))
 DB_PATH = os.getenv("DB_PATH", "tokens_club.db")
 
 BASE_DIR = Path(__file__).resolve().parent
