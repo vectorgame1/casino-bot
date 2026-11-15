@@ -551,7 +551,7 @@ def get_font(size=22, bold=False):
 
 def image_bytes(image: Image.Image, fmt="JPEG"):
     output = io.BytesIO()
-    image.save(output, format=fmt, quality=92)
+    image.convert("RGB").save(output, format="JPEG", quality=92)
     output.seek(0)
     return output.getvalue()
 
