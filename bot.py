@@ -22,7 +22,7 @@ from contextlib import suppress
 import aiosqlite
 from aiohttp import web
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ChatType, ParseMode
