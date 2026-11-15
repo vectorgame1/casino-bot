@@ -1,39 +1,37 @@
-
-import asyncio
-import io
 import os
 import re
+import io
 import json
-import time
 import math
+import time
+import html
+import shutil
 import random
 import secrets
-import shutil
 import logging
 import string
-import html
+import asyncio
+import sqlite3
+import tempfile
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Any
+from contextlib import suppress
 
 import aiosqlite
 from aiohttp import web
 
-from PIL import (
-    Image,
-    ImageDraw,
-    ImageFont,
-    ImageFilter,
-    ImageOps,
-)
+from PIL import Image, ImageDraw, ImageFont
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -45,12 +43,18 @@ from aiogram.types import (
     LabeledPrice,
     PreCheckoutQuery,
     ChatMemberUpdated,
+    FSInputFile,
 )
+
 from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
-    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramAPIError,
 )
+
+# Глобальный диспетчер создаётся ДО регистрации обработчиков.
+dp = Dispatcher(storage=MemoryStorage())
 
 # ============================================================
 # 1. CONFIGURATION
@@ -4142,10 +4146,6 @@ async def main():
         default=DefaultBotProperties(
             parse_mode="HTML",
         ),
-    )
-
-    dp = Dispatcher(
-        storage=MemoryStorage(),
     )
 
     # Важно: регистрируем маршрутизаторы из этой реализации.
