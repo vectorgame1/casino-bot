@@ -53,9 +53,6 @@ from aiogram.exceptions import (
     TelegramAPIError,
 )
 
-# Глобальный диспетчер создаётся ДО регистрации обработчиков.
-dp = Dispatcher(storage=MemoryStorage())
-
 # ============================================================
 # 1. CONFIGURATION
 # ============================================================
@@ -115,7 +112,7 @@ logger = logging.getLogger("TOKENS")
 # ============================================================
 
 bot: Optional[Bot] = None
-dp: Optional[Dispatcher] = None
+dp: Optional[Dispatcher] = Dispatcher(storage=MemoryStorage())
 
 db_conn: Optional[aiosqlite.Connection] = None
 
