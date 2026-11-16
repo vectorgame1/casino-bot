@@ -616,42 +616,59 @@ async def register_user(message: Message):
     )
 
 
-# ============================================================
-# 9. START COMMAND HANDLER (ЗАПУСК КАПЧИ)
-# ============================================================
-
-@router.message(CommandStart())
-async def start_handler(message: Message):
+@router.message(F.text, lambda message: message.from_user.id in captcha_sessions)
+async def captcha_handler(message: Message):
     user_id = message.from_user.id
-    
-    # 1. Проверяем, не забанен ли юзер на капче
-    if await is_captcha_banned(user_id):
-        ban_until = captcha_bans.get(user_id, 0)
-        remaining = int(ban_until - time.time())
-        hours = remaining // 3600
-        minutes = (remaining % 3600) // 60
-        await message.answer(
-            f"⛔ Ты временно заблокирован.\nОсталось: {hours} ч. {minutes} мин."
-        )
+    session = captcha_sessions.get(user_id)
+
+    if not session:
         return
 
-    # 2. Регистрируем пользователя в базе
-    await register_user(message)
+    # Если в бане
+    if await is_captcha_banned(user_id):
+        remaining = int(captcha_bans[user_id] - time.time())
+        hours = remaining // 3600
+        minutes = (remaining % 3600) // 60
+        await message.answer(f"⛔ Ты временно заблокирован.\nОсталось: {hours} ч. {minutes} мин.")
+        return
 
-    # 3. Проверяем, проходил ли он уже капчу
-    # (для простоты проверяем по балансу, если баланс 0 — просим капчу)
-    user = await db_fetchone("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-    
-    if user and user[0] > 0:
-        # Если баланс есть, значит капчу уже проходил
+    answer = message.text.strip()
+
+    # СРАВНИВАЕМ ЦИФРЫ
+    if answer == str(session["code"]):
+        # Успех!
+        try:
+            # Удаляем сообщение с капчей
+            await bot.delete_message(chat_id=user_id, message_id=session["message_id"])
+            # Удаляем сообщение юзера
+            await message.delete()
+        except Exception:
+            pass
+
+        # Убираем сессию
+        captcha_sessions.pop(user_id, None)
+        
+        # Начисляем токены и выдаем меню
+        await db_execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (CAPTCHA_REWARD, user_id))
+        await db_execute("INSERT INTO transactions (user_id, amount, currency, transaction_type, description) VALUES (?, ?, 'TOKENS', 'bonus', 'CAPTCHA reward')", (user_id, CAPTCHA_REWARD))
+        
         await message.answer(
-            "Добро пожаловать в TOKENS!",
+            f"✅ Проверка пройдена!\n🎁 Тебе начислено: +{CAPTCHA_REWARD:,} TOKENS",
             reply_markup=main_menu()
         )
     else:
-        # Если баланса нет — отправляем капчу
-        await send_captcha(message, user_id)
-
+        # Ошибка
+        session["attempts"] += 1
+        if session["attempts"] >= CAPTCHA_MAX_ATTEMPTS:
+            captcha_bans[user_id] = time.time() + CAPTCHA_BAN_HOURS * 3600
+            captcha_sessions.pop(user_id, None)
+            await message.answer("❌ Неверный код! Ты использовал все 3 попытки. Бан на 12 часов.")
+        else:
+            await message.answer(f"❌ Неверный код! Осталось попыток: {CAPTCHA_MAX_ATTEMPTS - session['attempts']}")
+            # Перегенерируем капчу
+            await send_captcha(message, user_id)         
+            
+            
 # ============================================================
 # END OF PART 1
 # ============================================================
