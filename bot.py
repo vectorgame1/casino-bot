@@ -617,46 +617,40 @@ async def register_user(message: Message):
 
 
 # ============================================================
-# 9. CAPTCHA CHECK HANDLER
+# 9. START COMMAND HANDLER (ЗАПУСК КАПЧИ)
 # ============================================================
 
-@router.message(
-    F.text,
-    lambda message: message.from_user.id in captcha_sessions
-)
-async def captcha_handler(message: Message):
-    """
-    Processes CAPTCHA answers.
-    """
-
+@router.message(CommandStart())
+async def start_handler(message: Message):
     user_id = message.from_user.id
-
-    session = captcha_sessions.get(user_id)
-
-    if not session:
-        return
-
+    
+    # 1. Проверяем, не забанен ли юзер на капче
     if await is_captcha_banned(user_id):
-        remaining = int(
-            captcha_bans[user_id] - time.time()
-        )
-
+        ban_until = captcha_bans.get(user_id, 0)
+        remaining = int(ban_until - time.time())
         hours = remaining // 3600
         minutes = (remaining % 3600) // 60
-
         await message.answer(
-            "⛔ Ты временно заблокирован.\n"
-            f"Осталось: {hours} ч. {minutes} мин."
+            f"⛔ Ты временно заблокирован.\nОсталось: {hours} ч. {minutes} мин."
         )
         return
 
-    answer = message.text.strip()
+    # 2. Регистрируем пользователя в базе
+    await register_user(message)
 
-    if answer == session["code"]:
-        await captcha_success(message, user_id)
+    # 3. Проверяем, проходил ли он уже капчу
+    # (для простоты проверяем по балансу, если баланс 0 — просим капчу)
+    user = await db_fetchone("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    
+    if user and user[0] > 0:
+        # Если баланс есть, значит капчу уже проходил
+        await message.answer(
+            "Добро пожаловать в TOKENS!",
+            reply_markup=main_menu()
+        )
     else:
-        await captcha_failed(message, user_id)
-
+        # Если баланса нет — отправляем капчу
+        await send_captcha(message, user_id)
 
 # ============================================================
 # END OF PART 1
