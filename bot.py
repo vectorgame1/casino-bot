@@ -59,6 +59,27 @@ router = Router()
 
 dp.include_router(router)
 
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    
+    # 1. Проверяем бан
+    if await is_captcha_banned(user_id):
+        await message.answer("⛔ Ты временно заблокирован.")
+        return
+
+    # 2. Регистрируем в базе
+    await register_user(message)
+    
+    # 3. Проверяем, есть ли уже баланс (прошел ли капчу)
+    user = await db_fetchone("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    
+    if user and user[0] > 0:
+        await message.answer("Добро пожаловать в TOKENS!", reply_markup=main_menu())
+    else:
+        # Отправляем капчу
+        await send_captcha(message, user_id) 
+        
 # ============================================================
 # 2. GLOBAL STATE
 # ============================================================
