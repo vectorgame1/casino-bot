@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TOKENS App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Экран загрузки -->
+        <div id="loading" class="screen active">
+            <div class="spinner"></div>
+            <p>Загрузка TOKENS...</p>
+        </div>
+
+        <!-- Главный экран (Кошелек) -->
+        <div id="wallet-screen" class="screen">
+            <div class="header">
+                <h1>Кошелек</h1>
+                <div class="user-info">
+                    <span id="user-name">Игрок</span>
+                </div>
+            </div>
+            
+            <div class="balance-card">
+                <div class="balance-item">
+                    <span class="label">TOKENS</span>
+                    <span class="value" id="balance-tokens">0</span>
+                </div>
+                <div class="balance-item">
+                    <span class="label">TNC</span>
+                    <span class="value" id="balance-tnc">0.00000000</span>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="chart"></canvas>
+            </div>
+
+            <div class="actions">
+                <button class="btn primary" onclick="swap('to_tnc')">Купить TNC</button>
+                <button class="btn secondary" onclick="swap('to_tokens')">Продать TNC</button>
+            </div>
+        </div>
+
+        <!-- Экран Игр -->
+        <div id="games-screen" class="screen">
+            <div class="header"><h1>Игры</h1></div>
+            <div class="games-grid">
+                <div class="game-card" onclick="openGame('Кости')">🎲 Кости</div>
+                <div class="game-card" onclick="openGame('Дартс')">🎯 Дартс</div>
+                <div class="game-card" onclick="openGame('Рулетка')">🎡 Рулетка</div>
+            </div>
+        </div>
+
+        <!-- Нижнее меню -->
+        <div class="bottom-nav">
+            <div class="nav-item active" onclick="switchTab('wallet')">💼 Кошелек</div>
+            <div class="nav-item" onclick="switchTab('games')">🎮 Игры</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

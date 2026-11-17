@@ -2393,6 +2393,8 @@ async def create_web_app():
     app.router.add_post("/api/user", api_user)
     app.router.add_post("/api/swap", api_swap)
 
+    # Раздача файлов Mini App
+    app.router.add_static("/webapp/", "webapp", show_index=True) 
     return app
 
 
