@@ -2388,6 +2388,13 @@ async def create_web_app():
         client_max_size=1024 * 1024,
     )
 
+    # Принудительная отдача index.html
+    async def serve_index(request):
+        with open("webapp/index.html", "r", encoding="utf-8") as f:
+            return web.Response(text=f.read(), content_type="text/html")
+
+    app.router.add_get("/webapp/index.html", serve_index)
+    
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
     app.router.add_post("/api/user", api_user)
