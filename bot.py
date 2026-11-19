@@ -201,17 +201,34 @@ async def db_connect():
 
 
 async def init_db():
-    async with await db_connect() as db:
-        await db.executescript(DB_SCHEMA)
-        await db.execute(
-            "INSERT OR IGNORE INTO settings(key, value) VALUES('tnc_rate', ?)",
-            (str(TNC_RATE),),
-        )
-        await db.execute(
-            "INSERT OR IGNORE INTO settings(key, value) VALUES('maintenance', '0')"
-        )
-        await db.commit()
-
+    global DB
+    DB = await aiosqlite.connect(DB_PATH)
+    DB.row_factory = aiosqlite.Row
+    await DB.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            balance INTEGER DEFAULT 0,
+            balance_tnc REAL DEFAULT 0,
+            referrals INTEGER DEFAULT 0,
+            banned_until INTEGER DEFAULT 0,
+            vip INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount INTEGER,
+            description TEXT,
+            created_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+    """)
+    await DB.commit()
+    logger.info("Database initialized successfully")
 
 async def get_setting(key: str, default: str = "") -> str:
     async with await db_connect() as db:
