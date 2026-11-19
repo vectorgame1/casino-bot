@@ -7184,7 +7184,7 @@ async def main():
         await load_token_rate()
 
         # 3. Запуск aiohttp-сервера для API и Mini App.
-        web_runner = await serve_webapp()
+        web_runner = await start_web_server()
 
         logger.info(
             "Web server started on port %s",
