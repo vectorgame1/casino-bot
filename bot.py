@@ -1,6 +1,5 @@
 import asyncio
 import io
-import json
 import logging
 import os
 import random
@@ -16,16 +15,21 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     BufferedInputFile, Message, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo,
-    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+    CallbackQuery
 )
 from aiogram.client.default import DefaultBotProperties
 from PIL import Image, ImageDraw, ImageFont
 
-# --- КОНФИГ ---
+# ==========================================
+# НАСТРОЙКИ
+# ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
 DB_PATH = Path(__file__).resolve().parent / "tokens.db"
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger("TOKENS")
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -34,7 +38,9 @@ DB = None
 class CaptchaState(StatesGroup):
     waiting = State()
 
-# --- БАЗА ---
+# ==========================================
+# БАЗА ДАННЫХ
+# ==========================================
 async def init_db():
     global DB
     DB = await aiosqlite.connect(DB_PATH)
@@ -48,12 +54,24 @@ async def init_db():
         );
     """)
     await DB.commit()
+    logger.info("Database initialized")
 
-# --- КАПЧА ---
-def make_captcha(code):
+# ==========================================
+# КАПЧА
+# ==========================================
+def make_captcha(code: str):
     img = Image.new("RGB", (300, 100), (15, 20, 35))
     draw = ImageDraw.Draw(img)
-    draw.text((100, 30), code, fill="white")
+    
+    # Используем встроенный шрифт (работает везде)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # Рисуем цифры в центре
+    draw.text((90, 20), code, font=font, fill=(255, 255, 255))
+    
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
@@ -62,53 +80,70 @@ async def send_captcha(message: Message, state: FSMContext):
     code = str(random.randint(1000, 9999))
     await state.update_data(code=code)
     await state.set_state(CaptchaState.waiting)
+    
     await message.answer_photo(
         BufferedInputFile(make_captcha(code), "captcha.png"),
-        caption="Введи код с картинки:"
+        caption="🔐 <b>Введи код с картинки:</b>"
     )
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    await DB.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (message.from_user.id,))
+    user_id = message.from_user.id
+    await DB.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
     await DB.commit()
     
-    cur = await DB.execute("SELECT captcha_passed FROM users WHERE user_id=?", (message.from_user.id,))
+    cur = await DB.execute("SELECT captcha_passed FROM users WHERE user_id=?", (user_id,))
     user = await cur.fetchone()
     
     if user and user["captcha_passed"]:
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="🚀 Открыть App", web_app=WebAppInfo(url=WEBAPP_URL))]],
-            resize_keyboard=True
-        )
-        await message.answer("Добро пожаловать!", reply_markup=kb)
+        await show_main_menu(message)
     else:
         await send_captcha(message, state)
 
 @dp.message(CaptchaState.waiting)
 async def captcha_check(message: Message, state: FSMContext):
     data = await state.get_data()
+    user_id = message.from_user.id
+    
+    # Удаляем сообщение с кодом
+    try:
+        await message.delete()
+    except:
+        pass
+
     if message.text.strip() == data["code"]:
         await state.clear()
-        await DB.execute("UPDATE users SET captcha_passed=1, balance=5000 WHERE user_id=?", (message.from_user.id,))
+        await DB.execute("UPDATE users SET captcha_passed=1, balance=5000 WHERE user_id=?", (user_id,))
         await DB.commit()
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="🚀 Открыть App", web_app=WebAppInfo(url=WEBAPP_URL))]],
-            resize_keyboard=True
-        )
-        await message.answer("✅ Успех! Начислено 5000 TOKENS.", reply_markup=kb)
+        await message.answer("✅ <b>Успех!</b> Начислено 5000 TOKENS.")
+        await show_main_menu(message)
     else:
         await message.answer("❌ Неверный код, попробуй снова.")
         await send_captcha(message, state)
 
-# --- API ДЛЯ MINI APP ---
-async def api_user(request):
-    # В реальном проекте тут нужно проверять initData, но для теста просто отдаем баланс
+# ==========================================
+# МЕНЮ
+# ==========================================
+async def show_main_menu(message: Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🚀 Открыть App", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True
+    )
+    await message.answer("Добро пожаловать в TOKENS!", reply_markup=kb)
+
+# ==========================================
+# API ДЛЯ MINI APP
+# ==========================================
+async def api_user(request: web.Request):
     try:
+        # Для теста берем данные из JSON (если фронт присылает) или отдаем первого юзера
+        # В идеале тут должен быть парсинг initData
         data = await request.json()
-        # Хак для теста: берем ID из initData (если есть) или просто первого юзера
-        # Для простоты отдаем баланс первого попавшегося юзера
+        
+        # Временный хак: ищем первого юзера в базе, чтобы Mini App показал хоть какой-то баланс
         cur = await DB.execute("SELECT * FROM users LIMIT 1")
         user = await cur.fetchone()
+        
         if user:
             return web.json_response({
                 "success": True,
@@ -116,26 +151,33 @@ async def api_user(request):
             })
         return web.json_response({"success": False, "error": "No users"})
     except Exception as e:
+        logger.error(f"API error: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
-# --- ЗАПУСК ---
+# ==========================================
+# ЗАПУСК ВЕБ-СЕРВЕРА
+# ==========================================
 async def start_web():
     app = web.Application()
     app.router.add_post("/api/user", api_user)
     
-    # Раздача Mini App
+    # Раздача Mini App из папки webapp
     webapp_dir = Path(__file__).resolve().parent / "webapp"
     if webapp_dir.exists():
         app.router.add_static("/webapp/", webapp_dir, show_index=True)
-        
+    else:
+        logger.warning("Папка webapp не найдена! Mini App не будет работать.")
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logging.info(f"Web server on {PORT}")
+    logger.info(f"Web server started on port {PORT}")
 
+# ==========================================
+# ГЛАВНАЯ
+# ==========================================
 async def main():
-    logging.basicConfig(level=logging.INFO)
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN не задан!")
     
