@@ -73,9 +73,11 @@ logger = logging.getLogger("TOKENS")
 if not BOT_TOKEN:
     logger.warning("BOT_TOKEN is not configured. Set it in environment variables.")
 
+from aiogram.client.default import DefaultBotProperties
+
 bot = Bot(
     token=BOT_TOKEN or "000000000:PLACEHOLDER",
-    parse_mode=ParseMode.HTML,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
 )
 dp = Dispatcher(storage=MemoryStorage())
 
