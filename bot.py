@@ -3,7 +3,6 @@ import io
 import logging
 import os
 import random
-import time
 from pathlib import Path
 
 import aiosqlite
@@ -14,8 +13,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    BufferedInputFile, Message, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo,
-    CallbackQuery
+    BufferedInputFile, Message, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 )
 from aiogram.client.default import DefaultBotProperties
 from PIL import Image, ImageDraw, ImageFont
@@ -57,20 +55,25 @@ async def init_db():
     logger.info("Database initialized")
 
 # ==========================================
-# КАПЧА
+# КАПЧА (ИСПРАВЛЕНА)
 # ==========================================
 def make_captcha(code: str):
-    img = Image.new("RGB", (300, 100), (15, 20, 35))
+    img = Image.new("RGB", (400, 150), (15, 20, 35))
     draw = ImageDraw.Draw(img)
     
-    # Используем встроенный шрифт (работает везде)
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 90)
     except IOError:
         font = ImageFont.load_default()
 
-    # Рисуем цифры в центре
-    draw.text((90, 20), code, font=font, fill=(255, 255, 255))
+    # Центрируем текст по картинке
+    bbox = draw.textbbox((0, 0), code, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = (400 - text_width) // 2
+    y = (150 - text_height) // 2 - 15
+    
+    draw.text((x, y), code, font=font, fill=(255, 255, 255))
     
     out = io.BytesIO()
     img.save(out, format="PNG")
@@ -105,13 +108,12 @@ async def captcha_check(message: Message, state: FSMContext):
     data = await state.get_data()
     user_id = message.from_user.id
     
-    # Удаляем сообщение с кодом
     try:
         await message.delete()
     except:
         pass
 
-    if message.text.strip() == data["code"]:
+    if message.text and message.text.strip() == data["code"]:
         await state.clear()
         await DB.execute("UPDATE users SET captcha_passed=1, balance=5000 WHERE user_id=?", (user_id,))
         await DB.commit()
@@ -122,7 +124,7 @@ async def captcha_check(message: Message, state: FSMContext):
         await send_captcha(message, state)
 
 # ==========================================
-# МЕНЮ
+# МЕНЮ (ИСПРАВЛЕНО)
 # ==========================================
 async def show_main_menu(message: Message):
     kb = ReplyKeyboardMarkup(
@@ -136,11 +138,7 @@ async def show_main_menu(message: Message):
 # ==========================================
 async def api_user(request: web.Request):
     try:
-        # Для теста берем данные из JSON (если фронт присылает) или отдаем первого юзера
-        # В идеале тут должен быть парсинг initData
-        data = await request.json()
-        
-        # Временный хак: ищем первого юзера в базе, чтобы Mini App показал хоть какой-то баланс
+        # Отдаем данные первого пользователя (для теста)
         cur = await DB.execute("SELECT * FROM users LIMIT 1")
         user = await cur.fetchone()
         
@@ -161,12 +159,11 @@ async def start_web():
     app = web.Application()
     app.router.add_post("/api/user", api_user)
     
-    # Раздача Mini App из папки webapp
     webapp_dir = Path(__file__).resolve().parent / "webapp"
     if webapp_dir.exists():
         app.router.add_static("/webapp/", webapp_dir, show_index=True)
     else:
-        logger.warning("Папка webapp не найдена! Mini App не будет работать.")
+        logger.warning("Папка webapp не найдена!")
 
     runner = web.AppRunner(app)
     await runner.setup()
