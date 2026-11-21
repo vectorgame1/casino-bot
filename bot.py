@@ -1,186 +1,127 @@
-import asyncio
-import io
-import logging
-import os
-import random
-from pathlib import Path
+                VALUES(?,?,?,?,?,?,?)
+            """, (sender_id, recipient_id, currency, float(amount), "transfer", "Внутренний перевод", utc_now()))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    return {"success": True, "amount": money(amount), "currency": currency, "to": recipient["wallet_address"]}
 
-import aiosqlite
-from aiohttp import web
-from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    BufferedInputFile, Message, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-)
-from aiogram.client.default import DefaultBotProperties
-from PIL import Image, ImageDraw, ImageFont
 
-# ==========================================
-# НАСТРОЙКИ
-# ==========================================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
-PORT = int(os.getenv("PORT", "10000"))
-DB_PATH = Path(__file__).resolve().parent / "tokens.db"
+async def api_send(request: web.Request) -> web.Response:
+    telegram_user, _ = await authenticated_request(request, require_session=True)
+    body = await request.json()
+    amount = decimal_value(body.get("amount"))
+    currency = str(body.get("currency", "TNC")).upper()
+    address = str(body.get("to_address") or body.get("to") or "")
+    result = await perform_transfer(int(telegram_user["id"]), address, amount, currency)
+    return web.json_response(result)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger("TOKENS")
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-DB = None
+async def api_swap(request: web.Request) -> web.Response:
+    # The project currently has no declared exchange rate. Do not fabricate one
+    # or silently mint assets. This endpoint is intentionally disabled.
+    await authenticated_request(request, require_session=True)
+    raise web.HTTPNotImplemented(text="Внутренний обмен пока не настроен. Средства не списаны.")
 
-class CaptchaState(StatesGroup):
-    waiting = State()
 
-# ==========================================
-# БАЗА ДАННЫХ
-# ==========================================
-async def init_db():
-    global DB
-    DB = await aiosqlite.connect(DB_PATH)
-    DB.row_factory = aiosqlite.Row
-    await DB.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            balance REAL DEFAULT 0,
-            balance_tnc REAL DEFAULT 0,
-            captcha_passed INTEGER DEFAULT 0
-        );
-    """)
-    await DB.commit()
-    logger.info("Database initialized")
+async def api_options(request: web.Request) -> web.Response:
+    return web.Response(status=204)
 
-# ==========================================
-# КАПЧА (ИСПРАВЛЕНА)
-# ==========================================
-def make_captcha(code: str):
-    img = Image.new("RGB", (400, 150), (15, 20, 35))
-    draw = ImageDraw.Draw(img)
-    
-    try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 90)
-    except IOError:
-        font = ImageFont.load_default()
 
-    # Центрируем текст по картинке
-    bbox = draw.textbbox((0, 0), code, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (400 - text_width) // 2
-    y = (150 - text_height) // 2 - 15
-    
-    draw.text((x, y), code, font=font, fill=(255, 255, 255))
-    
-    out = io.BytesIO()
-    img.save(out, format="PNG")
-    return out.getvalue()
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    origin = request.headers.get("Origin")
+    if request.method == "OPTIONS":
+        response = web.Response(status=204)
+    else:
+        try:
+            response = await handler(request)
+        except web.HTTPException as exc:
+            response = exc
+    if origin and (origin in API_ALLOWED_ORIGINS or origin == request.scheme + "://" + request.host):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Wallet-Session, X-Telegram-Init-Data"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
 
-async def send_captcha(message: Message, state: FSMContext):
-    code = str(random.randint(1000, 9999))
-    await state.update_data(code=code)
-    await state.set_state(CaptchaState.waiting)
-    
-    await message.answer_photo(
-        BufferedInputFile(make_captcha(code), "captcha.png"),
-        caption="🔐 <b>Введи код с картинки:</b>"
-    )
+
+async def serve_webapp(request: web.Request) -> web.StreamResponse:
+    path = Path(__file__).resolve().parent / "webapp" / "index.html"
+    if not path.is_file():
+        return web.Response(
+            text="TOKENS Mini App: файл webapp/index.html не найден. Загрузите index.html в папку webapp.",
+            content_type="text/plain", status=200,
+        )
+    return web.FileResponse(path)
+
+
+def build_web_app() -> web.Application:
+    app = web.Application(middlewares=[cors_middleware], client_max_size=64 * 1024)
+    app.router.add_get("/health", lambda request: web.json_response({"ok": True, "service": "TOKENS"}))
+    app.router.add_get("/webapp/", serve_webapp)
+    app.router.add_get("/webapp/index.html", serve_webapp)
+    app.router.add_post("/api/pin/status", api_pin_status)
+    app.router.add_post("/api/pin/setup", api_pin_setup)
+    app.router.add_post("/api/pin/verify", api_pin_verify)
+    app.router.add_post("/api/user", api_user)
+    app.router.add_post("/api/send", api_send)
+    app.router.add_post("/api/transfer", api_send)
+    app.router.add_post("/api/swap", api_swap)
+    app.router.add_route("OPTIONS", "/{tail:.*}", api_options)
+    webapp_dir = Path(__file__).resolve().parent / "webapp"
+    webapp_dir.mkdir(parents=True, exist_ok=True)
+    # Keep static serving enabled for assets (the explicit index routes above
+    # take precedence for the main document).
+    app.router.add_static("/webapp/", str(webapp_dir), show_index=True, name="webapp-static")
+    return app
+
+
+async def start_web_server() -> web.AppRunner:
+    app = build_web_app()
+    runner = web.AppRunner(app, access_log=log)
+    await runner.setup()
+    site = web.TCPSite(runner, HOST, PORT)
+    await site.start()
+    log.info("HTTP server listening on %s:%s", HOST, PORT)
+    return runner
+
 
 @dp.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    await DB.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
-    await DB.commit()
-    
-    cur = await DB.execute("SELECT captcha_passed FROM users WHERE user_id=?", (user_id,))
-    user = await cur.fetchone()
-    
-    if user and user["captcha_passed"]:
-        await show_main_menu(message)
+async def cmd_start(message: Message) -> None:
+    if message.from_user is None:
+        return
+    user = {
+        "id": message.from_user.id,
+        "username": message.from_user.username,
+        "first_name": message.from_user.first_name,
+    }
+    await ensure_user(user)
+    if WEBAPP_URL:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🚀 Открыть TOKENS Wallet", web_app=WebAppInfo(url=WEBAPP_URL))]],
+            resize_keyboard=True,
+            is_persistent=True,
+        )
+        await message.answer(
+            "Добро пожаловать в <b>TOKENS</b>!\n\n"
+            "Это демонстрационный внутренний кошелёк TOKENS / TNC. Балансы не являются реальной криптовалютой и не работают в блокчейне.\n\n"
+            "Открой приложение, чтобы создать PIN и посмотреть кошелёк.",
+            reply_markup=keyboard,
+        )
     else:
-        await send_captcha(message, state)
+        await message.answer("Задайте WEBAPP_URL в переменных окружения.")
 
-@dp.message(CaptchaState.waiting)
-async def captcha_check(message: Message, state: FSMContext):
-    data = await state.get_data()
-    user_id = message.from_user.id
-    
-    try:
-        await message.delete()
-    except:
-        pass
 
-    if message.text and message.text.strip() == data["code"]:
-        await state.clear()
-        await DB.execute("UPDATE users SET captcha_passed=1, balance=5000 WHERE user_id=?", (user_id,))
-        await DB.commit()
-        await message.answer("✅ <b>Успех!</b> Начислено 5000 TOKENS.")
-        await show_main_menu(message)
-    else:
-        await message.answer("❌ Неверный код, попробуй снова.")
-        await send_captcha(message, state)
-
-# ==========================================
-# МЕНЮ (ИСПРАВЛЕНО)
-# ==========================================
-async def show_main_menu(message: Message):
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🚀 Открыть App", web_app=WebAppInfo(url=WEBAPP_URL))]],
-        resize_keyboard=True
-    )
-    await message.answer("Добро пожаловать в TOKENS!", reply_markup=kb)
-
-# ==========================================
-# API ДЛЯ MINI APP
-# ==========================================
-async def api_user(request: web.Request):
-    try:
-        # Отдаем данные первого пользователя (для теста)
-        cur = await DB.execute("SELECT * FROM users LIMIT 1")
-        user = await cur.fetchone()
-        
-        if user:
-            return web.json_response({
-                "success": True,
-                "user": {"balance": user["balance"], "balance_tnc": user["balance_tnc"]}
-            })
-        return web.json_response({"success": False, "error": "No users"})
-    except Exception as e:
-        logger.error(f"API error: {e}")
-        return web.json_response({"success": False, "error": str(e)}, status=500)
-
-# ==========================================
-# ЗАПУСК ВЕБ-СЕРВЕРА
-# ==========================================
-async def start_web():
-    app = web.Application()
-    app.router.add_post("/api/user", api_user)
-    
-    webapp_dir = Path(__file__).resolve().parent / "webapp"
-    if webapp_dir.exists():
-        app.router.add_static("/webapp/", webapp_dir, show_index=True)
-    else:
-        logger.warning("Папка webapp не найдена!")
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    logger.info(f"Web server started on port {PORT}")
-
-# ==========================================
-# ГЛАВНАЯ
-# ==========================================
-async def main():
+async def main() -> None:
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN не задан!")
-    
+        raise RuntimeError("Не задан BOT_TOKEN в переменных окружения")
     await init_db()
-    await start_web()
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    runner = await start_web_server()
+    try:
+        assert bot is not None
+        await dp.start_polling(bot, close_bot_session=False)
+    finally:
+        await runner.cleanup()
+        if bot is not None:
+            await bot.session.close()

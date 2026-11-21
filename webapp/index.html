@@ -1,1145 +1,732 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Neon Crypto Casino — TNC</title>
-  <!-- Telegram WebApp SDK -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    /* ========== RESET & GLOBAL ========== */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    body {
-      background: #0a0a0f;
-      color: #e0e0ff;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow-x: hidden;
-      padding-bottom: 80px; /* space for bottom nav */
-    }
-
-    /* ========== CYBERPUNK NEON VARIABLES ========== */
-    :root {
-      --neon-cyan: #0ff;
-      --neon-magenta: #f0f;
-      --neon-purple: #a0f;
-      --neon-lime: #0f0;
-      --neon-orange: #f80;
-      --dark-bg: #0a0a0f;
-      --card-bg: rgba(15, 15, 30, 0.75);
-      --glow-cyan: 0 0 10px #0ff, 0 0 20px #0ff44;
-      --glow-magenta: 0 0 10px #f0f, 0 0 25px #f0f4;
-      --border-glow: 1px solid rgba(0, 255, 255, 0.3);
-    }
-
-    /* ========== SCROLLBAR ========== */
-    ::-webkit-scrollbar {
-      width: 4px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #111;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: var(--neon-cyan);
-      border-radius: 4px;
-    }
-
-    /* ========== LAYOUT ========== */
-    .app-container {
-      max-width: 500px;
-      margin: 0 auto;
-      padding: 16px 16px 0;
-      width: 100%;
-      flex: 1;
-    }
-
-    /* ========== BOTTOM NAVIGATION ========== */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      max-width: 500px;
-      margin: 0 auto;
-      background: rgba(8, 8, 18, 0.92);
-      backdrop-filter: blur(12px);
-      border-top: 1px solid rgba(0, 255, 255, 0.25);
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      padding: 10px 8px 14px;
-      z-index: 100;
-      box-shadow: 0 -4px 20px rgba(0, 255, 255, 0.08);
-    }
-
-    .nav-btn {
-      background: transparent;
-      border: none;
-      color: #7777aa;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      font-weight: 500;
-      padding: 6px 18px;
-      border-radius: 12px;
-      transition: all 0.2s;
-      cursor: pointer;
-      letter-spacing: 0.3px;
-    }
-
-    .nav-btn .icon {
-      font-size: 22px;
-      line-height: 1;
-      filter: grayscale(1);
-      transition: 0.2s;
-    }
-
-    .nav-btn.active {
-      color: var(--neon-cyan);
-      text-shadow: 0 0 8px var(--neon-cyan);
-    }
-
-    .nav-btn.active .icon {
-      filter: grayscale(0) drop-shadow(0 0 6px var(--neon-cyan));
-    }
-
-    /* ========== PAGES ========== */
-    .page {
-      display: none;
-      animation: fadeIn 0.25s ease;
-    }
-
-    .page.active {
-      display: block;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ========== CARDS ========== */
-    .card {
-      background: var(--card-bg);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(0, 255, 255, 0.15);
-      border-radius: 18px;
-      padding: 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 0 20px rgba(0, 255, 255, 0.05);
-      transition: border-color 0.3s, box-shadow 0.3s;
-    }
-
-    .card:hover {
-      border-color: rgba(0, 255, 255, 0.35);
-      box-shadow: 0 0 28px rgba(0, 255, 255, 0.12);
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      color: #bbbbee;
-      text-transform: uppercase;
-    }
-
-    .card-header .badge {
-      font-size: 10px;
-      padding: 3px 8px;
-      border-radius: 20px;
-      background: rgba(0, 255, 255, 0.1);
-      color: var(--neon-cyan);
-      border: 1px solid rgba(0, 255, 255, 0.3);
-    }
-
-    /* ========== BALANCE CARDS ========== */
-    .balance-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-
-    .balance-card {
-      background: rgba(10, 10, 25, 0.85);
-      border: 1px solid rgba(0, 255, 255, 0.2);
-      border-radius: 18px;
-      padding: 16px 14px;
-      text-align: center;
-      box-shadow: inset 0 0 30px rgba(0, 255, 255, 0.04), 0 0 20px rgba(0, 0, 255, 0.05);
-    }
-
-    .balance-card .label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: #8888bb;
-      margin-bottom: 6px;
-    }
-
-    .balance-card .value {
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: 1px;
-      color: var(--neon-cyan);
-      text-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
-      word-break: break-all;
-    }
-
-    .balance-card:nth-child(2) .value {
-      color: var(--neon-magenta);
-      text-shadow: 0 0 12px rgba(255, 0, 255, 0.5);
-    }
-
-    .balance-card .sub {
-      font-size: 11px;
-      color: #6666aa;
-      margin-top: 4px;
-    }
-
-    /* ========== CHART ========== */
-    .chart-container {
-      position: relative;
-      width: 100%;
-      height: 170px;
-      margin: 8px 0 16px;
-      border-radius: 16px;
-      overflow: hidden;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(0, 255, 255, 0.15);
-      box-shadow: inset 0 0 40px rgba(0, 255, 255, 0.03);
-    }
-
-    .chart-container canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .chart-label {
-      position: absolute;
-      top: 10px;
-      left: 14px;
-      font-size: 11px;
-      color: #8888bb;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 3px 10px;
-      border-radius: 30px;
-      border: 1px solid rgba(0, 255, 255, 0.15);
-      backdrop-filter: blur(4px);
-    }
-
-    .chart-price {
-      position: absolute;
-      bottom: 10px;
-      right: 14px;
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--neon-cyan);
-      text-shadow: 0 0 15px var(--neon-cyan);
-      background: rgba(0, 0, 0, 0.4);
-      padding: 2px 12px;
-      border-radius: 30px;
-      backdrop-filter: blur(4px);
-      letter-spacing: 1px;
-    }
-
-    /* ========== BUTTONS ========== */
-    .btn-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-
-    .btn {
-      flex: 1;
-      min-width: 100px;
-      padding: 14px 10px;
-      border: none;
-      border-radius: 14px;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      cursor: pointer;
-      transition: all 0.15s;
-      text-transform: uppercase;
-      background: rgba(0, 255, 255, 0.1);
-      color: var(--neon-cyan);
-      border: 1px solid rgba(0, 255, 255, 0.4);
-      box-shadow: 0 0 15px rgba(0, 255, 255, 0.08);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .btn:active {
-      transform: scale(0.97);
-      background: rgba(0, 255, 255, 0.2);
-    }
-
-    .btn.magenta {
-      color: var(--neon-magenta);
-      border-color: rgba(255, 0, 255, 0.4);
-      background: rgba(255, 0, 255, 0.08);
-      box-shadow: 0 0 15px rgba(255, 0, 255, 0.08);
-    }
-
-    .btn.magenta:active {
-      background: rgba(255, 0, 255, 0.2);
-    }
-
-    .btn.lime {
-      color: var(--neon-lime);
-      border-color: rgba(0, 255, 0, 0.4);
-      background: rgba(0, 255, 0, 0.08);
-      box-shadow: 0 0 15px rgba(0, 255, 0, 0.08);
-    }
-
-    .btn.lime:active {
-      background: rgba(0, 255, 0, 0.2);
-    }
-
-    .btn.orange {
-      color: var(--neon-orange);
-      border-color: rgba(255, 136, 0, 0.4);
-      background: rgba(255, 136, 0, 0.08);
-      box-shadow: 0 0 15px rgba(255, 136, 0, 0.08);
-    }
-
-    .btn.orange:active {
-      background: rgba(255, 136, 0, 0.2);
-    }
-
-    /* ========== GAME CARDS ========== */
-    .game-card {
-      position: relative;
-      overflow: hidden;
-      cursor: pointer;
-      transition: all 0.25s;
-    }
-
-    .game-card:hover {
-      border-color: rgba(0, 255, 255, 0.5);
-      box-shadow: 0 0 30px rgba(0, 255, 255, 0.15);
-      transform: translateY(-2px);
-    }
-
-    .game-card .game-title {
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--neon-cyan);
-      text-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
-      margin-bottom: 6px;
-    }
-
-    .game-card .game-desc {
-      font-size: 12px;
-      color: #9999cc;
-      margin-bottom: 14px;
-      line-height: 1.4;
-    }
-
-    /* Crash mini chart */
-    .crash-mini {
-      width: 100%;
-      height: 80px;
-      margin-bottom: 14px;
-      border-radius: 12px;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 0, 255, 0.2);
-      overflow: hidden;
-    }
-
-    .crash-mini canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    /* Plinko visual */
-    .plinko-visual {
-      width: 100%;
-      height: 90px;
-      margin-bottom: 14px;
-      border-radius: 12px;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(0, 255, 0, 0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .plinko-ball {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #fff, #0f0);
-      box-shadow: 0 0 25px #0f0, 0 0 50px #0f08;
-      position: absolute;
-      animation: bouncePlinko 2.4s infinite ease-in-out;
-    }
-
-    @keyframes bouncePlinko {
-      0% { left: 10%; top: 10%; }
-      25% { left: 30%; top: 60%; }
-      50% { left: 50%; top: 20%; }
-      75% { left: 70%; top: 70%; }
-      100% { left: 90%; top: 30%; }
-    }
-
-    /* Upgrade visual */
-    .upgrade-visual {
-      width: 100%;
-      height: 90px;
-      margin-bottom: 14px;
-      border-radius: 12px;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 136, 0, 0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .upgrade-ring {
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      border: 4px solid rgba(255, 136, 0, 0.15);
-      border-top: 4px solid var(--neon-orange);
-      animation: spinRing 1.2s linear infinite;
-      box-shadow: 0 0 30px rgba(255, 136, 0, 0.2);
-    }
-
-    @keyframes spinRing {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .upgrade-arrow {
-      position: absolute;
-      font-size: 28px;
-      font-weight: 900;
-      color: var(--neon-orange);
-      text-shadow: 0 0 20px var(--neon-orange);
-      animation: pulseUpgrade 1.5s infinite;
-    }
-
-    @keyframes pulseUpgrade {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.6; transform: scale(1.2); }
-    }
-
-    /* ========== PROFILE ========== */
-    .profile-header {
-      display: flex;
-      align-items: center;
-      gap: 18px;
-      margin-bottom: 24px;
-      padding: 10px 0;
-    }
-
-    .avatar {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #0ff, #f0f);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 36px;
-      font-weight: 800;
-      color: #0a0a0f;
-      box-shadow: 0 0 35px rgba(0, 255, 255, 0.4), 0 0 60px rgba(255, 0, 255, 0.2);
-      border: 2px solid rgba(0, 255, 255, 0.5);
-      flex-shrink: 0;
-      user-select: none;
-    }
-
-    .profile-info {
-      flex: 1;
-    }
-
-    .profile-info .nick {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: 1px;
-      background: linear-gradient(90deg, #0ff, #f0f);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      text-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
-    }
-
-    .profile-info .vip-badge {
-      display: inline-block;
-      margin-top: 6px;
-      padding: 4px 16px;
-      border-radius: 30px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      background: rgba(255, 0, 255, 0.12);
-      color: var(--neon-magenta);
-      border: 1px solid rgba(255, 0, 255, 0.4);
-      box-shadow: 0 0 20px rgba(255, 0, 255, 0.15);
-    }
-
-    .profile-stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-
-    .stat-item {
-      text-align: center;
-      background: rgba(0, 0, 0, 0.3);
-      border-radius: 14px;
-      padding: 14px 8px;
-      border: 1px solid rgba(0, 255, 255, 0.1);
-    }
-
-    .stat-item .stat-value {
-      font-size: 18px;
-      font-weight: 800;
-      color: var(--neon-cyan);
-      text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
-    }
-
-    .stat-item .stat-label {
-      font-size: 10px;
-      color: #7777aa;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-top: 4px;
-    }
-
-    .settings-btn {
-      width: 100%;
-      padding: 18px;
-      font-size: 16px;
-      letter-spacing: 2px;
-    }
-
-    /* ========== MISC ========== */
-    .neon-divider {
-      height: 1px;
-      background: linear-gradient(90deg, transparent, #0ff, #f0f, transparent);
-      margin: 16px 0;
-      opacity: 0.3;
-    }
-
-    .text-glow-cyan {
-      color: var(--neon-cyan);
-      text-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
-    }
-
-    .text-glow-magenta {
-      color: var(--neon-magenta);
-      text-shadow: 0 0 12px rgba(255, 0, 255, 0.5);
-    }
-
-    /* ========== SAFE AREA ========== */
-    @supports (padding-bottom: env(safe-area-inset-bottom)) {
-      body {
-        padding-bottom: calc(80px + env(safe-area-inset-bottom));
-      }
-      .bottom-nav {
-        padding-bottom: calc(14px + env(safe-area-inset-bottom));
-      }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#080812">
+<title>TOKENS Wallet</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:#080812;
+  --panel:#141424;
+  --panel2:#1c1c30;
+  --cyan:#00e5ff;
+  --purple:#b04dff;
+  --text:#fff;
+  --muted:#9292aa;
+  --green:#00dfa0;
+  --red:#ff4b68;
+  --border:rgba(255,255,255,.08);
+}
+* {box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body {
+  background:var(--bg);
+  color:var(--text);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  min-height:100vh;
+}
+button,input,select {font:inherit}
+button {cursor:pointer}
+#app {max-width:600px;margin:auto;min-height:100vh;padding-bottom:90px}
+header {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:20px 20px 14px;
+}
+.brand {display:flex;align-items:center;gap:10px;font-size:19px;font-weight:900;letter-spacing:1px}
+.logo {
+  width:35px;height:35px;border-radius:12px;
+  display:grid;place-items:center;
+  color:#05050a;font-weight:900;
+  background:linear-gradient(135deg,var(--cyan),var(--purple));
+}
+.online {font-size:11px;color:var(--green)}
+main {padding:8px 18px 25px}
+.screen {display:none}
+.screen.active {display:block;animation:appear .25s ease}
+@keyframes appear {from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.card {
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:18px;
+  margin-bottom:14px;
+}
+.balance-card {
+  background:linear-gradient(135deg,#17253a,#261537);
+  border:1px solid rgba(0,229,255,.16);
+  border-radius:24px;
+  padding:23px 20px;
+  margin:8px 0 18px;
+  overflow:hidden;
+}
+.muted {color:var(--muted);font-size:13px}
+.balance {
+  font-size:34px;font-weight:850;letter-spacing:-1px;
+  margin:10px 0 18px;overflow-wrap:anywhere;
+}
+.balance small {font-size:14px;color:var(--cyan);letter-spacing:0}
+.split {display:flex;justify-content:space-between;gap:12px;font-size:13px}
+.split strong {display:block;margin-top:5px;font-size:15px}
+.actions {display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0 24px}
+.action {
+  border:1px solid var(--border);border-radius:17px;
+  background:var(--panel);color:white;padding:15px 5px;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.action:active,.primary:active {transform:scale(.97)}
+.action-icon {
+  width:39px;height:39px;border-radius:13px;
+  display:grid;place-items:center;
+  background:rgba(0,229,255,.1);color:var(--cyan);font-size:21px;
+}
+.action span:last-child {font-size:12px;font-weight:700}
+.heading {font-size:17px;font-weight:800;margin:22px 0 12px}
+.address {
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:15px;padding:14px;
+}
+.address-text {
+  flex:1;min-width:0;overflow-wrap:anywhere;
+  font-size:12px;color:var(--muted);user-select:text;
+}
+.copy {
+  border:0;background:transparent;color:var(--cyan);
+  font-size:20px;padding:5px;
+}
+.asset {
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:16px;padding:14px;margin-bottom:9px;
+}
+.asset-name {font-weight:800}
+.asset-sub {font-size:11px;color:var(--muted);margin-top:4px}
+.asset-value {font-weight:800;text-align:right}
+.asset-value small {display:block;color:var(--muted);font-size:10px;margin-top:4px}
+.notice {
+  color:var(--muted);font-size:12px;line-height:1.6;
+  background:var(--panel);border:1px solid var(--border);
+  padding:14px;border-radius:14px;margin-top:18px;
+}
+.nav {
+  position:fixed;z-index:10;bottom:0;left:0;right:0;
+  display:flex;justify-content:center;
+  background:rgba(12,12,22,.96);border-top:1px solid var(--border);
+  padding:9px 8px calc(9px + env(safe-area-inset-bottom));
+  backdrop-filter:blur(16px);
+}
+.nav-inner {width:100%;max-width:600px;display:grid;grid-template-columns:repeat(3,1fr)}
+.tab {
+  border:0;background:none;color:var(--muted);
+  display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px;
+}
+.tab.active {color:var(--cyan)}
+.tab b {font-size:19px}
+.tab span {font-size:10px;font-weight:700}
+.tx {
+  display:flex;align-items:center;gap:11px;
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:15px;padding:13px;margin-bottom:9px;
+}
+.tx-icon {
+  width:38px;height:38px;border-radius:12px;
+  display:grid;place-items:center;background:var(--panel2);
+}
+.tx-info {flex:1;min-width:0}
+.tx-title {font-size:13px;font-weight:700}
+.tx-date {font-size:10px;color:var(--muted);margin-top:5px}
+.tx-amount {font-size:12px;font-weight:800;white-space:nowrap}
+.income {color:var(--green)}
+.outcome {color:var(--red)}
+.empty {padding:30px 12px;text-align:center;color:var(--muted);font-size:13px}
+.field-label {display:block;font-size:12px;color:var(--muted);margin:15px 0 7px}
+.field {
+  width:100%;padding:14px;border-radius:12px;
+  border:1px solid var(--border);background:var(--bg);
+  color:white;outline:none;user-select:text;
+}
+.field:focus {border-color:var(--cyan)}
+.primary,.secondary {
+  border:0;border-radius:13px;padding:14px;
+  font-weight:800;width:100%;
+}
+.primary {color:#070711;background:linear-gradient(120deg,var(--cyan),var(--purple))}
+.secondary {color:white;background:var(--panel2);border:1px solid var(--border)}
+.exchange-note {line-height:1.6;color:var(--muted);font-size:13px}
+.modal {
+  display:none;position:fixed;inset:0;z-index:30;
+  background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;padding:14px;
+}
+.modal.open {display:flex}
+.modal-box {
+  width:100%;max-width:500px;background:#171727;
+  border:1px solid var(--border);border-radius:22px;padding:20px;
+}
+.modal-title {font-size:19px;font-weight:850;margin-bottom:12px}
+.modal-buttons {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.toast {
+  position:fixed;z-index:100;left:18px;right:18px;bottom:95px;
+  max-width:560px;margin:auto;padding:13px 16px;
+  border-radius:13px;background:#28283b;border:1px solid var(--border);
+  text-align:center;font-size:13px;opacity:0;pointer-events:none;
+  transform:translateY(10px);transition:.2s;
+}
+.toast.show {opacity:1;transform:none}
+.toast.error {border-color:var(--red)}
+.toast.success {border-color:var(--green)}
+#lock {
+  position:fixed;inset:0;z-index:50;background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:25px;
+}
+#lock.hidden {display:none}
+.lock-logo {
+  width:65px;height:65px;border-radius:22px;
+  display:grid;place-items:center;font-size:28px;font-weight:900;
+  color:#080812;background:linear-gradient(135deg,var(--cyan),var(--purple));
+  margin-bottom:24px;
+}
+.lock-title {font-size:20px;font-weight:800;text-align:center}
+.lock-sub {font-size:13px;color:var(--muted);margin:9px 0 22px;text-align:center}
+.dots {display:flex;gap:15px;margin-bottom:28px}
+.dot {width:13px;height:13px;border:2px solid var(--muted);border-radius:50%}
+.dot.filled {background:var(--cyan);border-color:var(--cyan)}
+.keypad {width:100%;max-width:300px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.key {
+  aspect-ratio:1;border-radius:50%;border:1px solid var(--border);
+  background:var(--panel);color:white;font-size:24px;
+}
+.key:active {background:var(--panel2)}
+.key.blank {visibility:hidden}
+.lock-error {min-height:18px;color:var(--red);font-size:12px;margin-top:14px;text-align:center}
+@media(min-width:500px) {main{padding-left:24px;padding-right:24px}}
+</style>
 </head>
 <body>
+<div id="app">
+  <header>
+    <div class="brand"><div class="logo">T</div>TOKENS</div>
+    <div class="online">● ONLINE</div>
+  </header>
 
-  <!-- ========== MAIN APP ========== -->
-  <main class="app-container">
-
-    <!-- ============================================================ -->
-    <!-- ========== PAGE: WALLET ==================================== -->
-    <!-- ============================================================ -->
-    <section id="page-wallet" class="page active" aria-label="Кошелек">
-      <h1 style="font-size: 22px; font-weight: 800; letter-spacing: 2px; margin-bottom: 18px; text-transform: uppercase; color: #bbbbff; text-shadow: 0 0 20px rgba(0,255,255,0.2);">
-        💰 Кошелек
-      </h1>
-
-      <!-- Балансы -->
-      <div class="balance-row">
-        <div class="balance-card">
-          <div class="label">TOKENS</div>
-          <div class="value" id="balance-tokens">12,450</div>
-          <div class="sub">≈ $124.50</div>
-        </div>
-        <div class="balance-card">
-          <div class="label">TNC</div>
-          <div class="value" id="balance-tnc">0.847</div>
-          <div class="sub">≈ $212.30</div>
+  <main>
+    <section class="screen active" id="screen-wallet">
+      <div class="balance-card">
+        <div class="muted">Баланс кошелька</div>
+        <div class="balance"><span id="balanceTotal">0.00</span> <small>TNC</small></div>
+        <div class="split">
+          <div><span class="muted">TOKENS</span><strong id="balanceTokens">0.00</strong></div>
+          <div><span class="muted">TNC</span><strong id="balanceTnc">0.00</strong></div>
         </div>
       </div>
 
-      <!-- График курса TNC -->
-      <div class="card" style="padding: 14px 14px 10px;">
-        <div class="card-header">
-          <span>📈 Курс TNC</span>
-          <span class="badge" style="color: var(--neon-lime); border-color: rgba(0,255,0,0.3); background: rgba(0,255,0,0.08);">+12.4%</span>
-        </div>
-        <div class="chart-container">
-          <canvas id="tncChart" width="800" height="340"></canvas>
-          <span class="chart-label">TNC / USDT</span>
-          <span class="chart-price" id="chartPrice">$250.72</span>
-        </div>
+      <div class="actions">
+        <button class="action" id="btnSend"><span class="action-icon">↑</span><span>Отправить</span></button>
+        <button class="action" id="btnReceive"><span class="action-icon">↓</span><span>Получить</span></button>
+        <button class="action" id="btnCopy"><span class="action-icon">⧉</span><span>Копировать</span></button>
       </div>
 
-      <!-- Кнопки действий -->
-      <div class="btn-row">
-        <button class="btn" id="btnBuyTnc" aria-label="Купить TNC">🟢 Купить TNC</button>
-        <button class="btn magenta" id="btnSellTnc" aria-label="Продать TNC">🔴 Продать TNC</button>
-        <button class="btn lime" id="btnFaucet" aria-label="Собрать кран">💧 Собрать кран</button>
+      <div class="heading">Мой адрес</div>
+      <div class="address">
+        <div class="address-text" id="walletAddress">Загрузка...</div>
+        <button class="copy" id="btnCopyAddress" aria-label="Копировать">⧉</button>
       </div>
 
-      <div class="neon-divider"></div>
+      <div class="heading">Мои активы</div>
+      <div class="asset">
+        <div><div class="asset-name">TOKENS</div><div class="asset-sub">Внутренний токен</div></div>
+        <div class="asset-value"><span id="assetTokens">0.00</span><small>TOKENS</small></div>
+      </div>
+      <div class="asset">
+        <div><div class="asset-name">TNC</div><div class="asset-sub">Внутренний токен</div></div>
+        <div class="asset-value"><span id="assetTnc">0.00</span><small>TNC</small></div>
+      </div>
+      <div class="notice">
+        TOKENS — виртуальный внутренний кошелёк. Балансы не являются реальной криптовалютой, не хранятся в блокчейне и не имеют автоматически установленной рыночной стоимости.
+      </div>
+    </section>
 
-      <!-- История транзакций (декор) -->
-      <div class="card" style="padding: 12px 14px;">
-        <div class="card-header" style="margin-bottom: 8px;">
-          <span>📜 Последние операции</span>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #aaaadd;">
-          <div style="display: flex; justify-content: space-between;">
-            <span>🟢 Покупка TNC</span>
-            <span style="color: var(--neon-lime);">+0.12 TNC</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span>💧 Кран</span>
-            <span style="color: var(--neon-cyan);">+50 TOKENS</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span>🔴 Продажа TNC</span>
-            <span style="color: var(--neon-magenta);">-0.05 TNC</span>
-          </div>
+    <section class="screen" id="screen-exchange">
+      <div class="heading">Обмен активов</div>
+      <div class="card">
+        <div class="exchange-note">
+          Обмен пока отключён: внутренний курс не настроен. Покупка и продажа не выполняются, баланс не изменяется.
         </div>
       </div>
     </section>
 
-    <!-- ============================================================ -->
-    <!-- ========== PAGE: GAMES ===================================== -->
-    <!-- ============================================================ -->
-    <section id="page-games" class="page" aria-label="Игры">
-      <h1 style="font-size: 22px; font-weight: 800; letter-spacing: 2px; margin-bottom: 18px; text-transform: uppercase; color: #bbbbff; text-shadow: 0 0 20px rgba(0,255,255,0.2);">
-        🎮 Игры
-      </h1>
-
-      <!-- ===== CRASH ===== -->
-      <div class="card game-card" id="gameCrash" role="button" tabindex="0" aria-label="Игра Crash">
-        <div class="card-header">
-          <span>🚀 Crash</span>
-          <span class="badge" style="color: var(--neon-magenta); border-color: rgba(255,0,255,0.3); background: rgba(255,0,255,0.08);">x1.87</span>
-        </div>
-        <div class="crash-mini">
-          <canvas id="crashMiniChart" width="600" height="160"></canvas>
-        </div>
-        <div class="game-title" style="font-size: 22px; color: var(--neon-magenta); text-shadow: 0 0 20px rgba(255,0,255,0.5);">Краш</div>
-        <div class="game-desc">График растёт — успей забрать выигрыш до краха!</div>
-        <button class="btn magenta" style="margin-top: 4px;">🎯 Играть</button>
-      </div>
-
-      <!-- ===== PLINKO ===== -->
-      <div class="card game-card" id="gamePlinko" role="button" tabindex="0" aria-label="Игра Plinko">
-        <div class="card-header">
-          <span>🟢 Plinko</span>
-          <span class="badge" style="color: var(--neon-lime); border-color: rgba(0,255,0,0.3); background: rgba(0,255,0,0.08);">x10.0</span>
-        </div>
-        <div class="plinko-visual">
-          <div class="plinko-ball"></div>
-          <span style="position: absolute; bottom: 6px; font-size: 10px; color: #6666aa; letter-spacing: 2px;">⚡ 10x ⚡</span>
-        </div>
-        <div class="game-title" style="color: var(--neon-lime); text-shadow: 0 0 20px rgba(0,255,0,0.5);">Плинко</div>
-        <div class="game-desc">Бросай шарик и лови множители до x10!</div>
-        <button class="btn lime" style="margin-top: 4px;">🎯 Играть</button>
-      </div>
-
-      <!-- ===== UPGRADE ===== -->
-      <div class="card game-card" id="gameUpgrade" role="button" tabindex="0" aria-label="Игра Upgrade">
-        <div class="card-header">
-          <span>🔄 Upgrade</span>
-          <span class="badge" style="color: var(--neon-orange); border-color: rgba(255,136,0,0.3); background: rgba(255,136,0,0.08);">x2.0</span>
-        </div>
-        <div class="upgrade-visual">
-          <div class="upgrade-ring"></div>
-          <span class="upgrade-arrow">↑</span>
-        </div>
-        <div class="game-title" style="color: var(--neon-orange); text-shadow: 0 0 20px rgba(255,136,0,0.5);">Апгрейд</div>
-        <div class="game-desc">Крути рулетку и повышай свой множитель!</div>
-        <button class="btn orange" style="margin-top: 4px;">🎯 Играть</button>
-      </div>
+    <section class="screen" id="screen-history">
+      <div class="heading">История операций</div>
+      <div id="txList"><div class="empty">Пока нет транзакций</div></div>
     </section>
-
-    <!-- ============================================================ -->
-    <!-- ========== PAGE: PROFILE =================================== -->
-    <!-- ============================================================ -->
-    <section id="page-profile" class="page" aria-label="Профиль">
-      <h1 style="font-size: 22px; font-weight: 800; letter-spacing: 2px; margin-bottom: 18px; text-transform: uppercase; color: #bbbbff; text-shadow: 0 0 20px rgba(0,255,255,0.2);">
-        👤 Профиль
-      </h1>
-
-      <!-- Аватар + Ник -->
-      <div class="profile-header">
-        <div class="avatar" aria-label="Аватар">🐉</div>
-        <div class="profile-info">
-          <div class="nick">NeonKing</div>
-          <div class="vip-badge">⭐ VIP Gold</div>
-        </div>
-      </div>
-
-      <!-- Статистика -->
-      <div class="profile-stats">
-        <div class="stat-item">
-          <div class="stat-value">142</div>
-          <div class="stat-label">Игры</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">68%</div>
-          <div class="stat-label">Винрейт</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">4.2K</div>
-          <div class="stat-label">Заработано</div>
-        </div>
-      </div>
-
-      <div class="neon-divider"></div>
-
-      <!-- Дополнительная инфа -->
-      <div class="card" style="padding: 16px 18px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; color: #aaaadd;">
-          <span>📅 Дата регистрации</span>
-          <span style="color: var(--neon-cyan);">12.03.2025</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; color: #aaaadd;">
-          <span>🏆 Достижения</span>
-          <span style="color: var(--neon-magenta);">7 / 24</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #aaaadd;">
-          <span>💎 Всего TNC</span>
-          <span style="color: var(--neon-lime);">0.847</span>
-        </div>
-      </div>
-
-      <!-- Кнопка настроек -->
-      <button class="btn settings-btn" id="btnSettings" style="margin-top: 6px;">
-        ⚙️ Настройки
-      </button>
-
-      <div style="height: 20px;"></div>
-    </section>
-
   </main>
 
-  <!-- ============================================================ -->
-  <!-- ========== BOTTOM NAVIGATION =============================== -->
-  <!-- ============================================================ -->
-  <nav class="bottom-nav" aria-label="Навигация">
-    <button class="nav-btn active" data-page="wallet" aria-label="Кошелек">
-      <span class="icon">💎</span>
-      <span>Кошелек</span>
-    </button>
-    <button class="nav-btn" data-page="games" aria-label="Игры">
-      <span class="icon">🎮</span>
-      <span>Игры</span>
-    </button>
-    <button class="nav-btn" data-page="profile" aria-label="Профиль">
-      <span class="icon">👤</span>
-      <span>Профиль</span>
-    </button>
+  <nav class="nav">
+    <div class="nav-inner">
+      <button class="tab active" data-tab="wallet"><b>▣</b><span>Кошелёк</span></button>
+      <button class="tab" data-tab="exchange"><b>⇄</b><span>Обмен</span></button>
+      <button class="tab" data-tab="history"><b>◷</b><span>История</span></button>
+    </div>
   </nav>
+</div>
 
-  <!-- ============================================================ -->
-  <!-- ========== SCRIPTS ========================================= -->
-  <!-- ============================================================ -->
-  <script>
-    // =============================================================
-    // TELEGRAM WEBAPP SDK
-    // =============================================================
-    (function initTelegram() {
-      if (window.Telegram && window.Telegram.WebApp) {
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-        tg.setHeaderColor('#0a0a0f');
-        tg.setBackgroundColor('#0a0a0f');
-        tg.enableClosingConfirmation();
-        console.log('✅ Telegram WebApp инициализирован');
+<div id="lock">
+  <div class="lock-logo">T</div>
+  <div class="lock-title" id="lockTitle">Подключение...</div>
+  <div class="lock-sub" id="lockSubtitle">Проверяем кошелёк</div>
+  <div class="dots" id="pinDots">
+    <div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div>
+  </div>
+  <div class="keypad" id="keypad">
+    <button class="key" data-key="1">1</button>
+    <button class="key" data-key="2">2</button>
+    <button class="key" data-key="3">3</button>
+    <button class="key" data-key="4">4</button>
+    <button class="key" data-key="5">5</button>
+    <button class="key" data-key="6">6</button>
+    <button class="key" data-key="7">7</button>
+    <button class="key" data-key="8">8</button>
+    <button class="key" data-key="9">9</button>
+    <button class="key blank" tabindex="-1"></button>
+    <button class="key" data-key="0">0</button>
+    <button class="key" data-key="del">⌫</button>
+  </div>
+  <div class="lock-error" id="lockError"></div>
+</div>
+
+<div class="modal" id="sendModal">
+  <div class="modal-box">
+    <div class="modal-title">Перевод TOKENS</div>
+    <label class="field-label" for="sendAddress">Адрес / @username / Telegram ID</label>
+    <input class="field" id="sendAddress" placeholder="Введите получателя" autocomplete="off">
+    <label class="field-label" for="sendCurrency">Валюта</label>
+    <select class="field" id="sendCurrency">
+      <option value="TNC">TNC</option>
+      <option value="TOKENS">TOKENS</option>
+    </select>
+    <label class="field-label" for="sendAmount">Сумма</label>
+    <input class="field" id="sendAmount" type="number" min="0" step="any" placeholder="0.00" inputmode="decimal">
+    <div class="modal-buttons">
+      <button class="secondary" id="btnCancelSend">Отмена</button>
+      <button class="primary" id="btnConfirmSend">Отправить</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const tg = window.Telegram?.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    try {
+      tg.setHeaderColor('#080812');
+      tg.setBackgroundColor('#080812');
+    } catch (_) {}
+  }
+
+  const API_BASE = window.location.origin + '/api';
+  const SESSION_KEY = 'tokens_wallet_session_v1';
+
+  const $ = id => document.getElementById(id);
+
+  const state = {
+    pin: '',
+    pinSet: false,
+    busy: false,
+    session: sessionStorage.getItem(SESSION_KEY) || ''
+  };
+
+  let toastTimer;
+
+  function toast(message, type = '') {
+    const el = $('toast');
+    el.textContent = message;
+    el.className = 'toast ' + type + ' show';
+
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.classList.remove('show');
+    }, 3000);
+  }
+
+  function getInitData() {
+    return tg?.initData || '';
+  }
+
+  async function api(path, payload = {}, authenticated = false) {
+    const initData = getInitData();
+
+    if (!initData) {
+      throw new Error(
+        'Откройте кошелёк через Telegram-бота.'
+      );
+    }
+
+    const body = {
+      ...payload,
+      initData
+    };
+
+    if (authenticated) {
+      body.session = state.session;
+    }
+
+    const response = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    const raw = await response.text();
+    let data = {};
+
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      data = { message: raw };
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+        data.error ||
+        data.reason ||
+        data.detail ||
+        data.text ||
+        'Ошибка сервера: ' + response.status
+      );
+    }
+
+    return data;
+  }
+
+  function updateDots() {
+    document.querySelectorAll('#pinDots .dot').forEach((dot, index) => {
+      dot.classList.toggle('filled', index < state.pin.length);
+    });
+  }
+
+  function resetPin() {
+    state.pin = '';
+    updateDots();
+  }
+
+  function setLockText(title, subtitle) {
+    $('lockTitle').textContent = title;
+    $('lockSubtitle').textContent = subtitle;
+  }
+
+  function unlock() {
+    $('lock').classList.add('hidden');
+    loadWallet();
+  }
+
+  async function submitPin() {
+    if (state.busy || state.pin.length !== 4) return;
+
+    state.busy = true;
+    $('lockError').textContent = '';
+
+    const pin = state.pin;
+
+    try {
+      const result = state.pinSet
+        ? await api('/pin/verify', { pin })
+        : await api('/pin/setup', { pin });
+
+      if (!result.session) {
+        throw new Error('Сервер не вернул сессию. Попробуйте ещё раз.');
+      }
+
+      state.session = result.session;
+      sessionStorage.setItem(SESSION_KEY, result.session);
+
+      toast(
+        state.pinSet ? 'Кошелёк разблокирован' : 'PIN-код создан',
+        'success'
+      );
+
+      unlock();
+
+    } catch (error) {
+      $('lockError').textContent = error.message;
+      resetPin();
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  $('keypad').addEventListener('click', event => {
+    const button = event.target.closest('[data-key]');
+    if (!button || state.busy) return;
+
+    const key = button.dataset.key;
+
+    if (key === 'del') {
+      state.pin = state.pin.slice(0, -1);
+      updateDots();
+      return;
+    }
+
+    if (!/^\d$/.test(key) || state.pin.length >= 4) return;
+
+    state.pin += key;
+    updateDots();
+
+    if (state.pin.length === 4) {
+      setTimeout(submitPin, 150);
+    }
+  });
+
+  async function begin() {
+    if (!getInitData()) {
+      setLockText(
+        'Откройте TOKENS через бота',
+        'Приложение должно быть запущено внутри Telegram'
+      );
+      $('lockError').textContent =
+        'Нельзя авторизоваться по обычной ссылке.';
+      return;
+    }
+
+    try {
+      const result = await api('/pin/status');
+
+      state.pinSet = !!result.pin_set;
+
+      if (state.pinSet) {
+        setLockText(
+          'Введите PIN-код',
+          'Введите свой четырёхзначный код'
+        );
       } else {
-        console.warn('⚠️ Telegram WebApp SDK не найден — работаем в браузере');
-      }
-    })();
-
-    // =============================================================
-    // NAVIGATION (TABS)
-    // =============================================================
-    (function initNavigation() {
-      const navButtons = document.querySelectorAll('.nav-btn');
-      const pages = document.querySelectorAll('.page');
-
-      function switchPage(pageId) {
-        // pages
-        pages.forEach(p => p.classList.remove('active'));
-        const target = document.getElementById('page-' + pageId);
-        if (target) target.classList.add('active');
-
-        // buttons
-        navButtons.forEach(b => b.classList.remove('active'));
-        const activeBtn = document.querySelector(`.nav-btn[data-page="${pageId}"]`);
-        if (activeBtn) activeBtn.classList.add('active');
-
-        // haptic feedback
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-          window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
-        }
+        setLockText(
+          'Создайте PIN-код',
+          'Придумайте четыре цифры для защиты кошелька'
+        );
       }
 
-      navButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          const page = btn.dataset.page;
-          if (page) switchPage(page);
-        });
+    } catch (error) {
+      setLockText(
+        'Не удалось подключиться',
+        'Проверьте соединение и попробуйте снова'
+      );
+      $('lockError').textContent = error.message;
+    }
+  }
+
+  function formatNumber(value) {
+    const number = Number(value || 0);
+
+    if (!Number.isFinite(number)) return '0.00';
+
+    return number.toLocaleString('ru-RU', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 8
+    });
+  }
+
+  function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+  }
+
+  function renderUser(data) {
+    const user = data.user || data;
+
+    const tokens = user.balance ?? data.balance ?? 0;
+    const tnc = user.balance_tnc ?? data.balance_tnc ?? 0;
+    const address = user.wallet_address || data.wallet_address || '—';
+
+    $('balanceTokens').textContent = formatNumber(tokens);
+    $('balanceTnc').textContent = formatNumber(tnc);
+    $('balanceTotal').textContent = formatNumber(tnc);
+
+    $('assetTokens').textContent = formatNumber(tokens);
+    $('assetTnc').textContent = formatNumber(tnc);
+
+    $('walletAddress').textContent = address;
+
+    renderHistory(data.transactions || []);
+  }
+
+  async function loadWallet() {
+    try {
+      const data = await api('/user', {}, true);
+      renderUser(data);
+
+    } catch (error) {
+      toast(error.message, 'error');
+
+      if (
+        /session|сесс|авториз|pin|доступ/i.test(error.message)
+      ) {
+        state.session = '';
+        sessionStorage.removeItem(SESSION_KEY);
+
+        $('lock').classList.remove('hidden');
+
+        setLockText(
+          'Введите PIN-код',
+          'Сессия завершилась. Разблокируйте кошелёк снова.'
+        );
+
+        resetPin();
+      }
+    }
+  }
+
+  function renderHistory(transactions) {
+    const list = $('txList');
+
+    if (!transactions.length) {
+      list.innerHTML = '<div class="empty">Пока нет транзакций</div>';
+      return;
+    }
+
+    list.innerHTML = transactions.map(tx => {
+      const incoming = tx.type === 'in';
+      const sign = incoming ? '+' : '−';
+      const amountClass = incoming ? 'income' : 'outcome';
+      const icon = incoming ? '↓' : '↑';
+
+      return `
+        <div class="tx">
+          <div class="tx-icon">${icon}</div>
+          <div class="tx-info">
+            <div class="tx-title">
+              ${escapeHTML(tx.description || (incoming ? 'Получено' : 'Отправлено'))}
+            </div>
+            <div class="tx-date">${escapeHTML(tx.date || '')}</div>
+          </div>
+          <div class="tx-amount ${amountClass}">
+            ${sign}${formatNumber(tx.amount)}
+            ${escapeHTML(tx.currency || 'TNC')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function copyAddress() {
+    const address = $('walletAddress').textContent;
+
+    if (!address || address === '—' || address === 'Загрузка...') {
+      toast('Адрес ещё не загружен', 'error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(address);
+      toast('Адрес скопирован', 'success');
+    } catch (_) {
+      toast(address);
+    }
+  }
+
+  $('btnCopy').addEventListener('click', copyAddress);
+  $('btnCopyAddress').addEventListener('click', copyAddress);
+  $('btnReceive').addEventListener('click', copyAddress);
+
+  $('btnSend').addEventListener('click', () => {
+    $('sendAddress').value = '';
+    $('sendAmount').value = '';
+    $('sendCurrency').value = 'TNC';
+    $('sendModal').classList.add('open');
+  });
+
+  $('btnCancelSend').addEventListener('click', () => {
+    $('sendModal').classList.remove('open');
+  });
+
+  $('sendModal').addEventListener('click', event => {
+    if (event.target === $('sendModal')) {
+      $('sendModal').classList.remove('open');
+    }
+  });
+
+  $('btnConfirmSend').addEventListener('click', async () => {
+    const address = $('sendAddress').value.trim();
+    const amountText = $('sendAmount').value.trim();
+    const amount = Number(amountText);
+    const currency = $('sendCurrency').value;
+
+    if (!address) {
+      toast('Введите адрес получателя', 'error');
+      return;
+    }
+
+    if (
+      !amountText ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      toast('Введите корректную сумму', 'error');
+      return;
+    }
+
+    const button = $('btnConfirmSend');
+    button.disabled = true;
+    button.textContent = 'Отправка...';
+
+    try {
+      await api('/send', {
+        to_address: address,
+        amount: amountText,
+        currency
+      }, true);
+
+      $('sendModal').classList.remove('open');
+
+      toast('Перевод выполнен', 'success');
+
+      await loadWallet();
+
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Отправить';
+    }
+  });
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(item => {
+        item.classList.toggle('active', item === tab);
       });
-    })();
 
-    // =============================================================
-    // NEON CHART (TNC PRICE) — Canvas
-    // =============================================================
-    (function drawTncChart() {
-      const canvas = document.getElementById('tncChart');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-
-      // Generate data
-      const points = [];
-      const numPoints = 40;
-      let base = 220;
-      for (let i = 0; i < numPoints; i++) {
-        base += (Math.random() - 0.45) * 18;
-        base = Math.max(180, Math.min(290, base));
-        points.push(base);
-      }
-      // make final point the current price
-      points[points.length - 1] = 250.72;
-
-      const min = Math.min(...points) - 8;
-      const max = Math.max(...points) + 8;
-      const range = max - min || 1;
-
-      // Grid
-      ctx.clearRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(0, 255, 255, 0.06)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 6; i++) {
-        const y = (h / 6) * i;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
-      for (let i = 0; i < 8; i++) {
-        const x = (w / 8) * i;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-      }
-
-      // Map points
-      function mapX(i) { return (i / (numPoints - 1)) * w; }
-      function mapY(v) { return h - ((v - min) / range) * h; }
-
-      // Gradient fill under line
-      const grad = ctx.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, 'rgba(0, 255, 255, 0.25)');
-      grad.addColorStop(0.6, 'rgba(0, 255, 255, 0.05)');
-      grad.addColorStop(1, 'rgba(0, 255, 255, 0.0)');
-
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      for (let i = 0; i < numPoints; i++) {
-        ctx.lineTo(mapX(i), mapY(points[i]));
-      }
-      ctx.lineTo(w, h);
-      ctx.closePath();
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Neon line
-      ctx.beginPath();
-      ctx.moveTo(mapX(0), mapY(points[0]));
-      for (let i = 1; i < numPoints; i++) {
-        const x1 = mapX(i - 1);
-        const y1 = mapY(points[i - 1]);
-        const x2 = mapX(i);
-        const y2 = mapY(points[i]);
-        const cpX = (x1 + x2) / 2;
-        ctx.bezierCurveTo(cpX, y1, cpX, y2, x2, y2);
-      }
-      ctx.strokeStyle = '#0ff';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#0ff';
-      ctx.shadowBlur = 20;
-      ctx.stroke();
-
-      // Glow second pass
-      ctx.shadowBlur = 40;
-      ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
-      ctx.lineWidth = 6;
-      ctx.stroke();
-
-      // Reset shadow
-      ctx.shadowBlur = 0;
-
-      // Last point dot
-      const lastX = mapX(numPoints - 1);
-      const lastY = mapY(points[numPoints - 1]);
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 6, 0, Math.PI * 2);
-      ctx.fillStyle = '#0ff';
-      ctx.shadowColor = '#0ff';
-      ctx.shadowBlur = 25;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Price label
-      ctx.font = 'bold 24px monospace';
-      ctx.fillStyle = '#0ff';
-      ctx.shadowColor = '#0ff';
-      ctx.shadowBlur = 12;
-      ctx.fillText('$250.72', w - 170, 50);
-      ctx.shadowBlur = 0;
-    })();
-
-    // =============================================================
-    // CRASH MINI CHART
-    // =============================================================
-    (function drawCrashMini() {
-      const canvas = document.getElementById('crashMiniChart');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-
-      const points = [0];
-      for (let i = 1; i < 30; i++) {
-        points.push(points[i - 1] + Math.random() * 6 + 1);
-      }
-
-      const maxVal = Math.max(...points) + 5;
-
-      ctx.clearRect(0, 0, w, h);
-
-      // Fill
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      for (let i = 0; i < points.length; i++) {
-        const x = (i / (points.length - 1)) * w;
-        const y = h - (points[i] / maxVal) * h * 0.85;
-        ctx.lineTo(x, y);
-      }
-      ctx.lineTo(w, h);
-      ctx.closePath();
-
-      const grad = ctx.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, 'rgba(255, 0, 255, 0.25)');
-      grad.addColorStop(1, 'rgba(255, 0, 255, 0.0)');
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Line
-      ctx.beginPath();
-      for (let i = 0; i < points.length; i++) {
-        const x = (i / (points.length - 1)) * w;
-        const y = h - (points[i] / maxVal) * h * 0.85;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = '#f0f';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#f0f';
-      ctx.shadowBlur = 18;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    })();
-
-    // =============================================================
-    // BUTTON INTERACTIONS (Wallet)
-    // =============================================================
-    (function initWalletButtons() {
-      const buyBtn = document.getElementById('btnBuyTnc');
-      const sellBtn = document.getElementById('btnSellTnc');
-      const faucetBtn = document.getElementById('btnFaucet');
-
-      function haptic() {
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-          window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-        }
-      }
-
-      if (buyBtn) {
-        buyBtn.addEventListener('click', () => {
-          haptic();
-          const tncEl = document.getElementById('balance-tnc');
-          if (tncEl) {
-            let val = parseFloat(tncEl.textContent.replace(/[^0-9.]/g, '')) || 0.847;
-            val = (val + 0.1).toFixed(3);
-            tncEl.textContent = val;
-          }
-          console.log('Покупка TNC');
-        });
-      }
-
-      if (sellBtn) {
-        sellBtn.addEventListener('click', () => {
-          haptic();
-          const tncEl = document.getElementById('balance-tnc');
-          if (tncEl) {
-            let val = parseFloat(tncEl.textContent.replace(/[^0-9.]/g, '')) || 0.847;
-            val = Math.max(0, val - 0.05).toFixed(3);
-            tncEl.textContent = val;
-          }
-          console.log('Продажа TNC');
-        });
-      }
-
-      if (faucetBtn) {
-        faucetBtn.addEventListener('click', () => {
-          haptic();
-          const tokEl = document.getElementById('balance-tokens');
-          if (tokEl) {
-            let val = parseInt(tokEl.textContent.replace(/[^0-9]/g, '')) || 12450;
-            val += 100;
-            tokEl.textContent = val.toLocaleString('ru-RU');
-          }
-          console.log('Собран кран');
-        });
-      }
-    })();
-
-    // =============================================================
-    // GAME CARD CLICKS
-    // =============================================================
-    (function initGameCards() {
-      const cards = [
-        { id: 'gameCrash', name: 'Crash' },
-        { id: 'gamePlinko', name: 'Plinko' },
-        { id: 'gameUpgrade', name: 'Upgrade' }
-      ];
-
-      cards.forEach(card => {
-        const el = document.getElementById(card.id);
-        if (!el) return;
-        el.addEventListener('click', () => {
-          if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-            window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
-          }
-          console.log(`🎮 Открыта игра: ${card.name}`);
-          // визуальный фидбек
-          el.style.transform = 'scale(0.98)';
-          setTimeout(() => { el.style.transform = 'scale(1)'; }, 150);
-        });
+      document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
       });
-    })();
 
-    // =============================================================
-    // SETTINGS BUTTON
-    // =============================================================
-    (function initSettings() {
-      const btn = document.getElementById('btnSettings');
-      if (!btn) return;
-      btn.addEventListener('click', () => {
-        if (window.Telegram && window.Telegram.WebApp) {
-          window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-          window.Telegram.WebApp.showAlert('⚙️ Настройки профиля\n\nЗдесь можно будет изменить аватар, ник и уведомления.');
-        } else {
-          alert('⚙️ Настройки профиля\n\nЗдесь можно будет изменить аватар, ник и уведомления.');
-        }
-      });
-    })();
+      const screen = $('screen-' + tab.dataset.tab);
 
-    // =============================================================
-    // ANIMATED COUNTERS (декор)
-    // =============================================================
-    (function animateBalances() {
-      const tncEl = document.getElementById('balance-tnc');
-      if (!tncEl) return;
-      // Плавное появление
-      const target = 0.847;
-      let current = 0;
-      const step = target / 30;
-      const interval = setInterval(() => {
-        current += step;
-        if (current >= target) {
-          current = target;
-          clearInterval(interval);
-        }
-        tncEl.textContent = current.toFixed(3);
-      }, 25);
-    })();
+      if (screen) screen.classList.add('active');
 
-    // =============================================================
-    // RANDOM PRICE UPDATE
-    // =============================================================
-    (function randomPrice() {
-      const priceEl = document.getElementById('chartPrice');
-      if (!priceEl) return;
-      setInterval(() => {
-        const base = 250.72;
-        const change = (Math.random() - 0.48) * 4;
-        const newPrice = (base + change).toFixed(2);
-        priceEl.textContent = '$' + newPrice;
-      }, 4000);
-    })();
+      if (tab.dataset.tab === 'history') {
+        loadWallet();
+      }
+    });
+  });
 
-    // =============================================================
-    // PLINKO BALL RANDOM POSITION (доп. оживление)
-    // =============================================================
-    (function randomizePlinko() {
-      const ball = document.querySelector('.plinko-ball');
-      if (!ball) return;
-      setInterval(() => {
-        const left = 10 + Math.random() * 70;
-        const top = 10 + Math.random() * 60;
-        ball.style.left = left + '%';
-        ball.style.top = top + '%';
-      }, 2400);
-    })();
-
-    // =============================================================
-    // ALL DONE
-    // =============================================================
-    console.log('🌌 Neon Crypto Casino — TNC загружен');
-  </script>
+  begin();
+})();
+</script>
 </body>
 </html>
